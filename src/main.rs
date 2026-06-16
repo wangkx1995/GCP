@@ -15,6 +15,8 @@ use tempfile::TempDir;
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
+mod crc64;
+
 type Row = IndexMap<String, String>;
 type TableRows = HashMap<String, Vec<Row>>;
 
@@ -477,7 +479,7 @@ fn eval_expression(expr: &str, rows: &[&Row], context: &Row) -> String {
         let inner = &expr[6..expr.len() - 1];
 
         let value = eval_expression(inner, rows, context);
-        return crc64_ecma(&value).to_string();
+        return crate::crc64::crc64_ecma(&value).to_string();
     }
     if lower.starts_with("case when ") {
         return eval_case_when(expr, rows, context);
@@ -603,53 +605,6 @@ fn parse_quoted_env(expr: &str) -> Option<String> {
         return Some(std::env::var(key).unwrap_or_default());
     }
     None
-}
-
-fn java_crc64(value: &str) -> i64 {
-    const H1_INIT: u32 = 0xFAC432B1;
-    const H2_INIT: u32 = 0x0CD5E44A;
-    const P1: u32 = 0x0060_0340;
-    const P2: u32 = 0x00F0_D50B;
-    use std::sync::OnceLock;
-    static TABLE: OnceLock<[(u32, u32); 256]> = OnceLock::new();
-    let table = TABLE.get_or_init(|| {
-        let mut t = [(0u32, 0u32); 256];
-        for i in 0..256u32 {
-            let mut h1 = 0u32;
-            let mut h2 = 0u32;
-            let mut v = i;
-            for _ in 0..8 {
-                h1 = h1 << 1;
-                if (h2 & 0x8000_0000) != 0 {
-                    h1 |= 1;
-                }
-                h2 = h2 << 1;
-                if (v & 0x80) != 0 {
-                    h1 ^= P1;
-                    h2 ^= P2;
-                }
-                v <<= 1;
-            }
-            t[i as usize] = (h1, h2);
-        }
-        t
-    });
-
-    let mut h1 = H1_INIT;
-    let mut h2 = H2_INIT;
-    let mask: u32 = 0xFFFF_FFFF;
-    for code_unit in value.encode_utf16() {
-        let old_h1 = h1;
-        let old_h2 = h2;
-        let idx = ((old_h1 >> 24) & 0xFF) as usize;
-        h1 = (old_h1 << 8 & mask) ^ (old_h2 >> 24) ^ table[idx].0;
-        h2 = (old_h2 << 8) ^ (code_unit as u32) ^ table[idx].1;
-    }
-    (h2 as i32 as i64) * 4_294_967_296i64 + (h1 as i32 as i64)
-}
-
-fn crc64_ecma(value: &str) -> i64 {
-    java_crc64(value)
 }
 
 fn resolve_table(mapping: &MappingConfig, counter: &str, path: &Path) -> Result<String> {
@@ -891,18 +846,4 @@ fn sanitize_file_name(value: &str) -> String {
             }
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn crc64_matches_java_implementation() {
-        assert_eq!(crc64_ecma("test"), 318199613220311169);
-        assert_eq!(
-            crc64_ecma("8105:ZTE-CMAH-HF,SubNetwork=500,ManagedElement=1561205,EnbFunction=379834,EutranCellFdd=6"),
-            -9125147111095642511
-        );
-    }
 }
