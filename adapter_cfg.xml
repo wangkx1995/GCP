@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='GBK'?>
+<BASE>
+	<adapter>	
+		<par key_en_name="vendor_id" key_value="604"/>
+		<par key_en_name="version" key_value="WY_5G_V1.4.0_GNB_DX_PM"/>
+		<par key_en_name="package" key_value="RNOP_V1.4.0_NR_GNB_DX_PM.zip"/>
+		<par key_en_name="professional_type" key_value="WL"/>
+		<par key_en_name="category_type" key_value="PM"/>
+		<par key_en_name="interface_name" key_value="FILE"/>
+		<par key_en_name="adapter_class" key_value="com.boco.gcp.collect.adapter.fileadapter.AbstractFileAdapter"/>
+		<par key_en_name="checker_class" key_value="com.boco.gcp.collect.core.detect.impl.DefaultFileDetector"/>
+		<par key_en_name="metadata_file" key_value="RNOP_V1.4.0_NR_GNB_DX_PM.xls"/>
+	</adapter>
+	<adapter_attribute>
+		<par key_en_name="parser_class" key_cn_name='解析类' key_value="com.boco.gcp.collect.adapter.fileadapter.gnb.wy.rnop.pm.WYGNBPMParser" description="解析类"/>
+	</adapter_attribute>
+	<datasource_attribute>
+		<par key_en_name="omc_id" key_cn_name="操作维护中心ID"  is_read="2" key_value="" description="操作维护中心号"/>
+		<par key_en_name="C_VENDOR_ID" key_cn_name="厂家ID"  is_read="2" key_value="" description="厂家ID"/>
+		<par key_en_name="VENDORNAME" key_cn_name="厂家名字"  is_read="2" key_value="" description="厂家名字"/>
+		<par key_en_name="encoding" key_cn_name="编码格式"  is_read="0" key_value="UTF-8" description="文件采用的编码格式"/>
+		<par key_en_name="ftp_type" key_cn_name="FTP方式" is_read="2" key_value="sftp" description="ftp方式,ftp或者sftp"/>
+	</datasource_attribute>	
+</BASE>
