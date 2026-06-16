@@ -2,3 +2,5 @@
 /output/
 .DS_Store
 .idea/
+fixtures/*.gz
+fixtures/*.zip

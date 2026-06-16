@@ -34,6 +34,8 @@ struct Cli {
     recursive: bool,
     #[arg(long = "rule-file")]
     rule_files: Vec<PathBuf>,
+    #[arg(long = "rules-dir")]
+    rules_dir: Option<PathBuf>,
 }
 
 struct MappingConfig {
@@ -119,7 +121,23 @@ fn main() -> Result<()> {
             .with_context(|| format!("failed to parse {}", input.display()))?;
     }
 
-    for rule_file in &cli.rule_files {
+    let mut rule_files: Vec<PathBuf> = cli.rule_files;
+    if let Some(rules_dir) = &cli.rules_dir {
+        let mut entries: Vec<_> = fs::read_dir(rules_dir)
+            .with_context(|| format!("failed to read rules dir {}", rules_dir.display()))?
+            .filter_map(|entry| entry.ok())
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|ext| ext == "json").unwrap_or(false))
+            .collect();
+        entries.sort();
+        if entries.is_empty() {
+            eprintln!("[rule] no .json files found in {}", rules_dir.display());
+        }
+        rule_files.extend(entries);
+    }
+
+    for rule_file in &rule_files {
         eprintln!("[rule] loading {}", rule_file.display());
         let rule = load_rule(rule_file)?;
         execute_tpd_rule(&rule, &mut tables)
