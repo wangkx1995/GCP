@@ -375,10 +375,18 @@ fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
     let Some(group) = rule.groups.iter().find(|group| group.enabled) else {
         bail!("rule {} does not contain an enabled group", rule.table_name);
     };
-    let source_rows = tables
-        .get(&group.source_table.to_ascii_uppercase())
-        .or_else(|| tables.get(&group.source_table))
-        .with_context(|| format!("source table {} is not available", group.source_table))?;
+    let source_key = group.source_table.to_ascii_uppercase();
+    let source_rows = match tables.get(&source_key).or_else(|| tables.get(&group.source_table)) {
+        Some(rows) => rows,
+        None => {
+            let available: Vec<&String> = tables.keys().collect();
+            eprintln!(
+                "[aggregate] SKIP {} <- {}: source table not found. Available tables: {:?}",
+                rule.table_name, group.source_table, available,
+            );
+            return Ok(());
+        }
+    };
 
     eprintln!(
         "[aggregate] {} <- {} ({} source rows, group by {:?})",
