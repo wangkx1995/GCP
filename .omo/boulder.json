@@ -6,9 +6,9 @@
       "work_id": "refactor-modules-1ce465d4",
       "active_plan": "/Users/wangkaixi/Desktop/RNOP_V1.4.0_NR_GNB_DX_PM/.omo/plans/refactor-modules.md",
       "plan_name": "refactor-modules",
-      "status": "active",
+      "status": "completed",
       "started_at": "2026-06-16T05:29:34.222Z",
-      "updated_at": "2026-06-16T05:29:34.222Z",
+      "updated_at": "2026-06-16T07:35:14.686Z",
       "session_ids": [
         "opencode:ses_1365e8fb0ffeVvM0ilFtj51cos"
       ],
@@ -16,13 +16,15 @@
         "opencode:ses_1365e8fb0ffeVvM0ilFtj51cos": "direct"
       },
       "agent": "atlas",
-      "task_sessions": {}
+      "task_sessions": {},
+      "ended_at": "2026-06-16T07:35:14.686Z",
+      "elapsed_ms": 7540464
     }
   },
   "active_plan": "/Users/wangkaixi/Desktop/RNOP_V1.4.0_NR_GNB_DX_PM/.omo/plans/refactor-modules.md",
   "started_at": "2026-06-16T05:29:34.222Z",
-  "status": "active",
-  "updated_at": "2026-06-16T05:29:34.222Z",
+  "status": "completed",
+  "updated_at": "2026-06-16T07:35:14.686Z",
   "session_ids": [
     "opencode:ses_1365e8fb0ffeVvM0ilFtj51cos"
   ],
@@ -31,5 +33,7 @@
   },
   "plan_name": "refactor-modules",
   "task_sessions": {},
-  "agent": "atlas"
+  "agent": "atlas",
+  "ended_at": "2026-06-16T07:35:14.686Z",
+  "elapsed_ms": 7540464
 }

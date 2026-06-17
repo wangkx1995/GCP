@@ -30,6 +30,8 @@ struct Cli {
     config_dir: PathBuf,
     #[arg(long)]
     output_dir: PathBuf,
+    #[arg(long, default_value = "|")]
+    output_delimiter: String,
     #[arg(long, default_value = "UTF-8")]
     encoding: String,
     #[arg(long)]
@@ -44,6 +46,7 @@ fn main() -> Result<()> {
     let start = Instant::now();
     let cli = Cli::parse();
     let mapping_path = cli.config_dir.join("mapping_dx.ini");
+    let output_delimiter = parse_delimiter(&cli.output_delimiter)?;
     let mapping = config::parse_mapping_config(&mapping_path)
         .with_context(|| format!("failed to parse {}", mapping_path.display()))?;
     let ctx = ContextData {
@@ -83,9 +86,17 @@ fn main() -> Result<()> {
             .with_context(|| format!("failed to execute rule {}", rule_file.display()))?;
     }
 
-    writer::write_tables(&ctx.mapping, &tables, &cli.output_dir)?;
+    writer::write_tables(&ctx.mapping, &tables, &cli.output_dir, output_delimiter)?;
     eprintln!("[done] {:.2}s total", start.elapsed().as_secs_f64());
     Ok(())
+}
+
+fn parse_delimiter(value: &str) -> Result<u8> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 1 {
+        bail!("output delimiter must be exactly one ASCII byte, got {value:?}");
+    }
+    Ok(bytes[0])
 }
 
 fn collect_inputs(input: &Path, recursive: bool) -> Result<Vec<PathBuf>> {

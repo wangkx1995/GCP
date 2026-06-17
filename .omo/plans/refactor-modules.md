@@ -72,10 +72,10 @@ main ──→ config ──→ parser ──→ tpd ──→ writer
 - 重构后的 src/main.rs（~100 行）
 
 ### Definition of Done
-- [ ] `cargo check --release` 通过
-- [ ] `cargo test --release` 所有测试通过（CRC64 单测）
-- [ ] 功能行为不变（无需运行真实数据）
-- [ ] 重构后模块引用路径正确
+- [x] `cargo check --release` 通过
+- [x] `cargo test --release` 所有测试通过（CRC64 单测）
+- [x] 功能行为不变（无需运行真实数据）
+- [x] 重构后模块引用路径正确
 
 ### Must Have
 - 每个模块有清晰的 `pub`/非 `pub` 可见性
@@ -131,7 +131,7 @@ Wave FINAL:
 
 ## TODOs
 
-- [ ] 1. 创建 `src/crc64.rs`
+- [x] 1. 创建 `src/crc64.rs`
 
   **What to do**:
   从 main.rs 提取 `java_crc64` (L608-649)、`crc64_ecma` (L651-653)、`static TABLE`，放入新文件。
@@ -156,7 +156,7 @@ Wave FINAL:
   - Message: `refactor: 拆分 crc64 模块`
   - Files: `src/crc64.rs` (new), `src/main.rs` (modified)
 
-- [ ] 2. 创建 `src/util.rs`
+- [x] 2. 创建 `src/util.rs`
 
   **What to do**:
   从 main.rs 提取以下函数到 `src/util.rs`，均标记 `pub`：
@@ -184,7 +184,7 @@ Wave FINAL:
   - Message: `refactor: 拆分 util 模块`
   - Files: `src/util.rs` (new), `src/main.rs` (modified)
 
-- [ ] 3. 创建 `src/config.rs`
+- [x] 3. 创建 `src/config.rs`
 
   **What to do**:
   从 main.rs 提取以下内容到 `src/config.rs`：
@@ -208,7 +208,7 @@ Wave FINAL:
   - Message: `refactor: 拆分 config 模块`
   - Files: `src/config.rs` (new), `src/main.rs` (modified), `src/util.rs` (可能需调整 pub)
 
-- [ ] 4. 创建 `src/parser.rs`
+- [x] 4. 创建 `src/parser.rs`
 
   **What to do**:
   从 main.rs 提取以下函数到 `src/parser.rs`：
@@ -227,7 +227,7 @@ Wave FINAL:
   - Message: `refactor: 拆分 parser 模块`
   - Files: `src/parser.rs` (new), `src/main.rs` (modified)
 
-- [ ] 5. 创建 `src/tpd.rs`
+- [x] 5. 创建 `src/tpd.rs`
 
   **What to do**:
   从 main.rs 提取以下内容到 `src/tpd.rs`：
@@ -255,7 +255,7 @@ Wave FINAL:
   - Message: `refactor: 拆分 tpd 模块`
   - Files: `src/tpd.rs` (new), `src/main.rs` (modified)
 
-- [ ] 6. 创建 `src/writer.rs`
+- [x] 6. 创建 `src/writer.rs`
 
   **What to do**:
   从 main.rs 提取以下函数到 `src/writer.rs`：
@@ -272,7 +272,7 @@ Wave FINAL:
   - Message: `refactor: 拆分 writer 模块`
   - Files: `src/writer.rs` (new), `src/main.rs` (modified)
 
-- [ ] 7. 重构 `src/main.rs` 为入口层
+- [x] 7. 重构 `src/main.rs` 为入口层
 
   **What to do**:
   main.rs 最终保留的内容：
@@ -300,10 +300,10 @@ Wave FINAL:
 
 ## Final Verification Wave
 
-- [ ] F1. **cargo check --release 通过**
-- [ ] F2. **cargo test --release 通过**
-- [ ] F3. **逻辑零改动验证**: `git diff main -- src/main.rs` 确认仅删除/移动了代码，没有新增业务逻辑
-- [ ] F4. **提交所有改动**: `git commit -m "refactor: main.rs 模块化拆分完成"`
+- [x] F1. **cargo check --release 通过**
+- [x] F2. **cargo test --release 通过**
+- [x] F3. **逻辑零改动验证**: `git diff main -- src/main.rs` 确认仅删除/移动了代码，没有新增业务逻辑
+- [x] F4. **提交所有改动**: `git commit -m "refactor: main.rs 模块化拆分完成"`
 
 ---
 
@@ -317,8 +317,8 @@ git status  # 确认所有改动文件
 ```
 
 ### Final Checklist
-- [ ] 6 个新模块文件创建
-- [ ] main.rs 从 908 行精简到 ~100 行
-- [ ] 编译通过
-- [ ] 单测通过
-- [ ] 无业务逻辑变更
+- [x] 6 个新模块文件创建
+- [x] main.rs 从 908 行精简到 ~100 行
+- [x] 编译通过
+- [x] 单测通过
+- [x] 无业务逻辑变更
