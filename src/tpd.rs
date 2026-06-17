@@ -3,10 +3,10 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{Local, NaiveDateTime};
 use indexmap::IndexMap;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::util::*;
 use crate::{Row, TableRows};
@@ -25,13 +25,37 @@ pub struct GroupRule {
     pub name: String,
     #[serde(default)]
     pub enabled: bool,
-    pub source_table: String,
+    #[serde(deserialize_with = "deserialize_source_tables")]
+    pub source_table: Vec<String>,
     #[serde(default)]
     pub where_expr: String,
     #[serde(default)]
     pub group_by: Vec<String>,
     #[serde(default)]
     pub join_keys: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SourceTables {
+    One(String),
+    Many(Vec<String>),
+}
+
+fn deserialize_source_tables<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let source_tables = SourceTables::deserialize(deserializer)?;
+    let values = match source_tables {
+        SourceTables::One(value) => vec![value],
+        SourceTables::Many(values) => values,
+    };
+    Ok(values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect())
 }
 
 #[allow(dead_code)]
@@ -55,24 +79,28 @@ pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
     let Some(group) = rule.groups.iter().find(|group| group.enabled) else {
         bail!("rule {} does not contain an enabled group", rule.table_name);
     };
-    let source_key = group.source_table.to_ascii_uppercase();
-    let source_rows = match tables
-        .get(&source_key)
-        .or_else(|| tables.get(&group.source_table))
-    {
-        Some(rows) => rows,
-        None => {
-            let available: Vec<&String> = tables.keys().collect();
-            eprintln!(
-                "[aggregate] SKIP {} <- {}: source table not found. Available tables: {:?}",
-                rule.table_name, group.source_table, available,
-            );
-            return Ok(());
+    let mut source_rows = Vec::new();
+    for source_table in &group.source_table {
+        let source_key = source_table.to_ascii_uppercase();
+        match tables.get(&source_key).or_else(|| tables.get(source_table)) {
+            Some(rows) => source_rows.extend(rows.iter()),
+            None => eprintln!(
+                "[aggregate] WARN {} <- {}: source table not found, skipping",
+                rule.table_name, source_table,
+            ),
         }
-    };
+    }
+    if source_rows.is_empty() {
+        let available: Vec<&String> = tables.keys().collect();
+        eprintln!(
+            "[aggregate] SKIP {} <- {:?}: source table not found. Available tables: {:?}",
+            rule.table_name, group.source_table, available,
+        );
+        return Ok(());
+    }
 
     eprintln!(
-        "[aggregate] {} <- {} ({} source rows, group by {:?})",
+        "[aggregate] {} <- {:?} ({} source rows, group by {:?})",
         rule.table_name,
         group.source_table,
         source_rows.len(),
@@ -84,8 +112,15 @@ pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
         let key = group
             .group_by
             .iter()
-            .map(|field| eval_group_by_expr(row, field))
-            .collect::<Vec<_>>()
+            .map(|field| {
+                eval_group_by_expr(row, field).with_context(|| {
+                    format!(
+                        "rule {} group {} group_by expression {} failed",
+                        rule.table_name, group.name, field
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
             .join("\u{1f}");
         grouped.entry(key).or_default().push(row);
     }
@@ -98,12 +133,24 @@ pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
     for rows in grouped.values() {
         let mut context = Row::new();
         for field in &group.group_by {
-            context.insert(field.clone(), eval_group_by_expr(rows[0], field));
+            let value = eval_group_by_expr(rows[0], field).with_context(|| {
+                format!(
+                    "rule {} group {} group_by expression {} failed",
+                    rule.table_name, group.name, field
+                )
+            })?;
+            context.insert(field.clone(), value);
         }
 
         let temp_row_start = Instant::now();
         for field in &rule.temp_fields {
-            let value = eval_expression(&field.expression, rows, &context, None);
+            let value =
+                eval_expression(&field.expression, rows, &context, None).with_context(|| {
+                    format!(
+                        "rule {} temp field {} expression {} failed",
+                        rule.table_name, field.name, field.expression
+                    )
+                })?;
             context.insert(field.name.trim().to_string(), value);
         }
         temp_elapsed += temp_row_start.elapsed();
@@ -111,7 +158,13 @@ pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
         let output_row_start = Instant::now();
         let mut output = Row::new();
         for field in &rule.output_fields {
-            let value = eval_expression(&field.expression, rows, &context, Some(&output));
+            let value = eval_expression(&field.expression, rows, &context, Some(&output))
+                .with_context(|| {
+                    format!(
+                        "rule {} output field {} expression {} failed",
+                        rule.table_name, field.name, field.expression
+                    )
+                })?;
             output.insert(field.name.trim().to_string(), value);
         }
         output_elapsed += output_row_start.elapsed();
@@ -132,25 +185,37 @@ pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
     Ok(())
 }
 
-fn eval_expression(expr: &str, rows: &[&Row], context: &Row, output: Option<&Row>) -> String {
+fn eval_expression(
+    expr: &str,
+    rows: &[&Row],
+    context: &Row,
+    output: Option<&Row>,
+) -> Result<String> {
     let expr = expr.trim();
     if expr.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
     if expr.parse::<f64>().is_ok() {
-        return expr.to_string();
+        return Ok(expr.to_string());
     }
     let lower = expr.to_ascii_lowercase();
 
+    if lower == "null" {
+        return Ok(String::new());
+    }
     if lower == "current_timestamp" {
-        return Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        return Ok(Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
     }
     if let Some(value) = parse_quoted_env(expr) {
-        return value;
+        return Ok(value);
     }
     if lower.starts_with("max(") && expr.ends_with(')') {
         let inner = &expr[4..expr.len() - 1];
         return max_value(rows, inner, context, output);
+    }
+    if lower.starts_with("lower(") && expr.ends_with(')') {
+        let inner = &expr[6..expr.len() - 1];
+        return Ok(eval_expression(inner, rows, context, output)?.to_ascii_lowercase());
     }
     if lower.starts_with("substring(") && expr.ends_with(')') {
         return eval_string_expr(expr, rows[0], context, output);
@@ -162,101 +227,181 @@ fn eval_expression(expr: &str, rows: &[&Row], context: &Row, output: Option<&Row
         let inner = expr[15..expr.len() - 1].trim();
         let mut values = HashSet::new();
         for row in rows {
-            values.insert(get_row_value(row, inner));
+            values.insert(require_row_value(row, inner)?);
         }
-        return values.len().to_string();
+        return Ok(values.len().to_string());
     }
     if lower.starts_with("crc64(") && expr.ends_with(')') {
         let inner = &expr[6..expr.len() - 1];
 
-        let value = eval_expression(inner, rows, context, output);
-        return crate::crc64::crc64_ecma(&value).to_string();
+        let value = eval_expression(inner, rows, context, output)?;
+        return Ok(crate::crc64::crc64_ecma(&value).to_string());
     }
     if lower.starts_with("case when ") {
         return eval_case_when(expr, rows, context, output);
     }
     if expr.contains("||") {
-        return expr
+        return Ok(expr
             .split("||")
             .map(|part| eval_concat_part(part, rows, context, output))
-            .collect::<Vec<_>>()
-            .join("");
+            .collect::<Result<Vec<_>>>()?
+            .join(""));
     }
     if let Some(value) = parse_quoted_literal(expr) {
-        return value;
+        return Ok(value);
     }
     if let Some(value) = get_eval_context_value(context, output, expr) {
-        return value;
+        return Ok(value);
     }
-    get_row_value(rows[0], expr)
+    require_row_value(rows[0], expr)
 }
 
-fn eval_concat_part(part: &str, rows: &[&Row], context: &Row, output: Option<&Row>) -> String {
+fn eval_concat_part(
+    part: &str,
+    rows: &[&Row],
+    context: &Row,
+    output: Option<&Row>,
+) -> Result<String> {
     let part = part.trim();
     if let Some(value) = parse_quoted_literal(part) {
-        return value;
+        return Ok(value);
     }
     if let Some(value) = parse_quoted_env(part) {
-        return value;
+        return Ok(value);
+    }
+    let lower = part.to_ascii_lowercase();
+    if lower.starts_with("max(")
+        || lower.starts_with("lower(")
+        || lower.starts_with("substring(")
+        || lower.starts_with("timestamp14(")
+        || lower.starts_with("crc64(")
+        || lower.starts_with("case when ")
+    {
+        return eval_expression(part, rows, context, output);
     }
     if let Some(value) = get_eval_context_value(context, output, part) {
-        return value;
+        return Ok(value);
     }
-    get_row_value(rows[0], part)
+    require_row_value(rows[0], part)
 }
 
-fn eval_group_by_expr(row: &Row, expr: &str) -> String {
+fn eval_group_by_expr(row: &Row, expr: &str) -> Result<String> {
     let rows = [row];
     eval_expression(expr, &rows, &Row::new(), None)
 }
 
-fn eval_case_when(expr: &str, rows: &[&Row], context: &Row, output: Option<&Row>) -> String {
+fn eval_case_when(
+    expr: &str,
+    rows: &[&Row],
+    context: &Row,
+    output: Option<&Row>,
+) -> Result<String> {
+    let Some(mut rest) = strip_case_expr(expr) else {
+        return Ok(String::new());
+    };
+
+    loop {
+        let rest_lower = rest.to_ascii_lowercase();
+        if rest_lower.starts_with("when ") {
+            let Some(then_idx) = find_case_keyword(rest, " then ") else {
+                return Ok(String::new());
+            };
+            let condition = rest[5..then_idx].trim();
+            let after_then = &rest[then_idx + 6..];
+            let next_when = find_case_keyword(after_then, " when ");
+            let next_else = find_case_keyword(after_then, " else ");
+            let end_idx = match (next_when, next_else) {
+                (Some(when_idx), Some(else_idx)) => when_idx.min(else_idx),
+                (Some(when_idx), None) => when_idx,
+                (None, Some(else_idx)) => else_idx,
+                (None, None) => after_then.len(),
+            };
+            let then_expr = after_then[..end_idx].trim();
+            if eval_condition(condition, rows, context, output)? {
+                return eval_expression(then_expr, rows, context, output);
+            }
+            rest = after_then[end_idx..].trim();
+            continue;
+        }
+        if rest_lower.starts_with("else ") {
+            return eval_expression(rest[5..].trim(), rows, context, output);
+        }
+        return Ok(String::new());
+    }
+}
+
+fn strip_case_expr(expr: &str) -> Option<&str> {
+    let trimmed = expr.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("case ") || !lower.ends_with(" end") {
+        return None;
+    }
+    Some(trimmed[5..trimmed.len() - 4].trim())
+}
+
+fn find_case_keyword(expr: &str, keyword: &str) -> Option<usize> {
     let lower = expr.to_ascii_lowercase();
-    let Some(then_idx) = lower.find(" then ") else {
-        return String::new();
-    };
-    let Some(else_idx) = lower.find(" else ") else {
-        return String::new();
-    };
-    let Some(end_idx) = lower.rfind(" end") else {
-        return String::new();
-    };
-    let condition = expr[10..then_idx].trim();
-    let then_expr = expr[then_idx + 6..else_idx].trim();
-    let else_expr = expr[else_idx + 6..end_idx].trim();
-    if eval_condition(condition, context, output) {
-        eval_expression(then_expr, rows, context, output)
-    } else {
-        eval_expression(else_expr, rows, context, output)
-    }
+    lower.find(keyword)
 }
 
-fn eval_condition(condition: &str, context: &Row, output: Option<&Row>) -> bool {
+fn eval_condition(
+    condition: &str,
+    rows: &[&Row],
+    context: &Row,
+    output: Option<&Row>,
+) -> Result<bool> {
+    if let Some((left, right)) = condition.split_once('=') {
+        let left_value = eval_condition_operand(left.trim(), rows, context, output)?;
+        let right_value = eval_condition_operand(right.trim(), rows, context, output)?;
+        return Ok(left_value == right_value);
+    }
     if let Some((left, right)) = condition.split_once('>') {
-        let left_value = get_eval_context_value(context, output, left.trim()).unwrap_or_default();
+        let left_value = eval_condition_operand(left.trim(), rows, context, output)?;
         let right_value = right.trim().parse::<f64>().unwrap_or(0.0);
-        return left_value.parse::<f64>().unwrap_or(0.0) > right_value;
+        return Ok(left_value.parse::<f64>().unwrap_or(0.0) > right_value);
     }
-    false
+    Ok(false)
 }
 
-fn max_value(rows: &[&Row], expr: &str, context: &Row, output: Option<&Row>) -> String {
+fn eval_condition_operand(
+    expr: &str,
+    rows: &[&Row],
+    context: &Row,
+    output: Option<&Row>,
+) -> Result<String> {
+    let expr = expr.trim();
+    if expr.eq_ignore_ascii_case("null") {
+        return Ok(String::new());
+    }
+    if let Some(value) = parse_quoted_literal(expr) {
+        return Ok(value);
+    }
+    if expr.parse::<f64>().is_ok() {
+        return Ok(expr.to_string());
+    }
+    if let Some(value) = get_eval_context_value(context, output, expr) {
+        return Ok(value);
+    }
+    require_row_value(rows[0], expr)
+}
+
+fn max_value(rows: &[&Row], expr: &str, context: &Row, output: Option<&Row>) -> Result<String> {
     let simple_field = is_simple_field_expr(expr);
     if rows.len() == 1 {
-        return if simple_field {
-            get_row_value(rows[0], expr)
+        return Ok(if simple_field {
+            require_row_value(rows[0], expr)?
         } else {
-            eval_string_expr(expr, rows[0], context, output)
-        };
+            eval_string_expr(expr, rows[0], context, output)?
+        });
     }
 
     let mut best = String::new();
     let mut best_number: Option<f64> = None;
     for row in rows {
         let value = if simple_field {
-            get_row_value(row, expr)
+            require_row_value(row, expr)?
         } else {
-            eval_string_expr(expr, row, context, output)
+            eval_string_expr(expr, row, context, output)?
         };
         if value.is_empty() {
             continue;
@@ -270,7 +415,7 @@ fn max_value(rows: &[&Row], expr: &str, context: &Row, output: Option<&Row>) -> 
             best = value;
         }
     }
-    best
+    Ok(best)
 }
 
 fn is_simple_field_expr(expr: &str) -> bool {
@@ -284,63 +429,66 @@ fn is_simple_field_expr(expr: &str) -> bool {
         && !expr.contains("||")
 }
 
-fn eval_string_expr(expr: &str, row: &Row, context: &Row, output: Option<&Row>) -> String {
+fn eval_string_expr(expr: &str, row: &Row, context: &Row, output: Option<&Row>) -> Result<String> {
     let expr = expr.trim();
     if let Some(value) = parse_quoted_literal(expr) {
-        return value;
+        return Ok(value);
     }
     if expr.to_ascii_lowercase().starts_with("substring(") && expr.ends_with(')') {
         let inner = &expr[10..expr.len() - 1];
         let args = split_args(inner);
         if args.len() != 3 {
-            return String::new();
+            return Ok(String::new());
         }
-        let value = eval_string_expr(&args[0], row, context, output);
-        let start = eval_number_expr(&args[1], row, context, output);
-        let len = eval_number_expr(&args[2], row, context, output);
-        return sql_substring(&value, start, len);
+        let value = eval_string_expr(&args[0], row, context, output)?;
+        let start = eval_number_expr(&args[1], row, context, output)?;
+        let len = eval_number_expr(&args[2], row, context, output)?;
+        return Ok(sql_substring(&value, start, len));
     }
     if expr.to_ascii_lowercase().starts_with("timestamp14(") && expr.ends_with(')') {
         let inner = &expr[12..expr.len() - 1];
-        let value = eval_string_expr(inner, row, context, output);
-        return extract_timestamp14(&value).unwrap_or_default();
+        let value = eval_string_expr(inner, row, context, output)?;
+        return Ok(extract_timestamp14(&value).unwrap_or_default());
     }
-    get_eval_context_value(context, output, expr).unwrap_or_else(|| get_row_value(row, expr))
+    if let Some(value) = get_eval_context_value(context, output, expr) {
+        return Ok(value);
+    }
+    require_row_value(row, expr)
 }
 
-fn eval_number_expr(expr: &str, row: &Row, context: &Row, output: Option<&Row>) -> isize {
+fn eval_number_expr(expr: &str, row: &Row, context: &Row, output: Option<&Row>) -> Result<isize> {
     let expr = expr.trim();
     if let Some((left, right)) = split_top_level_operator(expr, '+') {
-        return eval_number_expr(left, row, context, output)
-            + eval_number_expr(right, row, context, output);
+        return Ok(eval_number_expr(left, row, context, output)?
+            + eval_number_expr(right, row, context, output)?);
     }
     if let Some((left, right)) = split_top_level_operator(expr, '-') {
-        return eval_number_expr(left, row, context, output)
-            - eval_number_expr(right, row, context, output);
+        return Ok(eval_number_expr(left, row, context, output)?
+            - eval_number_expr(right, row, context, output)?);
     }
     let lower = expr.to_ascii_lowercase();
     if lower.starts_with("locate(") && expr.ends_with(')') {
         let inner = &expr[7..expr.len() - 1];
         let args = split_args(inner);
         if args.len() != 2 {
-            return 0;
+            return Ok(0);
         }
-        let needle = eval_string_expr(&args[0], row, context, output);
-        let haystack = eval_string_expr(&args[1], row, context, output);
-        return sql_locate(&needle, &haystack);
+        let needle = eval_string_expr(&args[0], row, context, output)?;
+        let haystack = eval_string_expr(&args[1], row, context, output)?;
+        return Ok(sql_locate(&needle, &haystack));
     }
     if lower.starts_with("length(") && expr.ends_with(')') {
         let inner = &expr[7..expr.len() - 1];
-        return eval_string_expr(inner, row, context, output)
+        return Ok(eval_string_expr(inner, row, context, output)?
             .chars()
-            .count() as isize;
+            .count() as isize);
     }
     if let Ok(value) = expr.parse::<isize>() {
-        return value;
+        return Ok(value);
     }
-    eval_string_expr(expr, row, context, output)
+    Ok(eval_string_expr(expr, row, context, output)?
         .parse::<isize>()
-        .unwrap_or(0)
+        .unwrap_or(0))
 }
 
 fn split_args(expr: &str) -> Vec<String> {
@@ -422,17 +570,21 @@ fn extract_timestamp14(value: &str) -> Option<String> {
     None
 }
 
-fn get_row_value(row: &Row, field: &str) -> String {
+fn require_row_value(row: &Row, field: &str) -> Result<String> {
+    find_row_value(row, field).with_context(|| format!("missing field {}", field))
+}
+
+fn find_row_value(row: &Row, field: &str) -> Option<String> {
     if let Some(value) = row.get(field) {
-        return value.clone();
+        return Some(value.clone());
     }
     let normalized = normalize_lookup_name(field);
     for (key, value) in row {
         if normalize_lookup_name(key) == normalized {
-            return value.clone();
+            return Some(value.clone());
         }
     }
-    String::new()
+    None
 }
 
 fn get_context_value(context: &Row, field: &str) -> Option<String> {
@@ -494,7 +646,8 @@ mod tests {
             &rows,
             &context,
             None,
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             value,
@@ -515,7 +668,8 @@ mod tests {
             &rows,
             &context,
             None,
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             value,
@@ -533,7 +687,8 @@ mod tests {
         let rows = vec![&row];
         let context = Row::new();
 
-        let value = eval_expression("max(timestamp14(SOURCEFILENAME))", &rows, &context, None);
+        let value =
+            eval_expression("max(timestamp14(SOURCEFILENAME))", &rows, &context, None).unwrap();
 
         assert_eq!(value, "2022-01-10 13:00:00");
     }
@@ -545,5 +700,157 @@ mod tests {
                 .as_deref(),
             Some("2030-01-10 13:00:00")
         );
+    }
+
+    #[test]
+    fn missing_output_field_reference_errors() {
+        let row = row_with_object_rdn(
+            "8105:ZTE-CMAH-HF,SubNetwork=500,ManagedElement=1561205,EnbFunction=379834,EutranCellFdd=6",
+        );
+        let rows = vec![&row];
+        let context = Row::new();
+
+        let err = eval_expression("CRC64('8104:'||parent_dn)", &rows, &context, None).unwrap_err();
+
+        assert!(err.to_string().contains("missing field parent_dn"));
+    }
+
+    #[test]
+    fn existing_empty_field_is_allowed() {
+        let mut row = Row::new();
+        row.insert("parent_dn".to_string(), String::new());
+        let rows = vec![&row];
+        let context = Row::new();
+
+        let value = eval_expression("CRC64('8104:'||parent_dn)", &rows, &context, None).unwrap();
+
+        assert!(!value.is_empty());
+    }
+
+    #[test]
+    fn parses_string_source_table() {
+        let rule: TpdRule = serde_json::from_str(
+            r#"{
+              "table_name": "TPD_TEST",
+              "groups": [{"name":"related_rdn01","enabled":true,"source_table":"OP_A"}],
+              "temp_fields": [],
+              "output_fields": []
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(rule.groups[0].source_table, vec!["OP_A"]);
+    }
+
+    #[test]
+    fn parses_array_source_table() {
+        let rule: TpdRule = serde_json::from_str(
+            r#"{
+              "table_name": "TPD_TEST",
+              "groups": [{"name":"related_rdn01","enabled":true,"source_table":["OP_A","OP_B"]}],
+              "temp_fields": [],
+              "output_fields": []
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(rule.groups[0].source_table, vec!["OP_A", "OP_B"]);
+    }
+
+    #[test]
+    fn evaluates_lower_max_expression() {
+        let mut row = Row::new();
+        row.insert("VENDORNAME".to_string(), "ZTE".to_string());
+        let rows = vec![&row];
+        let context = Row::new();
+
+        let value = eval_expression("lower(max(VENDORNAME))", &rows, &context, None).unwrap();
+
+        assert_eq!(value, "zte");
+    }
+
+    #[test]
+    fn evaluates_multi_when_case_expression() {
+        let row = Row::new();
+        let rows = vec![&row];
+        let mut context = Row::new();
+        context.insert("vendor_id_0".to_string(), "zte".to_string());
+
+        let value = eval_expression(
+            "case when vendor_id_0='ericsson' then 1 when vendor_id_0='huawei' then 8 when vendor_id_0='nokia' then 4 when vendor_id_0='zte' then 7 else null end",
+            &rows,
+            &context,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(value, "7");
+    }
+
+    #[test]
+    fn evaluates_case_else_null_as_empty() {
+        let row = Row::new();
+        let rows = vec![&row];
+        let mut context = Row::new();
+        context.insert("vendor_id_0".to_string(), "unknown".to_string());
+
+        let value = eval_expression(
+            "case when vendor_id_0='zte' then 7 else null end",
+            &rows,
+            &context,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(value, "");
+    }
+
+    #[test]
+    fn missing_case_condition_field_errors() {
+        let row = Row::new();
+        let rows = vec![&row];
+        let context = Row::new();
+
+        let err = eval_expression(
+            "case when vendor_id_0='zte' then 7 else null end",
+            &rows,
+            &context,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("missing field vendor_id_0"));
+    }
+
+    #[test]
+    fn combines_available_source_tables_and_skips_missing_sources() {
+        let rule: TpdRule = serde_json::from_str(
+            r#"{
+              "table_name": "TPD_TEST",
+              "groups": [{
+                "name":"related_rdn01",
+                "enabled":true,
+                "source_table":["OP_A","OP_MISSING"],
+                "group_by":["dn"]
+              }],
+              "temp_fields": [],
+              "output_fields": [
+                {"name":"dn","expression":"max(dn)"},
+                {"name":"value","expression":"max(value)"}
+              ]
+            }"#,
+        )
+        .unwrap();
+        let mut row = Row::new();
+        row.insert("dn".to_string(), "cell-1".to_string());
+        row.insert("value".to_string(), "7".to_string());
+        let mut tables = TableRows::new();
+        tables.insert("OP_A".to_string(), vec![row]);
+
+        execute_tpd_rule(&rule, &mut tables).unwrap();
+
+        let output = tables.get("TPD_TEST").unwrap();
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].get("value").map(String::as_str), Some("7"));
     }
 }

@@ -4,22 +4,13 @@
     {
       "name": "related_rdn01",
       "enabled": true,
-      "source_table": "OP_EUTRANCELLTDDPRB",
+      "source_table": ["OP_EUTRANCELLTDDPRB","OP_EUTRANCELLFDDPRB"],
       "group_by": [
         "dn",
         "timestamp14(SOURCEFILENAME)"
       ],
       "join_keys": [
         "object_rdn"
-      ]
-    },
-    {
-      "name": "related_rdn02",
-      "enabled": true,
-      "source_table": "OP_EUTRANCELLFDDPRB",
-      "group_by": [
-        "dn",
-        "timestamp14(SOURCEFILENAME)"
       ]
     }
   ],
@@ -34,7 +25,7 @@
     {
       "name": "scan_start_time",
       "expression": "max(timestamp14(SOURCEFILENAME))",
-      "related_group": "self"
+      "related_group": "related_rdn01"
     },
     {
       "name": "int_id",
