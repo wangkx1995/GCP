@@ -24,8 +24,6 @@ pub struct TpdRule {
 pub struct GroupRule {
     pub name: String,
     #[serde(default)]
-    pub group_name: String,
-    #[serde(default)]
     pub enabled: bool,
     pub source_table: String,
     #[serde(default)]
@@ -33,11 +31,7 @@ pub struct GroupRule {
     #[serde(default)]
     pub group_by: Vec<String>,
     #[serde(default)]
-    pub order_by: Vec<String>,
-    #[serde(default)]
     pub join_keys: Vec<String>,
-    #[serde(default)]
-    pub transform_type: String,
 }
 
 #[allow(dead_code)]
@@ -45,21 +39,9 @@ pub struct GroupRule {
 pub struct FieldRule {
     pub name: String,
     #[serde(default)]
-    pub field_cn: String,
-    #[serde(default)]
-    pub field_eng: String,
-    #[serde(default)]
-    pub data_type: String,
-    #[serde(default)]
-    pub constraint: String,
-    #[serde(default)]
-    pub default_value: String,
-    #[serde(default)]
     pub expression: String,
     #[serde(default)]
     pub related_group: String,
-    #[serde(default)]
-    pub description: String,
 }
 
 pub fn load_rule(path: &Path) -> Result<TpdRule> {

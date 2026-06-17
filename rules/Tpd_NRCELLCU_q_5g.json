@@ -3,3205 +3,1100 @@
   "groups": [
     {
       "name": "related_rdn01",
-      "group_name": "Tpd_NRCELLCU_q_5g",
       "enabled": true,
       "source_table": "OP_NRCELLCU",
-      "where_expr": "",
       "group_by": [
         "dn",
         "scan_start_time",
         "scan_stop_time"
       ],
-      "order_by": [],
       "join_keys": [
         "scan_start_time",
         "scan_stop_time",
         "case_rdn"
-      ],
-      "transform_type": "0"
+      ]
     }
   ],
   "temp_fields": [
     {
       "name": "case_rdn",
-      "field_cn": "case_rdn",
-      "field_eng": "case_rdn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "'7300:'||dn",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "Related_GNBCUCPFunction_0",
-      "field_cn": "Related_GNBCUCPFunction_0",
-      "field_eng": "Related_GNBCUCPFunction_0",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(parent_dn)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "count_0",
-      "field_cn": "count_0",
-      "field_eng": "count_0",
-      "data_type": "SQL_INTEGER",
-      "constraint": "0",
-      "default_value": "",
       "expression": "count(distinct is_nsa)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "is_nsa_0",
-      "field_cn": "is_nsa_0",
-      "field_eng": "is_nsa_0",
-      "data_type": "SQL_INTEGER",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(is_nsa)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     }
   ],
   "output_fields": [
     {
       "name": "int_id",
-      "field_cn": "int_id",
-      "field_eng": "int_id",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "1",
-      "default_value": "",
       "expression": "CRC64(case_rdn)",
-      "related_group": "self",
-      "description": ""
+      "related_group": "self"
     },
     {
       "name": "object_rdn",
-      "field_cn": "object_rdn",
-      "field_eng": "object_rdn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "case_rdn",
-      "related_group": "self",
-      "description": ""
+      "related_group": "self"
     },
     {
       "name": "ou_id",
-      "field_cn": "ou_id",
-      "field_eng": "ou_id",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "'${OU_ID}'",
-      "related_group": "self",
-      "description": ""
+      "related_group": "self"
     },
     {
       "name": "omc_id",
-      "field_cn": "omc_id",
-      "field_eng": "omc_id",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "'${OMC_ID}'",
-      "related_group": "self",
-      "description": ""
+      "related_group": "self"
     },
     {
       "name": "vendor_id",
-      "field_cn": "vendor_id",
-      "field_eng": "vendor_id",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "'${C_VENDOR_ID}'",
-      "related_group": "self",
-      "description": ""
+      "related_group": "self"
     },
     {
       "name": "record_id",
-      "field_cn": "record_id",
-      "field_eng": "record_id",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(record_id)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "scan_start_time",
-      "field_cn": "scan_start_time",
-      "field_eng": "scan_start_time",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "scan_start_time",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "scan_stop_time",
-      "field_cn": "scan_stop_time",
-      "field_eng": "scan_stop_time",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "scan_stop_time",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "insert_time",
-      "field_cn": "insert_time",
-      "field_eng": "insert_time",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "CURRENT_TIMESTAMP",
-      "related_group": "",
-      "description": ""
+      "expression": "CURRENT_TIMESTAMP"
     },
     {
       "name": "related_gnbcucpfunction",
-      "field_cn": "related_gnbcucpfunction",
-      "field_eng": "related_gnbcucpfunction",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "CRC64('7202:'||Related_GNBCUCPFunction_0)",
-      "related_group": "",
-      "description": ""
+      "expression": "CRC64('7202:'||Related_GNBCUCPFunction_0)"
     },
     {
       "name": "managedelement",
-      "field_cn": "managedelement",
-      "field_eng": "managedelement",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(ManagedElement)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "gnbcucpfunction",
-      "field_cn": "gnbcucpfunction",
-      "field_eng": "gnbcucpfunction",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(GNBCUCPFunction)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nrcellcu",
-      "field_cn": "nrcellcu",
-      "field_eng": "nrcellcu",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(NRCELLCU)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "name",
-      "field_cn": "name",
-      "field_eng": "name",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(name)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "is_nsa",
-      "field_cn": "is_nsa",
-      "field_eng": "is_nsa",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "case when count_0 > 1 then 2 else is_nsa_0 end",
-      "related_group": "",
-      "description": ""
+      "expression": "case when count_0 > 1 then 2 else is_nsa_0 end"
     },
     {
       "name": "cellunavailabletime",
-      "field_cn": "cellunavailabletime",
-      "field_eng": "cellunavailabletime",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(RRU_CellUnavailableTime)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "pdcp_nbrpktul",
-      "field_cn": "pdcp_nbrpktul",
-      "field_eng": "pdcp_nbrpktul",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_NbrPktUl)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "pdcp_nbrpktlossul",
-      "field_cn": "pdcp_nbrpktlossul",
-      "field_eng": "pdcp_nbrpktlossul",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_NbrPktLossUl)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "pdcp_nbrpktdl",
-      "field_cn": "pdcp_nbrpktdl",
-      "field_eng": "pdcp_nbrpktdl",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_NbrPktDl)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "pdcp_uppktdiscarddl",
-      "field_cn": "pdcp_uppktdiscarddl",
-      "field_eng": "pdcp_uppktdiscarddl",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_UpPktDiscardDl)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "pdcp_upoctul",
-      "field_cn": "pdcp_upoctul",
-      "field_eng": "pdcp_upoctul",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_UpOctUl)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "upoctul_5qi1",
-      "field_cn": "upoctul_5qi1",
-      "field_eng": "upoctul_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi1"
     },
     {
-      "name": "upoctul_5qi10",
-      "field_cn": "upoctul_5qi10",
-      "field_eng": "upoctul_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi10"
     },
     {
-      "name": "upoctul_5qi2",
-      "field_cn": "upoctul_5qi2",
-      "field_eng": "upoctul_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi2"
     },
     {
-      "name": "upoctul_5qi3",
-      "field_cn": "upoctul_5qi3",
-      "field_eng": "upoctul_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi3"
     },
     {
-      "name": "upoctul_5qi4",
-      "field_cn": "upoctul_5qi4",
-      "field_eng": "upoctul_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi4"
     },
     {
-      "name": "upoctul_5qi5",
-      "field_cn": "upoctul_5qi5",
-      "field_eng": "upoctul_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi5"
     },
     {
-      "name": "upoctul_5qi6",
-      "field_cn": "upoctul_5qi6",
-      "field_eng": "upoctul_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi6"
     },
     {
-      "name": "upoctul_5qi7",
-      "field_cn": "upoctul_5qi7",
-      "field_eng": "upoctul_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi7"
     },
     {
-      "name": "upoctul_5qi8",
-      "field_cn": "upoctul_5qi8",
-      "field_eng": "upoctul_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi8"
     },
     {
-      "name": "upoctul_5qi9",
-      "field_cn": "upoctul_5qi9",
-      "field_eng": "upoctul_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctul_5qi9"
     },
     {
       "name": "pdcp_upoctdl",
-      "field_cn": "pdcp_upoctdl",
-      "field_eng": "pdcp_upoctdl",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_UpOctDl)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "upoctdl_5qi1",
-      "field_cn": "upoctdl_5qi1",
-      "field_eng": "upoctdl_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi1"
     },
     {
-      "name": "upoctdl_5qi10",
-      "field_cn": "upoctdl_5qi10",
-      "field_eng": "upoctdl_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi10"
     },
     {
-      "name": "upoctdl_5qi2",
-      "field_cn": "upoctdl_5qi2",
-      "field_eng": "upoctdl_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi2"
     },
     {
-      "name": "upoctdl_5qi3",
-      "field_cn": "upoctdl_5qi3",
-      "field_eng": "upoctdl_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi3"
     },
     {
-      "name": "upoctdl_5qi4",
-      "field_cn": "upoctdl_5qi4",
-      "field_eng": "upoctdl_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi4"
     },
     {
-      "name": "upoctdl_5qi5",
-      "field_cn": "upoctdl_5qi5",
-      "field_eng": "upoctdl_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi5"
     },
     {
-      "name": "upoctdl_5qi6",
-      "field_cn": "upoctdl_5qi6",
-      "field_eng": "upoctdl_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi6"
     },
     {
-      "name": "upoctdl_5qi7",
-      "field_cn": "upoctdl_5qi7",
-      "field_eng": "upoctdl_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi7"
     },
     {
-      "name": "upoctdl_5qi8",
-      "field_cn": "upoctdl_5qi8",
-      "field_eng": "upoctdl_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi8"
     },
     {
-      "name": "upoctdl_5qi9",
-      "field_cn": "upoctdl_5qi9",
-      "field_eng": "upoctdl_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl_5qi9"
     },
     {
       "name": "pdcp_upoctul_splitfromlte",
-      "field_cn": "pdcp_upoctul_splitfromlte",
-      "field_eng": "pdcp_upoctul_splitfromlte",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_UpOctUl_SplitFromLte)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "pdcp_upoctdl_splittolte",
-      "field_cn": "pdcp_upoctdl_splittolte",
-      "field_eng": "pdcp_upoctdl_splittolte",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDCP_UpOctDl_SplitToLte)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "drb_nbrmeanestab",
-      "field_cn": "drb_nbrmeanestab",
-      "field_eng": "drb_nbrmeanestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(DRB_NbrMeanEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "drb_nbrmaxestab",
-      "field_cn": "drb_nbrmaxestab",
-      "field_eng": "drb_nbrmaxestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(DRB_NbrMaxEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "drb_nbrleft",
-      "field_cn": "drb_nbrleft",
-      "field_eng": "drb_nbrleft",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(DRB_NbrLeft)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attconnestab",
-      "field_cn": "attconnestab",
-      "field_eng": "attconnestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(RRC_AttConnEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succconnestab",
-      "field_cn": "succconnestab",
-      "field_eng": "succconnestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(RRC_SucConnEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "attconnreestab",
-      "field_cn": "attconnreestab",
-      "field_eng": "attconnreestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "attconnreestab"
     },
     {
-      "name": "succconnreestab",
-      "field_cn": "succconnreestab",
-      "field_eng": "succconnreestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "succconnreestab"
     },
     {
       "name": "succconnreestab_nonsrccell",
-      "field_cn": "succconnreestab_nonsrccell",
-      "field_eng": "succconnreestab_nonsrccell",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(RRC_SucConnReestab_NonSrccell)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "connmean",
-      "field_cn": "connmean",
-      "field_eng": "connmean",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(RRC_ConnMean)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "connmax",
-      "field_cn": "connmax",
-      "field_eng": "connmax",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(RRC_ConnMax)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrattestab",
-      "field_cn": "nbrattestab",
-      "field_eng": "nbrattestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDUSESSION_NbrAttEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrsuccestab",
-      "field_cn": "nbrsuccestab",
-      "field_eng": "nbrsuccestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDUSESSION_NbrSuccEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrreqrelgnb",
-      "field_cn": "nbrreqrelgnb",
-      "field_eng": "nbrreqrelgnb",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDUSESSION_NbrReqRelGnb)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrreqrelamfinitnoho",
-      "field_cn": "nbrreqrelamfinitnoho",
-      "field_eng": "nbrreqrelamfinitnoho",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDUSESSION_NbrReqRelAMFIniNoHo)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrmeanestab",
-      "field_cn": "nbrmeanestab",
-      "field_eng": "nbrmeanestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDUSESSION_NbrMeanEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrmaxestab",
-      "field_cn": "nbrmaxestab",
-      "field_eng": "nbrmaxestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PDUSESSION_NbrMaxEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrattestab",
-      "field_cn": "flow_nbrattestab",
-      "field_eng": "flow_nbrattestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrAttEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrsuccestab",
-      "field_cn": "flow_nbrsuccestab",
-      "field_eng": "flow_nbrsuccestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrSuccEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrfailestab",
-      "field_cn": "flow_nbrfailestab",
-      "field_eng": "flow_nbrfailestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrFailEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "nbrfailestab_causetrans",
-      "field_cn": "nbrfailestab_causetrans",
-      "field_eng": "nbrfailestab_causetrans",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "nbrfailestab_causetrans"
     },
     {
-      "name": "nbrfailestab_causeradio",
-      "field_cn": "nbrfailestab_causeradio",
-      "field_eng": "nbrfailestab_causeradio",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "nbrfailestab_causeradio"
     },
     {
-      "name": "nbrfailestab_causefail",
-      "field_cn": "nbrfailestab_causefail",
-      "field_eng": "nbrfailestab_causefail",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "nbrfailestab_causefail"
     },
     {
       "name": "nbrattmod",
-      "field_cn": "nbrattmod",
-      "field_eng": "nbrattmod",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrAttMod)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrsuccmod",
-      "field_cn": "nbrsuccmod",
-      "field_eng": "nbrsuccmod",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrSuccMod)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrfailmod",
-      "field_cn": "nbrfailmod",
-      "field_eng": "nbrfailmod",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrFailMod)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrreqrelgnb",
-      "field_cn": "flow_nbrreqrelgnb",
-      "field_eng": "flow_nbrreqrelgnb",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrReqRelGnb)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrreqrelgnb_causeuserin",
-      "field_cn": "nbrreqrelgnb_causeuserin",
-      "field_eng": "nbrreqrelgnb_causeuserin",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrReqRelGnb_UserInact)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrreqrelgnb_normal",
-      "field_cn": "nbrreqrelgnb_normal",
-      "field_eng": "nbrreqrelgnb_normal",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrReqRelGnb_Normal)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrreqrelamfinitnoho",
-      "field_cn": "flow_nbrreqrelamfinitnoho",
-      "field_eng": "flow_nbrreqrelamfinitnoho",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrReqRelAMFInitNoHo)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrreqrelgnbbyho",
-      "field_cn": "nbrreqrelgnbbyho",
-      "field_eng": "nbrreqrelgnbbyho",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrReqRelGnbByHo)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrmaxestab",
-      "field_cn": "flow_nbrmaxestab",
-      "field_eng": "flow_nbrmaxestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrMaxEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrmeanestab",
-      "field_cn": "flow_nbrmeanestab",
-      "field_eng": "flow_nbrmeanestab",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrMeanEstab)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "flow_nbrleft",
-      "field_cn": "flow_nbrleft",
-      "field_eng": "flow_nbrleft",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrLeft)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrhoinc",
-      "field_cn": "nbrhoinc",
-      "field_eng": "nbrhoinc",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrHoInc)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "hoadmitfail",
-      "field_cn": "hoadmitfail",
-      "field_eng": "hoadmitfail",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_HoAdmitFail)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attinitalsetup",
-      "field_cn": "attinitalsetup",
-      "field_eng": "attinitalsetup",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_AttInitalSetup)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succinitalsetup",
-      "field_cn": "succinitalsetup",
-      "field_eng": "succinitalsetup",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_SuccInitalSetup)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "failinitalsetup",
-      "field_cn": "failinitalsetup",
-      "field_eng": "failinitalsetup",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_FailInitalSetup)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attmod",
-      "field_cn": "attmod",
-      "field_eng": "attmod",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_AttMod)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succmod",
-      "field_cn": "succmod",
-      "field_eng": "succmod",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_SuccMod)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "failmod",
-      "field_cn": "failmod",
-      "field_eng": "failmod",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_FailMod)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attrelgnb",
-      "field_cn": "attrelgnb",
-      "field_eng": "attrelgnb",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_AttRelgNB)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attrelgnb_causeuserin",
-      "field_cn": "attrelgnb_causeuserin",
-      "field_eng": "attrelgnb_causeuserin",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_AttRelgNB_UserInact)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attrelgnb_normal",
-      "field_cn": "attrelgnb_normal",
-      "field_eng": "attrelgnb_normal",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_AttRelgNB_Normal)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attrelngc",
-      "field_cn": "attrelngc",
-      "field_eng": "attrelngc",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_AttRelNgc)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "nbrleft",
-      "field_cn": "nbrleft",
-      "field_eng": "nbrleft",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_NbrLeft)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutintercung",
-      "field_cn": "attoutintercung",
-      "field_eng": "attoutintercung",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutInterCuNG)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutprepintercung",
-      "field_cn": "succoutprepintercung",
-      "field_eng": "succoutprepintercung",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutPrepInterCuNG)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutexecintercung",
-      "field_cn": "attoutexecintercung",
-      "field_eng": "attoutexecintercung",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutExecInterCuNG)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutintercung",
-      "field_cn": "succoutintercung",
-      "field_eng": "succoutintercung",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutInterCuNG)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "avgtimeintercung",
-      "field_cn": "avgtimeintercung",
-      "field_eng": "avgtimeintercung",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AvgTimeInterCuNG)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "canceloutintercung",
-      "field_cn": "canceloutintercung",
-      "field_eng": "canceloutintercung",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_CancelOutInterCuNG)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutintercuxn",
-      "field_cn": "attoutintercuxn",
-      "field_eng": "attoutintercuxn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutInterCuXn)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutprepintercuxn",
-      "field_cn": "succoutprepintercuxn",
-      "field_eng": "succoutprepintercuxn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutPrepInterCuXn)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutexecintercuxn",
-      "field_cn": "attoutexecintercuxn",
-      "field_eng": "attoutexecintercuxn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutExecInterCuXn)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutintercuxn",
-      "field_cn": "succoutintercuxn",
-      "field_eng": "succoutintercuxn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutInterCuXn)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "avgtimeintercuxn",
-      "field_cn": "avgtimeintercuxn",
-      "field_eng": "avgtimeintercuxn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AvgTimeInterCuXn)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "canceloutintercuxn",
-      "field_cn": "canceloutintercuxn",
-      "field_eng": "canceloutintercuxn",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_CancelOutInterCuXn)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutintracuinterdu",
-      "field_cn": "attoutintracuinterdu",
-      "field_eng": "attoutintracuinterdu",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutIntraCUInterDU)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutintracuinterdu",
-      "field_cn": "succoutintracuinterdu",
-      "field_eng": "succoutintracuinterdu",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutIntraCUInterDU)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutcuintradu",
-      "field_cn": "attoutcuintradu",
-      "field_eng": "attoutcuintradu",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutCUIntraDU)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutintradu",
-      "field_cn": "succoutintradu",
-      "field_eng": "succoutintradu",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutIntraDU)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutexecintrafreq",
-      "field_cn": "attoutexecintrafreq",
-      "field_eng": "attoutexecintrafreq",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutExecIntraFreq)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutintrafreq",
-      "field_cn": "succoutintrafreq",
-      "field_eng": "succoutintrafreq",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutIntraFreq)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attoutexecinterfreq",
-      "field_cn": "attoutexecinterfreq",
-      "field_eng": "attoutexecinterfreq",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttOutExecInterFreq)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succoutinterfreq",
-      "field_cn": "succoutinterfreq",
-      "field_eng": "succoutinterfreq",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccOutInterFreq)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "failout",
-      "field_cn": "failout",
-      "field_eng": "failout",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_FailOut)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attprepinc",
-      "field_cn": "attprepinc",
-      "field_eng": "attprepinc",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_AttPrepInc)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succprepinc",
-      "field_cn": "succprepinc",
-      "field_eng": "succprepinc",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccPrepInc)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "failprepinc",
-      "field_cn": "failprepinc",
-      "field_eng": "failprepinc",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_FailPrepInc)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succexecinc",
-      "field_cn": "succexecinc",
-      "field_eng": "succexecinc",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(HO_SuccExecInc)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "attouteutran",
-      "field_cn": "attouteutran",
-      "field_eng": "attouteutran",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(IRATHO_AttOutEutran)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "succprepouteutran",
-      "field_cn": "succprepouteutran",
-      "field_eng": "succprepouteutran",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(IRATHO_SuccPrepOutEutran)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "failprepouteutran",
-      "field_cn": "failprepouteutran",
-      "field_eng": "failprepouteutran",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(IRATHO_FailPrepOutEutran)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "failprepouteutran_cause",
-      "field_cn": "failprepouteutran_cause",
-      "field_eng": "failprepouteutran_cause",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "failprepouteutran_cause"
     },
     {
       "name": "succouteutran",
-      "field_cn": "succouteutran",
-      "field_eng": "succouteutran",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(IRATHO_SuccOutEutran)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "avgtimeouteutran",
-      "field_cn": "avgtimeouteutran",
-      "field_eng": "avgtimeouteutran",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(IRATHO_AvgTimeOutEutran)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "avgtimeouteutran_exec",
-      "field_cn": "avgtimeouteutran_exec",
-      "field_eng": "avgtimeouteutran_exec",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(IRATHO_AvgTimeOutEutran_Exec)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "pagreceived_ng",
-      "field_cn": "pagreceived_ng",
-      "field_eng": "pagreceived_ng",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(PAG_PagReceived_NG)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "connestabatt",
-      "field_cn": "connestabatt",
-      "field_eng": "connestabatt",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(NGSIG_ConnEstabAtt)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
       "name": "connestabsucc",
-      "field_cn": "connestabsucc",
-      "field_eng": "connestabsucc",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(NGSIG_ConnEstabSucc)",
-      "related_group": "related_rdn01",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi1",
-      "field_cn": "nbrattestab_5qi1",
-      "field_eng": "nbrattestab_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi10",
-      "field_cn": "nbrattestab_5qi10",
-      "field_eng": "nbrattestab_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi2",
-      "field_cn": "nbrattestab_5qi2",
-      "field_eng": "nbrattestab_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi3",
-      "field_cn": "nbrattestab_5qi3",
-      "field_eng": "nbrattestab_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi4",
-      "field_cn": "nbrattestab_5qi4",
-      "field_eng": "nbrattestab_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi5",
-      "field_cn": "nbrattestab_5qi5",
-      "field_eng": "nbrattestab_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi6",
-      "field_cn": "nbrattestab_5qi6",
-      "field_eng": "nbrattestab_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi7",
-      "field_cn": "nbrattestab_5qi7",
-      "field_eng": "nbrattestab_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi8",
-      "field_cn": "nbrattestab_5qi8",
-      "field_eng": "nbrattestab_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattestab_5qi9",
-      "field_cn": "nbrattestab_5qi9",
-      "field_eng": "nbrattestab_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi1",
-      "field_cn": "nbrsuccestab_5qi1",
-      "field_eng": "nbrsuccestab_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi10",
-      "field_cn": "nbrsuccestab_5qi10",
-      "field_eng": "nbrsuccestab_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi2",
-      "field_cn": "nbrsuccestab_5qi2",
-      "field_eng": "nbrsuccestab_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi3",
-      "field_cn": "nbrsuccestab_5qi3",
-      "field_eng": "nbrsuccestab_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi4",
-      "field_cn": "nbrsuccestab_5qi4",
-      "field_eng": "nbrsuccestab_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi5",
-      "field_cn": "nbrsuccestab_5qi5",
-      "field_eng": "nbrsuccestab_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi6",
-      "field_cn": "nbrsuccestab_5qi6",
-      "field_eng": "nbrsuccestab_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi7",
-      "field_cn": "nbrsuccestab_5qi7",
-      "field_eng": "nbrsuccestab_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi8",
-      "field_cn": "nbrsuccestab_5qi8",
-      "field_eng": "nbrsuccestab_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccestab_5qi9",
-      "field_cn": "nbrsuccestab_5qi9",
-      "field_eng": "nbrsuccestab_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi1",
-      "field_cn": "nbrattmod_5qi1",
-      "field_eng": "nbrattmod_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi10",
-      "field_cn": "nbrattmod_5qi10",
-      "field_eng": "nbrattmod_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi2",
-      "field_cn": "nbrattmod_5qi2",
-      "field_eng": "nbrattmod_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi3",
-      "field_cn": "nbrattmod_5qi3",
-      "field_eng": "nbrattmod_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi4",
-      "field_cn": "nbrattmod_5qi4",
-      "field_eng": "nbrattmod_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi5",
-      "field_cn": "nbrattmod_5qi5",
-      "field_eng": "nbrattmod_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi6",
-      "field_cn": "nbrattmod_5qi6",
-      "field_eng": "nbrattmod_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi7",
-      "field_cn": "nbrattmod_5qi7",
-      "field_eng": "nbrattmod_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi8",
-      "field_cn": "nbrattmod_5qi8",
-      "field_eng": "nbrattmod_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrattmod_5qi9",
-      "field_cn": "nbrattmod_5qi9",
-      "field_eng": "nbrattmod_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi1",
-      "field_cn": "nbrsuccmod_5qi1",
-      "field_eng": "nbrsuccmod_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi10",
-      "field_cn": "nbrsuccmod_5qi10",
-      "field_eng": "nbrsuccmod_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi2",
-      "field_cn": "nbrsuccmod_5qi2",
-      "field_eng": "nbrsuccmod_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi3",
-      "field_cn": "nbrsuccmod_5qi3",
-      "field_eng": "nbrsuccmod_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi4",
-      "field_cn": "nbrsuccmod_5qi4",
-      "field_eng": "nbrsuccmod_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi5",
-      "field_cn": "nbrsuccmod_5qi5",
-      "field_eng": "nbrsuccmod_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi6",
-      "field_cn": "nbrsuccmod_5qi6",
-      "field_eng": "nbrsuccmod_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi7",
-      "field_cn": "nbrsuccmod_5qi7",
-      "field_eng": "nbrsuccmod_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi8",
-      "field_cn": "nbrsuccmod_5qi8",
-      "field_eng": "nbrsuccmod_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrsuccmod_5qi9",
-      "field_cn": "nbrsuccmod_5qi9",
-      "field_eng": "nbrsuccmod_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi1",
-      "field_cn": "nbrreqrelamfinitnoho_5qi1",
-      "field_eng": "nbrreqrelamfinitnoho_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi10",
-      "field_cn": "nbrreqrelamfinitnoho_5qi10",
-      "field_eng": "nbrreqrelamfinitnoho_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi2",
-      "field_cn": "nbrreqrelamfinitnoho_5qi2",
-      "field_eng": "nbrreqrelamfinitnoho_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi3",
-      "field_cn": "nbrreqrelamfinitnoho_5qi3",
-      "field_eng": "nbrreqrelamfinitnoho_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi4",
-      "field_cn": "nbrreqrelamfinitnoho_5qi4",
-      "field_eng": "nbrreqrelamfinitnoho_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi5",
-      "field_cn": "nbrreqrelamfinitnoho_5qi5",
-      "field_eng": "nbrreqrelamfinitnoho_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi6",
-      "field_cn": "nbrreqrelamfinitnoho_5qi6",
-      "field_eng": "nbrreqrelamfinitnoho_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi7",
-      "field_cn": "nbrreqrelamfinitnoho_5qi7",
-      "field_eng": "nbrreqrelamfinitnoho_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi8",
-      "field_cn": "nbrreqrelamfinitnoho_5qi8",
-      "field_eng": "nbrreqrelamfinitnoho_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelamfinitnoho_5qi9",
-      "field_cn": "nbrreqrelamfinitnoho_5qi9",
-      "field_eng": "nbrreqrelamfinitnoho_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi1",
-      "field_cn": "nbrreqrelgnbbyho_5qi1",
-      "field_eng": "nbrreqrelgnbbyho_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi10",
-      "field_cn": "nbrreqrelgnbbyho_5qi10",
-      "field_eng": "nbrreqrelgnbbyho_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi2",
-      "field_cn": "nbrreqrelgnbbyho_5qi2",
-      "field_eng": "nbrreqrelgnbbyho_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi3",
-      "field_cn": "nbrreqrelgnbbyho_5qi3",
-      "field_eng": "nbrreqrelgnbbyho_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi4",
-      "field_cn": "nbrreqrelgnbbyho_5qi4",
-      "field_eng": "nbrreqrelgnbbyho_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi5",
-      "field_cn": "nbrreqrelgnbbyho_5qi5",
-      "field_eng": "nbrreqrelgnbbyho_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi6",
-      "field_cn": "nbrreqrelgnbbyho_5qi6",
-      "field_eng": "nbrreqrelgnbbyho_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi7",
-      "field_cn": "nbrreqrelgnbbyho_5qi7",
-      "field_eng": "nbrreqrelgnbbyho_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi8",
-      "field_cn": "nbrreqrelgnbbyho_5qi8",
-      "field_eng": "nbrreqrelgnbbyho_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnbbyho_5qi9",
-      "field_cn": "nbrreqrelgnbbyho_5qi9",
-      "field_eng": "nbrreqrelgnbbyho_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi1",
-      "field_cn": "nbrmaxestab_5qi1",
-      "field_eng": "nbrmaxestab_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi10",
-      "field_cn": "nbrmaxestab_5qi10",
-      "field_eng": "nbrmaxestab_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi2",
-      "field_cn": "nbrmaxestab_5qi2",
-      "field_eng": "nbrmaxestab_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi3",
-      "field_cn": "nbrmaxestab_5qi3",
-      "field_eng": "nbrmaxestab_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi4",
-      "field_cn": "nbrmaxestab_5qi4",
-      "field_eng": "nbrmaxestab_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi5",
-      "field_cn": "nbrmaxestab_5qi5",
-      "field_eng": "nbrmaxestab_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi6",
-      "field_cn": "nbrmaxestab_5qi6",
-      "field_eng": "nbrmaxestab_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi7",
-      "field_cn": "nbrmaxestab_5qi7",
-      "field_eng": "nbrmaxestab_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi8",
-      "field_cn": "nbrmaxestab_5qi8",
-      "field_eng": "nbrmaxestab_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmaxestab_5qi9",
-      "field_cn": "nbrmaxestab_5qi9",
-      "field_eng": "nbrmaxestab_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "related_group": "related_rdn01"
+    },
+    {
+      "name": "nbrattestab_5qi1"
+    },
+    {
+      "name": "nbrattestab_5qi10"
+    },
+    {
+      "name": "nbrattestab_5qi2"
+    },
+    {
+      "name": "nbrattestab_5qi3"
+    },
+    {
+      "name": "nbrattestab_5qi4"
+    },
+    {
+      "name": "nbrattestab_5qi5"
+    },
+    {
+      "name": "nbrattestab_5qi6"
+    },
+    {
+      "name": "nbrattestab_5qi7"
+    },
+    {
+      "name": "nbrattestab_5qi8"
+    },
+    {
+      "name": "nbrattestab_5qi9"
+    },
+    {
+      "name": "nbrsuccestab_5qi1"
+    },
+    {
+      "name": "nbrsuccestab_5qi10"
+    },
+    {
+      "name": "nbrsuccestab_5qi2"
+    },
+    {
+      "name": "nbrsuccestab_5qi3"
+    },
+    {
+      "name": "nbrsuccestab_5qi4"
+    },
+    {
+      "name": "nbrsuccestab_5qi5"
+    },
+    {
+      "name": "nbrsuccestab_5qi6"
+    },
+    {
+      "name": "nbrsuccestab_5qi7"
+    },
+    {
+      "name": "nbrsuccestab_5qi8"
+    },
+    {
+      "name": "nbrsuccestab_5qi9"
+    },
+    {
+      "name": "nbrattmod_5qi1"
+    },
+    {
+      "name": "nbrattmod_5qi10"
+    },
+    {
+      "name": "nbrattmod_5qi2"
+    },
+    {
+      "name": "nbrattmod_5qi3"
+    },
+    {
+      "name": "nbrattmod_5qi4"
+    },
+    {
+      "name": "nbrattmod_5qi5"
+    },
+    {
+      "name": "nbrattmod_5qi6"
+    },
+    {
+      "name": "nbrattmod_5qi7"
+    },
+    {
+      "name": "nbrattmod_5qi8"
+    },
+    {
+      "name": "nbrattmod_5qi9"
+    },
+    {
+      "name": "nbrsuccmod_5qi1"
+    },
+    {
+      "name": "nbrsuccmod_5qi10"
+    },
+    {
+      "name": "nbrsuccmod_5qi2"
+    },
+    {
+      "name": "nbrsuccmod_5qi3"
+    },
+    {
+      "name": "nbrsuccmod_5qi4"
+    },
+    {
+      "name": "nbrsuccmod_5qi5"
+    },
+    {
+      "name": "nbrsuccmod_5qi6"
+    },
+    {
+      "name": "nbrsuccmod_5qi7"
+    },
+    {
+      "name": "nbrsuccmod_5qi8"
+    },
+    {
+      "name": "nbrsuccmod_5qi9"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi1"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi10"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi2"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi3"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi4"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi5"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi6"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi7"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi8"
+    },
+    {
+      "name": "nbrreqrelamfinitnoho_5qi9"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi1"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi10"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi2"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi3"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi4"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi5"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi6"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi7"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi8"
+    },
+    {
+      "name": "nbrreqrelgnbbyho_5qi9"
+    },
+    {
+      "name": "nbrmaxestab_5qi1"
+    },
+    {
+      "name": "nbrmaxestab_5qi10"
+    },
+    {
+      "name": "nbrmaxestab_5qi2"
+    },
+    {
+      "name": "nbrmaxestab_5qi3"
+    },
+    {
+      "name": "nbrmaxestab_5qi4"
+    },
+    {
+      "name": "nbrmaxestab_5qi5"
+    },
+    {
+      "name": "nbrmaxestab_5qi6"
+    },
+    {
+      "name": "nbrmaxestab_5qi7"
+    },
+    {
+      "name": "nbrmaxestab_5qi8"
+    },
+    {
+      "name": "nbrmaxestab_5qi9"
     },
     {
       "name": "nbrmeanestab_5qi1",
-      "field_cn": "nbrmeanestab_5qi1",
-      "field_eng": "nbrmeanestab_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(Flow_NbrMeanEstab_1)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "nbrmeanestab_5qi10",
-      "field_cn": "nbrmeanestab_5qi10",
-      "field_eng": "nbrmeanestab_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "nbrmeanestab_5qi10"
     },
     {
       "name": "nbrmeanestab_5qi2",
-      "field_cn": "nbrmeanestab_5qi2",
-      "field_eng": "nbrmeanestab_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(FLOW_NBRMEANESTAB_2)",
-      "related_group": "related_rdn01",
-      "description": ""
-    },
-    {
-      "name": "nbrmeanestab_5qi3",
-      "field_cn": "nbrmeanestab_5qi3",
-      "field_eng": "nbrmeanestab_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmeanestab_5qi4",
-      "field_cn": "nbrmeanestab_5qi4",
-      "field_eng": "nbrmeanestab_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmeanestab_5qi5",
-      "field_cn": "nbrmeanestab_5qi5",
-      "field_eng": "nbrmeanestab_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmeanestab_5qi6",
-      "field_cn": "nbrmeanestab_5qi6",
-      "field_eng": "nbrmeanestab_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmeanestab_5qi7",
-      "field_cn": "nbrmeanestab_5qi7",
-      "field_eng": "nbrmeanestab_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmeanestab_5qi8",
-      "field_cn": "nbrmeanestab_5qi8",
-      "field_eng": "nbrmeanestab_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrmeanestab_5qi9",
-      "field_cn": "nbrmeanestab_5qi9",
-      "field_eng": "nbrmeanestab_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi1",
-      "field_cn": "nbrleft_5qi1",
-      "field_eng": "nbrleft_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi10",
-      "field_cn": "nbrleft_5qi10",
-      "field_eng": "nbrleft_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi2",
-      "field_cn": "nbrleft_5qi2",
-      "field_eng": "nbrleft_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi3",
-      "field_cn": "nbrleft_5qi3",
-      "field_eng": "nbrleft_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi4",
-      "field_cn": "nbrleft_5qi4",
-      "field_eng": "nbrleft_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi5",
-      "field_cn": "nbrleft_5qi5",
-      "field_eng": "nbrleft_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi6",
-      "field_cn": "nbrleft_5qi6",
-      "field_eng": "nbrleft_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi7",
-      "field_cn": "nbrleft_5qi7",
-      "field_eng": "nbrleft_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi8",
-      "field_cn": "nbrleft_5qi8",
-      "field_eng": "nbrleft_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrleft_5qi9",
-      "field_cn": "nbrleft_5qi9",
-      "field_eng": "nbrleft_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi1",
-      "field_cn": "nbrhoinc_5qi1",
-      "field_eng": "nbrhoinc_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi10",
-      "field_cn": "nbrhoinc_5qi10",
-      "field_eng": "nbrhoinc_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi2",
-      "field_cn": "nbrhoinc_5qi2",
-      "field_eng": "nbrhoinc_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi3",
-      "field_cn": "nbrhoinc_5qi3",
-      "field_eng": "nbrhoinc_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi4",
-      "field_cn": "nbrhoinc_5qi4",
-      "field_eng": "nbrhoinc_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi5",
-      "field_cn": "nbrhoinc_5qi5",
-      "field_eng": "nbrhoinc_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi6",
-      "field_cn": "nbrhoinc_5qi6",
-      "field_eng": "nbrhoinc_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi7",
-      "field_cn": "nbrhoinc_5qi7",
-      "field_eng": "nbrhoinc_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi8",
-      "field_cn": "nbrhoinc_5qi8",
-      "field_eng": "nbrhoinc_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrhoinc_5qi9",
-      "field_cn": "nbrhoinc_5qi9",
-      "field_eng": "nbrhoinc_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi1",
-      "field_cn": "hoadmitfail_5qi1",
-      "field_eng": "hoadmitfail_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi10",
-      "field_cn": "hoadmitfail_5qi10",
-      "field_eng": "hoadmitfail_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi2",
-      "field_cn": "hoadmitfail_5qi2",
-      "field_eng": "hoadmitfail_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi3",
-      "field_cn": "hoadmitfail_5qi3",
-      "field_eng": "hoadmitfail_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi4",
-      "field_cn": "hoadmitfail_5qi4",
-      "field_eng": "hoadmitfail_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi5",
-      "field_cn": "hoadmitfail_5qi5",
-      "field_eng": "hoadmitfail_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi6",
-      "field_cn": "hoadmitfail_5qi6",
-      "field_eng": "hoadmitfail_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi7",
-      "field_cn": "hoadmitfail_5qi7",
-      "field_eng": "hoadmitfail_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi8",
-      "field_cn": "hoadmitfail_5qi8",
-      "field_eng": "hoadmitfail_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "hoadmitfail_5qi9",
-      "field_cn": "hoadmitfail_5qi9",
-      "field_eng": "hoadmitfail_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi1",
-      "field_cn": "nbrreqrelgnb_5qi1",
-      "field_eng": "nbrreqrelgnb_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi10",
-      "field_cn": "nbrreqrelgnb_5qi10",
-      "field_eng": "nbrreqrelgnb_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi2",
-      "field_cn": "nbrreqrelgnb_5qi2",
-      "field_eng": "nbrreqrelgnb_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi3",
-      "field_cn": "nbrreqrelgnb_5qi3",
-      "field_eng": "nbrreqrelgnb_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi4",
-      "field_cn": "nbrreqrelgnb_5qi4",
-      "field_eng": "nbrreqrelgnb_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi5",
-      "field_cn": "nbrreqrelgnb_5qi5",
-      "field_eng": "nbrreqrelgnb_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi6",
-      "field_cn": "nbrreqrelgnb_5qi6",
-      "field_eng": "nbrreqrelgnb_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi7",
-      "field_cn": "nbrreqrelgnb_5qi7",
-      "field_eng": "nbrreqrelgnb_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi8",
-      "field_cn": "nbrreqrelgnb_5qi8",
-      "field_eng": "nbrreqrelgnb_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_5qi9",
-      "field_cn": "nbrreqrelgnb_5qi9",
-      "field_eng": "nbrreqrelgnb_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi1",
-      "field_cn": "nbrreqrelgnb_normal_5qi1",
-      "field_eng": "nbrreqrelgnb_normal_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi10",
-      "field_cn": "nbrreqrelgnb_normal_5qi10",
-      "field_eng": "nbrreqrelgnb_normal_5qi10",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi2",
-      "field_cn": "nbrreqrelgnb_normal_5qi2",
-      "field_eng": "nbrreqrelgnb_normal_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi3",
-      "field_cn": "nbrreqrelgnb_normal_5qi3",
-      "field_eng": "nbrreqrelgnb_normal_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi4",
-      "field_cn": "nbrreqrelgnb_normal_5qi4",
-      "field_eng": "nbrreqrelgnb_normal_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi5",
-      "field_cn": "nbrreqrelgnb_normal_5qi5",
-      "field_eng": "nbrreqrelgnb_normal_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi6",
-      "field_cn": "nbrreqrelgnb_normal_5qi6",
-      "field_eng": "nbrreqrelgnb_normal_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi7",
-      "field_cn": "nbrreqrelgnb_normal_5qi7",
-      "field_eng": "nbrreqrelgnb_normal_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi8",
-      "field_cn": "nbrreqrelgnb_normal_5qi8",
-      "field_eng": "nbrreqrelgnb_normal_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "nbrreqrelgnb_normal_5qi9",
-      "field_cn": "nbrreqrelgnb_normal_5qi9",
-      "field_eng": "nbrreqrelgnb_normal_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi1",
-      "field_cn": "pdcp_nbrpktul_5qi1",
-      "field_eng": "pdcp_nbrpktul_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi2",
-      "field_cn": "pdcp_nbrpktul_5qi2",
-      "field_eng": "pdcp_nbrpktul_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi3",
-      "field_cn": "pdcp_nbrpktul_5qi3",
-      "field_eng": "pdcp_nbrpktul_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi4",
-      "field_cn": "pdcp_nbrpktul_5qi4",
-      "field_eng": "pdcp_nbrpktul_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi5",
-      "field_cn": "pdcp_nbrpktul_5qi5",
-      "field_eng": "pdcp_nbrpktul_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi6",
-      "field_cn": "pdcp_nbrpktul_5qi6",
-      "field_eng": "pdcp_nbrpktul_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi7",
-      "field_cn": "pdcp_nbrpktul_5qi7",
-      "field_eng": "pdcp_nbrpktul_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi8",
-      "field_cn": "pdcp_nbrpktul_5qi8",
-      "field_eng": "pdcp_nbrpktul_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktul_5qi9",
-      "field_cn": "pdcp_nbrpktul_5qi9",
-      "field_eng": "pdcp_nbrpktul_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi1",
-      "field_cn": "pdcp_nbrpktlossul_5qi1",
-      "field_eng": "pdcp_nbrpktlossul_5qi1",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi2",
-      "field_cn": "pdcp_nbrpktlossul_5qi2",
-      "field_eng": "pdcp_nbrpktlossul_5qi2",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi3",
-      "field_cn": "pdcp_nbrpktlossul_5qi3",
-      "field_eng": "pdcp_nbrpktlossul_5qi3",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi4",
-      "field_cn": "pdcp_nbrpktlossul_5qi4",
-      "field_eng": "pdcp_nbrpktlossul_5qi4",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi5",
-      "field_cn": "pdcp_nbrpktlossul_5qi5",
-      "field_eng": "pdcp_nbrpktlossul_5qi5",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi6",
-      "field_cn": "pdcp_nbrpktlossul_5qi6",
-      "field_eng": "pdcp_nbrpktlossul_5qi6",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi7",
-      "field_cn": "pdcp_nbrpktlossul_5qi7",
-      "field_eng": "pdcp_nbrpktlossul_5qi7",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi8",
-      "field_cn": "pdcp_nbrpktlossul_5qi8",
-      "field_eng": "pdcp_nbrpktlossul_5qi8",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
-    },
-    {
-      "name": "pdcp_nbrpktlossul_5qi9",
-      "field_cn": "pdcp_nbrpktlossul_5qi9",
-      "field_eng": "pdcp_nbrpktlossul_5qi9",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "related_group": "related_rdn01"
+    },
+    {
+      "name": "nbrmeanestab_5qi3"
+    },
+    {
+      "name": "nbrmeanestab_5qi4"
+    },
+    {
+      "name": "nbrmeanestab_5qi5"
+    },
+    {
+      "name": "nbrmeanestab_5qi6"
+    },
+    {
+      "name": "nbrmeanestab_5qi7"
+    },
+    {
+      "name": "nbrmeanestab_5qi8"
+    },
+    {
+      "name": "nbrmeanestab_5qi9"
+    },
+    {
+      "name": "nbrleft_5qi1"
+    },
+    {
+      "name": "nbrleft_5qi10"
+    },
+    {
+      "name": "nbrleft_5qi2"
+    },
+    {
+      "name": "nbrleft_5qi3"
+    },
+    {
+      "name": "nbrleft_5qi4"
+    },
+    {
+      "name": "nbrleft_5qi5"
+    },
+    {
+      "name": "nbrleft_5qi6"
+    },
+    {
+      "name": "nbrleft_5qi7"
+    },
+    {
+      "name": "nbrleft_5qi8"
+    },
+    {
+      "name": "nbrleft_5qi9"
+    },
+    {
+      "name": "nbrhoinc_5qi1"
+    },
+    {
+      "name": "nbrhoinc_5qi10"
+    },
+    {
+      "name": "nbrhoinc_5qi2"
+    },
+    {
+      "name": "nbrhoinc_5qi3"
+    },
+    {
+      "name": "nbrhoinc_5qi4"
+    },
+    {
+      "name": "nbrhoinc_5qi5"
+    },
+    {
+      "name": "nbrhoinc_5qi6"
+    },
+    {
+      "name": "nbrhoinc_5qi7"
+    },
+    {
+      "name": "nbrhoinc_5qi8"
+    },
+    {
+      "name": "nbrhoinc_5qi9"
+    },
+    {
+      "name": "hoadmitfail_5qi1"
+    },
+    {
+      "name": "hoadmitfail_5qi10"
+    },
+    {
+      "name": "hoadmitfail_5qi2"
+    },
+    {
+      "name": "hoadmitfail_5qi3"
+    },
+    {
+      "name": "hoadmitfail_5qi4"
+    },
+    {
+      "name": "hoadmitfail_5qi5"
+    },
+    {
+      "name": "hoadmitfail_5qi6"
+    },
+    {
+      "name": "hoadmitfail_5qi7"
+    },
+    {
+      "name": "hoadmitfail_5qi8"
+    },
+    {
+      "name": "hoadmitfail_5qi9"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi1"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi10"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi2"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi3"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi4"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi5"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi6"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi7"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi8"
+    },
+    {
+      "name": "nbrreqrelgnb_5qi9"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi1"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi10"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi2"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi3"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi4"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi5"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi6"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi7"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi8"
+    },
+    {
+      "name": "nbrreqrelgnb_normal_5qi9"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi1"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi2"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi3"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi4"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi5"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi6"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi7"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi8"
+    },
+    {
+      "name": "pdcp_nbrpktul_5qi9"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi1"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi2"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi3"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi4"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi5"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi6"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi7"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi8"
+    },
+    {
+      "name": "pdcp_nbrpktlossul_5qi9"
     },
     {
       "name": "carriershutdowntime",
-      "field_cn": "carriershutdowntime",
-      "field_eng": "carriershutdowntime",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(EE_CarrierShutdownTime)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "upoctdl",
-      "field_cn": "upoctdl",
-      "field_eng": "upoctdl",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "upoctdl"
     },
     {
-      "name": "nbrreqrelgnb_causeuserinactivity",
-      "field_cn": "nbrreqrelgnb_causeuserinactivity",
-      "field_eng": "nbrreqrelgnb_causeuserinactivity",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "nbrreqrelgnb_causeuserinactivity"
     },
     {
       "name": "context_nbrleft",
-      "field_cn": "context_nbrleft",
-      "field_eng": "context_nbrleft",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
       "expression": "max(CONTEXT_NbrLeft)",
-      "related_group": "related_rdn01",
-      "description": ""
+      "related_group": "related_rdn01"
     },
     {
-      "name": "failprepouteutran_causewaithorsptimeout",
-      "field_cn": "failprepouteutran_causewaithorsptimeout",
-      "field_eng": "failprepouteutran_causewaithorsptimeout",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "failprepouteutran_causewaithorsptimeout"
     },
     {
-      "name": "flow_nbrfailestab_causeerrorpara",
-      "field_cn": "flow_nbrfailestab_causeerrorpara",
-      "field_eng": "flow_nbrfailestab_causeerrorpara",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "flow_nbrfailestab_causeerrorpara"
     },
     {
-      "name": "flow_nbrfailestab_causehointerrupt",
-      "field_cn": "flow_nbrfailestab_causehointerrupt",
-      "field_eng": "flow_nbrfailestab_causehointerrupt",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "flow_nbrfailestab_causehointerrupt"
     },
     {
-      "name": "flow_nbrfailestab_causeother",
-      "field_cn": "flow_nbrfailestab_causeother",
-      "field_eng": "flow_nbrfailestab_causeother",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "flow_nbrfailestab_causeother"
     },
     {
-      "name": "flow_nbrfailmod_causeerrorpara",
-      "field_cn": "flow_nbrfailmod_causeerrorpara",
-      "field_eng": "flow_nbrfailmod_causeerrorpara",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "flow_nbrfailmod_causeerrorpara"
     },
     {
-      "name": "flow_nbrfailmod_causehointerupt",
-      "field_cn": "flow_nbrfailmod_causehointerupt",
-      "field_eng": "flow_nbrfailmod_causehointerupt",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "flow_nbrfailmod_causehointerupt"
     },
     {
-      "name": "flow_nbrfailmod_causeother",
-      "field_cn": "flow_nbrfailmod_causeother",
-      "field_eng": "flow_nbrfailmod_causeother",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "flow_nbrfailmod_causeother"
     },
     {
-      "name": "flow_nbrfailmod_causeradionetwork",
-      "field_cn": "flow_nbrfailmod_causeradionetwork",
-      "field_eng": "flow_nbrfailmod_causeradionetwork",
-      "data_type": "SQL_VARCHAR(255)",
-      "constraint": "0",
-      "default_value": "",
-      "expression": "",
-      "related_group": "",
-      "description": ""
+      "name": "flow_nbrfailmod_causeradionetwork"
     }
   ]
 }

@@ -63,18 +63,20 @@ def split_csv(value):
     return parts
 
 
-def field_rule(row, name_key):
+def compact(item):
     return {
+        key: value
+        for key, value in item.items()
+        if value is not None and value != "" and value != []
+    }
+
+
+def field_rule(row, name_key):
+    return compact({
         "name": row.get(name_key, "").strip(),
-        "field_cn": row.get("field_name_cn", "").strip(),
-        "field_eng": row.get("field_name_eng", "").strip(),
-        "data_type": row.get("field_datatype", "").strip(),
-        "constraint": row.get("Constraint", "").strip(),
-        "default_value": row.get("default_value", "").strip(),
         "expression": row.get("exp_select", "").strip(),
         "related_group": row.get("related_rdn", "").strip(),
-        "description": row.get("description", "").strip(),
-    }
+    })
 
 
 def export_rule(workbook_path, sheet_name):
@@ -86,17 +88,14 @@ def export_rule(workbook_path, sheet_name):
         if not row.get("group_name") or row.get("table_group_name") == "self":
             continue
         groups.append(
-            {
+            compact({
                 "name": row.get("table_group_name", "").strip(),
-                "group_name": row.get("group_name", "").strip(),
                 "enabled": row.get("group_flag", "") not in {"", "0", "0.0"},
                 "source_table": row.get("exp_from", "").strip(),
                 "where_expr": row.get("exp_where", "").strip(),
                 "group_by": split_csv(row.get("exp_groupby", "")),
-                "order_by": split_csv(row.get("exp_orderby", "")),
                 "join_keys": split_csv(row.get("exp_join", "")),
-                "transform_type": row.get("transform_type", "").strip(),
-            }
+            })
         )
 
     temp_fields = [field_rule(row, "tmp_store_field") for row in rows_after(sheet, "tmp_store_field")]
