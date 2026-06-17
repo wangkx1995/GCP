@@ -4,16 +4,17 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use indexmap::IndexMap;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
-mod crc64;
-mod util;
 mod config;
+mod crc64;
+mod load_config;
 mod parser;
 mod tpd;
+mod util;
 mod writer;
 use crate::config::ContextData;
 
@@ -30,6 +31,12 @@ struct Cli {
     config_dir: PathBuf,
     #[arg(long)]
     output_dir: PathBuf,
+    #[arg(long)]
+    collect_id: String,
+    #[arg(long, value_enum)]
+    load_type: LoadType,
+    #[arg(long, default_value = "load.toml")]
+    load_config: PathBuf,
     #[arg(long, default_value = "|")]
     output_delimiter: String,
     #[arg(long, default_value = "UTF-8")]
@@ -42,11 +49,19 @@ struct Cli {
     rules_dir: Option<PathBuf>,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum LoadType {
+    Postgresql,
+    Clickhouse,
+}
+
 fn main() -> Result<()> {
     let start = Instant::now();
     let cli = Cli::parse();
     let mapping_path = cli.config_dir.join("mapping_dx.ini");
     let output_delimiter = parse_delimiter(&cli.output_delimiter)?;
+    let load_config = load_config::load_config(&cli.load_config)
+        .with_context(|| format!("failed to parse {}", cli.load_config.display()))?;
     let mapping = config::parse_mapping_config(&mapping_path)
         .with_context(|| format!("failed to parse {}", mapping_path.display()))?;
     let ctx = ContextData {
@@ -86,7 +101,15 @@ fn main() -> Result<()> {
             .with_context(|| format!("failed to execute rule {}", rule_file.display()))?;
     }
 
-    writer::write_tables(&ctx.mapping, &tables, &cli.output_dir, output_delimiter)?;
+    writer::write_tables(
+        &ctx.mapping,
+        &tables,
+        &cli.output_dir,
+        output_delimiter,
+        &cli.collect_id,
+        cli.load_type,
+        &load_config,
+    )?;
     eprintln!("[done] {:.2}s total", start.elapsed().as_secs_f64());
     Ok(())
 }

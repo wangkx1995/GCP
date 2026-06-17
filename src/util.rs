@@ -49,11 +49,9 @@ pub fn column_name_format(value: &str) -> String {
         .replace("&gt;", "")
         .replace("&lt;", "")
         .replace("><", "_")
-        .replace('>', "")
-        .replace('<', "")
+        .replace(['>', '<'], "")
         .replace("][", "_")
-        .replace('[', "")
-        .replace(']', "")
+        .replace(['[', ']'], "")
         .replace('.', "_")
 }
 

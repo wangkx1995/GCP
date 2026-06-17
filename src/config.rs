@@ -40,7 +40,7 @@ pub fn parse_mapping_config(path: &Path) -> Result<MappingConfig> {
             "tablemapping" => {
                 let parts = split_mapping_line(line);
                 if parts.len() >= 2 {
-                    if parts[0].to_ascii_lowercase() == "filenum" {
+                    if parts[0].eq_ignore_ascii_case("filenum") {
                         filenum = parts[1].parse::<i32>().unwrap_or(-1);
                     } else {
                         table_mapping

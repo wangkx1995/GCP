@@ -1,0 +1,16 @@
+[clickhouse]
+client = "clickhouse-client"
+host = "${CLICKHOUSE_HOST:-127.0.0.1}"
+port = 9000
+user = "${CLICKHOUSE_USER:-default}"
+password = "${CLICKHOUSE_PASSWORD:-}"
+database = "${CLICKHOUSE_DATABASE:-default}"
+table_name_case = "lower"
+
+[postgresql]
+client = "psql"
+host = "${PG_HOST:-127.0.0.1}"
+port = 5432
+user = "${PG_USER:-postgres}"
+password = "${PG_PASSWORD:-}"
+database = "${PG_DATABASE:-postgres}"

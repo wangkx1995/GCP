@@ -15,11 +15,11 @@ fn crc64_table() -> &'static [(u32, u32); 256] {
             let mut h2 = 0u32;
             let mut v = i;
             for _ in 0..8 {
-                h1 = h1 << 1;
+                h1 <<= 1;
                 if (h2 & 0x8000_0000) != 0 {
                     h1 |= 1;
                 }
-                h2 = h2 << 1;
+                h2 <<= 1;
                 if (v & 0x80) != 0 {
                     h1 ^= P1;
                     h2 ^= P2;

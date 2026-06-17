@@ -272,7 +272,7 @@ fn max_value(rows: &[&Row], expr: &str, context: &Row, output: Option<&Row>) -> 
             continue;
         }
         if let Ok(number) = value.parse::<f64>() {
-            if best_number.map_or(true, |best| number > best) {
+            if best_number.is_none_or(|best| number > best) {
                 best_number = Some(number);
                 best = value;
             }
