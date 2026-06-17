@@ -2,27 +2,36 @@
 
 ## 概述
 
-`src/source.rs` 是 `file-to-clickhouse` 的输入源解析模块，负责根据配置确定数据文件的来源路径。该模块支持三类输入源：
+`crates/remote-file-source` 是独立远程文件获取库，负责根据配置确定数据文件来源路径。该库支持三类输入源：
 
 - **本地文件** (`local`)：直接读取本地 CSV/CSV.gz 文件。
 - **FTP 远程文件** (`ftp`)：连接 FTP 服务器扫描目录、正则匹配、流式下载后再导入。
 - **SFTP 远程文件** (`sftp`)：连接 SFTP 服务器扫描目录、正则匹配、流式下载后再导入。
 
-无论远程还是本地，最终对外暴露的接口始终是一个 `Vec<PathBuf>` 列表，由上层调用者逐个导入。远程文件会先下载到本地缓存目录，再复用现有的 CSV 解析和 ClickHouse 写入流程。
+无论远程还是本地，最终对外暴露的接口始终是一个 `Vec<PathBuf>` 列表，由上层调用者逐个导入。远程文件会先下载到本地缓存目录，再复用现有 PM 解析、TPD 聚合和输出包流程。
+
+当前 PM 解析器通过以下参数选择输入模式：
+
+- `--input`：本地文件或目录模式。
+- `--source-config source.toml`：FTP/SFTP 远程模式。
+- `--scan-start-time "yyyy-MM-dd HH:mm:ss"`：远程模式必传，用于渲染 `${SCAN_START_TIME,...}`。
+
+`--input` 和 `--source-config` 互斥；远程模式缺少 `--scan-start-time` 时直接停止采集。
 
 ---
 
 ## 外部入口
 
-### `resolve_input_files(config, cli_file, scan_start_time) -> Result<Vec<PathBuf>>`
+### `remote_file_source::resolve_files(options) -> Result<Vec<PathBuf>>`
 
 这是模块的唯一公开函数。处理逻辑：
 
-1. **优先使用 CLI 传入的文件**：如果传了 `-f/--file`，直接检查文件是否存在，存在则返回单文件列表。
-2. **未传 `-f` 时走 `[source]` 配置**：根据 `source.type` 字段分发：
-   - `"local"` → 返回本地文件路径列表。
-   - `"ftp"` / `"sftp"` → 走完整远程文件解析流程。
-   - 其他值 → 返回错误"不支持的 source.type"。
+1. `local_input` 有值时走本地文件/目录模式。
+2. `source_config` 有值时走远程模式，根据 `source.type` 分发：
+   - `"ftp"` → FTP 扫描、匹配、下载。
+   - `"sftp"` → SFTP 扫描、匹配、下载。
+3. `local_input` 和 `source_config` 同时存在时报错。
+4. 两者都不存在时报错。
 
 ---
 
@@ -35,10 +44,10 @@
 ```
 resolve_remote_files()
    │
-   ├── validate_remote_config()        ← 校验配置完整性
+   ├── load_source_config()           ← 读取 TOML 并校验配置完整性
    ├── create_dir_all(download_dir)    ← 确保本地缓存目录存在
-   ├── cleanup_download_dir()         ← 清理过期缓存文件
-   ├── resolve_scan_start_time()      ← 确定 SCAN_START_TIME
+   ├── cleanup_download_dir()         ← 下载前清理过期缓存文件
+   ├── require scan_start_time        ← 远程模式必须由 CLI 传入
    ├── render_scan_start_time()       ← 渲染模板为日期字符串
    ├── Regex::new(rendered)           ← 编译正则
    ├── infer_scan_dir()               ← 推导扫描目录
@@ -53,47 +62,36 @@ resolve_remote_files()
        └── finalize + rename
 ```
 
-### 1. 配置校验 (`validate_remote_config`)
+### 1. 配置校验 (`load_source_config`)
 
 校验内容：
 
 ```
 - source.remote_pattern 不能为空
 - source.download_dir 不能为空
+- source.connect_retry 必须大于 0，默认 3
+- source.download_retry 必须大于 0，默认 3
+- source.retry_interval_secs 必须大于 0，默认 30
+- source.connect_timeout_secs 必须大于 0，默认 30
+- source.read_timeout_secs 必须大于 0，默认 300
+- source.connection.host 不能为空
+- source.connection.username 不能为空
+- source.connection.password 不能为空
 ```
 
-根据 `kind` 分支到：
+校验失败时返回明确字段名，例如 `source.retry_interval_secs must be greater than 0`。
 
-- **FTP** (`validate_ftp_config`)：校验 `host`、`port`、`username`、`password` 均非空。
-- **SFTP** (`validate_sftp_config`)：同上。
+### 2. 扫描开始时间解析
 
-校验失败时返回格式："配置错误: source.type=xxx 时必须配置 [xxx]"。
-
-### 2. 扫描开始时间解析 (`resolve_scan_start_time`)
-
-优先级（高到低）：
-
-1. CLI 参数 `--scan-start-time`
-2. 配置文件 `[variables].scan_start_time`
-3. 程序运行当天本地时间（兜底）
-
-返回值 `ResolvedScanStartTime` 包含：
-
-```rust
-struct ResolvedScanStartTime {
-    value: OffsetDateTime,        // 解析后的时间
-    source: &'static str,        // 来源描述："cli --scan-start-time" 等
-}
-```
+远程模式只接受 CLI 参数 `--scan-start-time`，配置文件中不提供兜底时间。缺少该参数时直接报错并停止采集。
 
 时间格式支持：
 
-- `yyyy-MM-dd HH:mm:ss` → 按 `+08:00` 时区解析
-- `yyyy-MM-dd` → 自动补 `00:00:00 +08:00`
+- `yyyy-MM-dd HH:mm:ss` → 作为本地无时区时间解析
 
 ### 3. 路径模板渲染 (`render_scan_start_time`)
 
-将 `source.remote_pattern` 中的 `${SCAN_START_TIME,格式}` 替换为实际日期字符串。
+将 `source.remote_pattern` 中的 `${SCAN_START_TIME,格式}` 替换为实际日期字符串。也支持在 `SCAN_START_TIME` 后追加时间偏移。
 
 #### 支持的格式
 
@@ -105,17 +103,31 @@ struct ResolvedScanStartTime {
 | `yyyyMMddHHmm` | `202602101200` |
 | `yyyyMMddHHmmss` | `20260210120000` |
 
+#### 支持的偏移
+
+| 偏移写法 | 含义 |
+|----------|------|
+| `+15m` | 增加 15 分钟 |
+| `-15m` | 减少 15 分钟 |
+| `+1h` | 增加 1 小时 |
+| `-1h` | 减少 1 小时 |
+| `+1d` | 增加 1 天 |
+| `-1d` | 减少 1 天 |
+
 #### 渲染行为
 
-- 使用 `Regex` 匹配 `${SCAN_START_TIME,([^}]+)}`。
+- 使用 `Regex` 匹配 `${SCAN_START_TIME([+-]\d+[mhd])?,format}`。
 - 非贪婪匹配，支持单模板中出现多个 `${SCAN_START_TIME,...}`。
-- 支持不支持的格式会返回明确的 `bail!` 错误。
+- 不支持的格式或偏移语法会返回明确的错误。
 
 #### 示例
 
 ```
 模板：   /data/WX/PA/${SCAN_START_TIME,yyyyMMdd}/FILE_${SCAN_START_TIME,yyyyMMdd}120000.*.csv
 渲染后： /data/WX/PA/20260210/FILE_20260210120000.*.csv
+
+模板：   /data/WX/PA/${SCAN_START_TIME,yyyyMMdd}/FILE_${SCAN_START_TIME+15m,yyyyMMddHHmm}.*.csv
+渲染后： /data/WX/PA/20260210/FILE_202602101215.*.csv
 ```
 
 ### 4. 正则编译 (`Regex::new`)
@@ -154,7 +166,7 @@ struct ResolvedScanStartTime {
 - 输入源类型（`ftp` / `sftp`）
 - 远程主机和端口
 - 远程用户
-- SCAN_START_TIME 来源和值
+- SCAN_START_TIME 值
 - 远程路径模板
 - 渲染后的匹配正则
 - 实际扫描的远程目录
@@ -274,7 +286,7 @@ fs::rename(partial_file, local_file)?;
 
 - 遍历 `download_dir` 目录下的所有**普通文件**。
 - 检查文件的修改时间。
-- 超过 `source.retention_days` 天的文件被删除。
+- 超过 `source.cache_retention_days` 天的文件被删除。
 - 不删除子目录下的文件（只清理直接子级的普通文件）。
 - 不删除远程服务器上的文件。
 - `.part` 是普通文件，如果超过保留期限也会被清理。
@@ -287,54 +299,40 @@ fs::rename(partial_file, local_file)?;
 
 ```toml
 [source]
-type = "sftp"                # 输入源类型: local | ftp | sftp
-local_path = ""              # type=local 时的文件路径
-remote_pattern = "..."       # type=ftp/sftp 时的远程路径模板（支持 ${SCAN_START_TIME,format}）
+type = "sftp"                # 输入源类型: ftp | sftp
+remote_pattern = "..."       # 远程路径模板（支持 ${SCAN_START_TIME,format}）
 download_dir = "./downloads" # 远程文件下载到本地的缓存目录
-retention_days = 7           # 本地缓存文件保留天数
-```
+cache_retention_days = 7     # 本地缓存文件保留天数
+connect_retry = 3            # 连接和登录失败重试次数
+download_retry = 3           # 单文件下载失败重试次数
+retry_interval_secs = 30     # 两次重试之间的等待时间，默认 30 秒
+connect_timeout_secs = 30    # 连接超时时间，默认 30 秒
+read_timeout_secs = 300      # 读取/写入超时时间，默认 300 秒
 
-### `[variables]`
-
-```toml
-[variables]
-scan_start_time = ""         # 可为空，支持 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss
-```
-
-### `[ftp]`
-
-```toml
-[ftp]
-host = "127.0.0.1"
-port = 21
-username = "user"
-password = "pass"
-passive = true               # 当前 passive=false 会被忽略（默认被动模式）
-```
-
-### `[sftp]`
-
-```toml
-[sftp]
+[source.connection]
 host = "127.0.0.1"
 port = 22
 username = "user"
 password = "pass"
 ```
 
+`scan_start_time` 不写入配置文件，远程模式必须通过 CLI 参数 `--scan-start-time "yyyy-MM-dd HH:mm:ss"` 传入。
+
 ---
 
 ## 错误处理策略
 
 ### 扫描阶段
-- 目录不可访问 → 返回包含 host/user/scan_dir/pattern 的排障错误。
+- 目录不可访问 → 返回包含 scan_dir 的排障错误；连接日志包含 host/user/port。
 - 目录可访问但扫描递归失败 → 返回带上下文 `with_context` 的错误。
-- 扫描完成但匹配数为 0 → 返回包含扫描文件数、匹配文件数和检查建议的错误。
+- 扫描完成但匹配数为 0 → 返回包含源类型、扫描目录、扫描文件数、匹配正则和 scan_start_time 的错误。
 
 ### 下载阶段
 - 连接失败 → 返回带 host/user 上下文的连接错误。
 - 登录失败 → 返回带 host/user 上下文的认证错误。
+- 连接或登录失败 → 按 `connect_retry` 重试，每次失败打印日志；两次重试之间等待 `retry_interval_secs`。
 - 单文件下载失败 → 清理 `.part` 临时文件，向上传播错误。
+- 单文件下载失败 → 按 `download_retry` 重试，每次失败打印日志；两次重试之间等待 `retry_interval_secs`。
 - 流式 `io::copy` 失败 → 返回带远程路径和本地路径的错误信息。
 
 ### 导入阶段（`src/main.rs`）
@@ -347,15 +345,7 @@ password = "pass"
 
 ## 本地文件兼容
 
-当 CLI 传入 `-f/--file` 时，整个远程源模块被完全跳过，直接返回本地文件路径。这保持了现有使用方式的完全兼容。
-
-本地文件路径兼容以下配置：
-
-```toml
-[source]
-type = "local"
-local_path = "/path/to/local/file.csv.gz"
-```
+当 CLI 传入 `--input` 时，整个远程连接和下载流程会跳过，直接返回本地文件或目录中的文件路径。`source.toml` 不支持 `type = "local"`；本地模式只通过 `--input` 选择。
 
 ---
 

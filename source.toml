@@ -1,0 +1,16 @@
+[source]
+type = "sftp"
+download_dir = "./downloads"
+remote_pattern = "/data/pm/${SCAN_START_TIME,yyyyMMdd}/EastCom_WIRELESS_PM_ENB_EUTRANCELL_V3.*_${SCAN_START_TIME,yyyyMMddHHmm}_${SCAN_START_TIME+15m,yyyyMMddHHmm}.*.csv.zip"
+cache_retention_days = 7
+connect_retry = 3
+download_retry = 3
+retry_interval_secs = 30
+connect_timeout_secs = 30
+read_timeout_secs = 300
+
+[source.connection]
+host = "127.0.0.1"
+port = 22
+username = "user"
+password = "password"

@@ -1,0 +1,14 @@
+[package]
+name = "remote-file-source"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+chrono = "0.4"
+regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+ssh2 = "0.9"
+suppaftp = "6.0"
+toml = "0.8"
+walkdir = "2.5"

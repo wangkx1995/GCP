@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
 use indexmap::IndexMap;
+use remote_file_source::ResolveOptions;
 use tempfile::TempDir;
-use walkdir::WalkDir;
 
 mod config;
 mod crc64;
@@ -26,7 +26,11 @@ type TableRows = HashMap<String, Vec<Row>>;
 #[command(about = "Parse WY GNB PM files into per-table UTF-8 CSV files")]
 struct Cli {
     #[arg(long)]
-    input: PathBuf,
+    input: Option<PathBuf>,
+    #[arg(long)]
+    source_config: Option<PathBuf>,
+    #[arg(long)]
+    scan_start_time: Option<String>,
     #[arg(long, default_value = ".")]
     config_dir: PathBuf,
     #[arg(long)]
@@ -71,7 +75,12 @@ fn main() -> Result<()> {
 
     let temp_dir = TempDir::new().context("failed to create temp dir")?;
     let mut tables = TableRows::new();
-    let inputs = collect_inputs(&cli.input, cli.recursive)?;
+    let inputs = remote_file_source::resolve_files(ResolveOptions {
+        local_input: cli.input,
+        recursive: cli.recursive,
+        source_config: cli.source_config,
+        scan_start_time: cli.scan_start_time,
+    })?;
     eprintln!("[input] {} file(s) to process", inputs.len());
     for input in &inputs {
         parser::parse_path(&ctx, input, temp_dir.path(), &mut tables)
@@ -120,31 +129,4 @@ fn parse_delimiter(value: &str) -> Result<u8> {
         bail!("output delimiter must be exactly one ASCII byte, got {value:?}");
     }
     Ok(bytes[0])
-}
-
-fn collect_inputs(input: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
-    if input.is_file() {
-        return Ok(vec![input.to_path_buf()]);
-    }
-    if !input.is_dir() {
-        bail!("input does not exist: {}", input.display());
-    }
-
-    let mut files = Vec::new();
-    if recursive {
-        for entry in WalkDir::new(input) {
-            let entry = entry?;
-            if entry.file_type().is_file() {
-                files.push(entry.path().to_path_buf());
-            }
-        }
-    } else {
-        for entry in fs::read_dir(input)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file() {
-                files.push(entry.path());
-            }
-        }
-    }
-    Ok(files)
 }
