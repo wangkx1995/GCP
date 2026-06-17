@@ -7,7 +7,12 @@ use anyhow::Result;
 use crate::config::MappingConfig;
 use crate::{Row, TableRows};
 
-pub fn write_tables(mapping: &MappingConfig, tables: &TableRows, output_dir: &Path) -> Result<()> {
+pub fn write_tables(
+    mapping: &MappingConfig,
+    tables: &TableRows,
+    output_dir: &Path,
+    delimiter: u8,
+) -> Result<()> {
     fs::create_dir_all(output_dir)?;
     for (table, rows) in tables {
         if table.starts_with("OP_") {
@@ -16,7 +21,9 @@ pub fn write_tables(mapping: &MappingConfig, tables: &TableRows, output_dir: &Pa
         }
         let t = std::time::Instant::now();
         let output_path = output_dir.join(format!("{}.csv", table.to_ascii_uppercase()));
-        let mut writer = csv::WriterBuilder::new().from_path(&output_path)?;
+        let mut writer = csv::WriterBuilder::new()
+            .delimiter(delimiter)
+            .from_path(&output_path)?;
         let headers = mapping
             .headers
             .get(table)
@@ -27,7 +34,7 @@ pub fn write_tables(mapping: &MappingConfig, tables: &TableRows, output_dir: &Pa
         for row in rows {
             record.clear();
             for header in &headers {
-                record.push(row.get(header).cloned().unwrap_or_default());
+                record.push(row.get(header).map(String::as_str).unwrap_or_default());
             }
             writer.write_record(&record)?;
         }
