@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SourceConfig {
     pub(crate) source: SourceSection,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SourceSection {
     #[serde(rename = "type")]
     pub(crate) kind: SourceKind,
@@ -21,6 +21,8 @@ pub(crate) struct SourceSection {
     pub(crate) connect_retry: usize,
     #[serde(default = "default_retry")]
     pub(crate) download_retry: usize,
+    #[serde(default = "default_download_parallel")]
+    pub(crate) download_parallel: usize,
     #[serde(default = "default_retry_interval_secs")]
     pub(crate) retry_interval_secs: u64,
     #[serde(default = "default_connect_timeout_secs")]
@@ -37,7 +39,7 @@ pub(crate) enum SourceKind {
     Sftp,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct ConnectionConfig {
     pub(crate) host: String,
     pub(crate) port: u16,
@@ -67,6 +69,9 @@ fn validate_config(config: &SourceConfig) -> Result<()> {
     }
     if source.download_retry == 0 {
         bail!("source.download_retry must be greater than 0");
+    }
+    if source.download_parallel == 0 {
+        bail!("source.download_parallel must be greater than 0");
     }
     if source.retry_interval_secs == 0 {
         bail!("source.retry_interval_secs must be greater than 0");
@@ -98,6 +103,10 @@ fn default_cache_retention_days() -> u64 {
     7
 }
 
+fn default_download_parallel() -> usize {
+    1
+}
+
 fn default_retry_interval_secs() -> u64 {
     30
 }
@@ -123,6 +132,7 @@ mod tests {
                 cache_retention_days: 7,
                 connect_retry: 3,
                 download_retry: 3,
+                download_parallel: 1,
                 retry_interval_secs: 30,
                 connect_timeout_secs: 30,
                 read_timeout_secs: 300,
@@ -149,6 +159,18 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_download_parallel() {
+        let mut config = valid_config();
+        config.source.download_parallel = 0;
+
+        let err = validate_config(&config).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("source.download_parallel must be greater than 0"));
+    }
+
+    #[test]
     fn applies_expected_defaults() {
         let config: SourceConfig = toml::from_str(
             r#"
@@ -169,6 +191,7 @@ mod tests {
         assert_eq!(config.source.cache_retention_days, 7);
         assert_eq!(config.source.connect_retry, 3);
         assert_eq!(config.source.download_retry, 3);
+        assert_eq!(config.source.download_parallel, 1);
         assert_eq!(config.source.retry_interval_secs, 30);
         assert_eq!(config.source.connect_timeout_secs, 30);
         assert_eq!(config.source.read_timeout_secs, 300);

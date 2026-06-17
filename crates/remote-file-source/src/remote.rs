@@ -1,9 +1,11 @@
+use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::config::{SourceConfig, SourceKind};
 use crate::{ftp, sftp};
@@ -58,6 +60,17 @@ pub(crate) fn download_files(
 ) -> Result<Vec<PathBuf>> {
     fs::create_dir_all(&config.source.download_dir)?;
     cleanup_download_dir(config)?;
+    if config.source.download_parallel > 1 {
+        return download_files_parallel(config, remote_files);
+    }
+    download_files_sequential(client, config, remote_files)
+}
+
+fn download_files_sequential(
+    client: &RemoteClient,
+    config: &SourceConfig,
+    remote_files: &[String],
+) -> Result<Vec<PathBuf>> {
     let mut local_files = Vec::with_capacity(remote_files.len());
     for remote_file in remote_files {
         let local_path = config
@@ -69,6 +82,108 @@ pub(crate) fn download_files(
         local_files.push(local_path);
     }
     Ok(local_files)
+}
+
+fn download_files_parallel(config: &SourceConfig, remote_files: &[String]) -> Result<Vec<PathBuf>> {
+    let workers = config.source.download_parallel.min(remote_files.len());
+    eprintln!(
+        "[source] downloading {} remote file(s) with {} worker(s)",
+        remote_files.len(),
+        workers
+    );
+    let queue = Arc::new(Mutex::new(
+        remote_files
+            .iter()
+            .cloned()
+            .enumerate()
+            .collect::<VecDeque<_>>(),
+    ));
+    let successes = Arc::new(Mutex::new(Vec::new()));
+    let failures = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::with_capacity(workers);
+
+    for worker_id in 1..=workers {
+        let queue = Arc::clone(&queue);
+        let successes = Arc::clone(&successes);
+        let failures = Arc::clone(&failures);
+        let config = config.clone();
+        handles.push(thread::spawn(move || {
+            let client = match connect_with_retry(&config) {
+                Ok(client) => client,
+                Err(err) => {
+                    eprintln!(
+                        "[source] download worker {} failed to create connection: {err:#}",
+                        worker_id
+                    );
+                    return;
+                }
+            };
+
+            loop {
+                let next = queue.lock().expect("queue mutex poisoned").pop_front();
+                let Some((index, remote_file)) = next else {
+                    break;
+                };
+                let local_path = config
+                    .source
+                    .download_dir
+                    .join(remote_file_name(&remote_file));
+                match download_one_with_retry(&client, &config, &remote_file, &local_path) {
+                    Ok(()) => successes
+                        .lock()
+                        .expect("successes mutex poisoned")
+                        .push((index, local_path)),
+                    Err(err) => failures.lock().expect("failures mutex poisoned").push((
+                        index,
+                        remote_file,
+                        format!("{err:#}"),
+                    )),
+                }
+            }
+        }));
+    }
+
+    for handle in handles {
+        handle.join().expect("download worker panicked");
+    }
+
+    let remaining = queue
+        .lock()
+        .expect("queue mutex poisoned")
+        .drain(..)
+        .collect::<Vec<_>>();
+    if !remaining.is_empty() {
+        let mut failures = failures.lock().expect("failures mutex poisoned");
+        for (index, remote_file) in remaining {
+            failures.push((
+                index,
+                remote_file,
+                "no download worker was available".to_string(),
+            ));
+        }
+    }
+
+    let mut failures = failures.lock().expect("failures mutex poisoned");
+    failures.sort_by_key(|(index, _, _)| *index);
+    if !failures.is_empty() {
+        let failure_count = failures.len();
+        let success_count = successes.lock().expect("successes mutex poisoned").len();
+        let details = failures
+            .iter()
+            .map(|(_, remote_file, err)| format!("remote={} error={}", remote_file, err))
+            .collect::<Vec<_>>()
+            .join("; ");
+        bail!(
+            "parallel download completed with failures: success={} failed={} details={}",
+            success_count,
+            failure_count,
+            details
+        );
+    }
+
+    let mut successes = successes.lock().expect("successes mutex poisoned");
+    successes.sort_by_key(|(index, _)| *index);
+    Ok(successes.iter().map(|(_, path)| path.clone()).collect())
 }
 
 fn download_one_with_retry(
@@ -254,6 +369,7 @@ mod tests {
                 cache_retention_days: 0,
                 connect_retry: 1,
                 download_retry: 1,
+                download_parallel: 1,
                 retry_interval_secs: 1,
                 connect_timeout_secs: 1,
                 read_timeout_secs: 1,

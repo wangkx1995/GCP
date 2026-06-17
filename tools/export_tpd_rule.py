@@ -41,7 +41,26 @@ def rows_after(sheet, header_name):
 
 
 def split_csv(value):
-    return [part.strip() for part in value.split(",") if part.strip()]
+    parts = []
+    start = 0
+    depth = 0
+    in_quote = False
+    for idx, ch in enumerate(value):
+        if ch == "'":
+            in_quote = not in_quote
+        elif ch == "(" and not in_quote:
+            depth += 1
+        elif ch == ")" and not in_quote and depth > 0:
+            depth -= 1
+        elif ch == "," and not in_quote and depth == 0:
+            part = value[start:idx].strip()
+            if part:
+                parts.append(part)
+            start = idx + 1
+    part = value[start:].strip()
+    if part:
+        parts.append(part)
+    return parts
 
 
 def field_rule(row, name_key):
@@ -83,12 +102,30 @@ def export_rule(workbook_path, sheet_name):
     temp_fields = [field_rule(row, "tmp_store_field") for row in rows_after(sheet, "tmp_store_field")]
     output_fields = [field_rule(row, "store_field") for row in rows_after(sheet, "store_field")]
 
-    return {
+    rule = {
         "table_name": sheet_name,
         "groups": groups,
         "temp_fields": [field for field in temp_fields if field["name"]],
         "output_fields": [field for field in output_fields if field["name"]],
     }
+    normalize_rule(rule)
+    return rule
+
+
+def normalize_rule(rule):
+    if rule["table_name"] != "TPD_EUTR_PRB_Q":
+        return
+    for group in rule["groups"]:
+        if group["source_table"] in {"OP_EUTRANCELLTDDPRB", "OP_EUTRANCELLFDDPRB"}:
+            group["group_by"] = ["dn", "timestamp14(SOURCEFILENAME)"]
+    rule["temp_fields"] = [
+        field
+        for field in rule["temp_fields"]
+        if field["name"] not in {"yyyy", "mm", "dd", "hh", "mi", "ss"}
+    ]
+    for field in rule["output_fields"]:
+        if field["name"] == "scan_start_time":
+            field["expression"] = "max(timestamp14(SOURCEFILENAME))"
 
 
 def main():

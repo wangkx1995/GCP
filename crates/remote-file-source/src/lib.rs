@@ -45,36 +45,163 @@ pub fn resolve_files(options: ResolveOptions) -> Result<Vec<PathBuf>> {
 }
 
 fn resolve_remote_files(config: &SourceConfig, scan_start_time: &str) -> Result<Vec<PathBuf>> {
-    let rendered =
-        template::render_scan_start_time(&config.source.remote_pattern, scan_start_time)?;
-    let scan_dir = template::infer_scan_dir(&rendered);
-    let matcher = Regex::new(&rendered)
-        .with_context(|| format!("invalid source.remote_pattern regex: {rendered}"))?;
-    eprintln!(
-        "[source] remote context: type={:?} pattern={} rendered={} scan_dir={}",
-        config.source.kind, config.source.remote_pattern, rendered, scan_dir
-    );
-
+    let patterns = remote_patterns(&config.source.remote_pattern)?;
     let client = remote::connect_with_retry(config)?;
-    let files = remote::list_files(&client, &scan_dir)
-        .with_context(|| format!("failed to scan remote directory: {scan_dir}"))?;
-    let scanned_count = files.len();
-    let mut matched: Vec<String> = files
-        .into_iter()
-        .filter(|path| matcher.is_match(path))
-        .collect();
-    matched.sort();
-    if matched.is_empty() {
-        bail!(
-            "remote scan completed but no file matched: type={:?} scan_dir={} scanned_files={} regex={} scan_start_time={}",
+    let mut matched = Vec::new();
+    let mut summaries = Vec::with_capacity(patterns.len());
+
+    for (index, pattern) in patterns.iter().enumerate() {
+        let scan_index = index + 1;
+        let rendered = template::render_scan_start_time(pattern, scan_start_time)
+            .with_context(|| format!("failed to render source.remote_pattern: {pattern}"))?;
+        let scan_dir = template::infer_scan_dir(&rendered);
+        let matcher = Regex::new(&rendered)
+            .with_context(|| format!("invalid source.remote_pattern regex: {rendered}"))?;
+        eprintln!(
+            "[source] remote context: index={}/{} type={:?} pattern={} rendered={} scan_dir={}",
+            scan_index,
+            patterns.len(),
             config.source.kind,
-            scan_dir,
-            scanned_count,
+            pattern,
             rendered,
-            scan_start_time
+            scan_dir
+        );
+
+        match remote::list_files(&client, &scan_dir) {
+            Ok(files) => {
+                let scanned_count = files.len();
+                let mut pattern_matched: Vec<String> = files
+                    .into_iter()
+                    .filter(|path| matcher.is_match(path))
+                    .collect();
+                let matched_count = pattern_matched.len();
+                eprintln!(
+                    "[source] remote scan completed: index={}/{} scan_dir={} scanned={} matched={}",
+                    scan_index,
+                    patterns.len(),
+                    scan_dir,
+                    scanned_count,
+                    matched_count
+                );
+                matched.append(&mut pattern_matched);
+                summaries.push(ScanSummary {
+                    index: scan_index,
+                    scan_dir,
+                    rendered,
+                    scanned_count,
+                    matched_count,
+                    error: None,
+                });
+            }
+            Err(err) => {
+                eprintln!(
+                    "[source] remote scan failed, skipping: index={}/{} scan_dir={} error={:#}",
+                    scan_index,
+                    patterns.len(),
+                    scan_dir,
+                    err
+                );
+                summaries.push(ScanSummary {
+                    index: scan_index,
+                    scan_dir,
+                    rendered,
+                    scanned_count: 0,
+                    matched_count: 0,
+                    error: Some(format!("{err:#}")),
+                });
+            }
+        }
+    }
+
+    let successful_scans = summaries
+        .iter()
+        .filter(|summary| summary.error.is_none())
+        .count();
+    if successful_scans == 0 {
+        bail!(
+            "all remote scan directories failed: patterns={} scan_start_time={} details={}",
+            patterns.len(),
+            scan_start_time,
+            format_scan_summaries(&summaries)
         );
     }
-    eprintln!("[source] matched {} remote file(s)", matched.len());
+
+    matched.sort();
+    matched.dedup();
+    if matched.is_empty() {
+        bail!(
+            "remote scan completed but no file matched: patterns={} successful_scans={} failed_scans={} scan_start_time={} details={}",
+            patterns.len(),
+            successful_scans,
+            summaries.len() - successful_scans,
+            scan_start_time,
+            format_scan_summaries(&summaries)
+        );
+    }
+    eprintln!(
+        "[source] matched {} remote file(s) from {} successful scan(s), {} failed scan(s)",
+        matched.len(),
+        successful_scans,
+        summaries.len() - successful_scans
+    );
 
     remote::download_files(&client, config, &matched)
+}
+
+fn remote_patterns(pattern: &str) -> Result<Vec<String>> {
+    let patterns: Vec<String> = pattern
+        .split(';')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    if patterns.is_empty() {
+        bail!("source.remote_pattern must not be empty");
+    }
+    Ok(patterns)
+}
+
+struct ScanSummary {
+    index: usize,
+    scan_dir: String,
+    rendered: String,
+    scanned_count: usize,
+    matched_count: usize,
+    error: Option<String>,
+}
+
+fn format_scan_summaries(summaries: &[ScanSummary]) -> String {
+    summaries
+        .iter()
+        .map(|summary| {
+            format!(
+                "index={} scan_dir={} scanned={} matched={} regex={} error={}",
+                summary.index,
+                summary.scan_dir,
+                summary.scanned_count,
+                summary.matched_count,
+                summary.rendered,
+                summary.error.as_deref().unwrap_or("-")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_remote_patterns() {
+        assert_eq!(remote_patterns("a;b").unwrap(), vec!["a", "b"]);
+        assert_eq!(remote_patterns(" a ; ; b ").unwrap(), vec!["a", "b"]);
+        assert_eq!(remote_patterns("a").unwrap(), vec!["a"]);
+    }
+
+    #[test]
+    fn rejects_empty_remote_patterns() {
+        let err = remote_patterns(" ; ; ").unwrap_err();
+        assert!(err.to_string().contains("source.remote_pattern"));
+    }
 }

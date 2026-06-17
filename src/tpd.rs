@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{bail, Result};
-use chrono::Local;
+use chrono::{Local, NaiveDateTime};
 use indexmap::IndexMap;
 use serde::Deserialize;
 
@@ -102,7 +102,7 @@ pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
         let key = group
             .group_by
             .iter()
-            .map(|field| get_row_value(row, field))
+            .map(|field| eval_group_by_expr(row, field))
             .collect::<Vec<_>>()
             .join("\u{1f}");
         grouped.entry(key).or_default().push(row);
@@ -116,7 +116,7 @@ pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
     for rows in grouped.values() {
         let mut context = Row::new();
         for field in &group.group_by {
-            context.insert(field.clone(), get_row_value(rows[0], field));
+            context.insert(field.clone(), eval_group_by_expr(rows[0], field));
         }
 
         let temp_row_start = Instant::now();
@@ -173,6 +173,9 @@ fn eval_expression(expr: &str, rows: &[&Row], context: &Row, output: Option<&Row
     if lower.starts_with("substring(") && expr.ends_with(')') {
         return eval_string_expr(expr, rows[0], context, output);
     }
+    if lower.starts_with("timestamp14(") && expr.ends_with(')') {
+        return eval_string_expr(expr, rows[0], context, output);
+    }
     if lower.starts_with("count(distinct ") && expr.ends_with(')') {
         let inner = expr[15..expr.len() - 1].trim();
         let mut values = HashSet::new();
@@ -218,6 +221,11 @@ fn eval_concat_part(part: &str, rows: &[&Row], context: &Row, output: Option<&Ro
         return value;
     }
     get_row_value(rows[0], part)
+}
+
+fn eval_group_by_expr(row: &Row, expr: &str) -> String {
+    let rows = [row];
+    eval_expression(expr, &rows, &Row::new(), None)
 }
 
 fn eval_case_when(expr: &str, rows: &[&Row], context: &Row, output: Option<&Row>) -> String {
@@ -309,6 +317,11 @@ fn eval_string_expr(expr: &str, row: &Row, context: &Row, output: Option<&Row>) 
         let start = eval_number_expr(&args[1], row, context, output);
         let len = eval_number_expr(&args[2], row, context, output);
         return sql_substring(&value, start, len);
+    }
+    if expr.to_ascii_lowercase().starts_with("timestamp14(") && expr.ends_with(')') {
+        let inner = &expr[12..expr.len() - 1];
+        let value = eval_string_expr(inner, row, context, output);
+        return extract_timestamp14(&value).unwrap_or_default();
     }
     get_eval_context_value(context, output, expr).unwrap_or_else(|| get_row_value(row, expr))
 }
@@ -402,6 +415,29 @@ fn sql_substring(value: &str, start: isize, len: isize) -> String {
         .skip((start - 1) as usize)
         .take(len as usize)
         .collect()
+}
+
+fn extract_timestamp14(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    for start in 0..bytes.len().saturating_sub(13) {
+        let end = start + 14;
+        if !bytes[start..end].iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+        if start > 0 && bytes[start - 1].is_ascii_digit() {
+            continue;
+        }
+        if end < bytes.len() && bytes[end].is_ascii_digit() {
+            continue;
+        }
+        let Ok(candidate) = std::str::from_utf8(&bytes[start..end]) else {
+            continue;
+        };
+        if let Ok(parsed) = NaiveDateTime::parse_from_str(candidate, "%Y%m%d%H%M%S") {
+            return Some(parsed.format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+    }
+    None
 }
 
 fn get_row_value(row: &Row, field: &str) -> String {
@@ -502,6 +538,30 @@ mod tests {
         assert_eq!(
             value,
             "ZTE-CMAH-HF,SubNetwork=500,ManagedElement=1561205,EnbFunction=379834"
+        );
+    }
+
+    #[test]
+    fn evaluates_timestamp14_from_source_filename() {
+        let mut row = Row::new();
+        row.insert(
+            "SOURCEFILENAME".to_string(),
+            "PM-ENB-EUTRANCELLTDD-2A-V3.5.0-20220110130000-15.csv.gz".to_string(),
+        );
+        let rows = vec![&row];
+        let context = Row::new();
+
+        let value = eval_expression("max(timestamp14(SOURCEFILENAME))", &rows, &context, None);
+
+        assert_eq!(value, "2022-01-10 13:00:00");
+    }
+
+    #[test]
+    fn timestamp14_supports_year_2030() {
+        assert_eq!(
+            extract_timestamp14("PM-ENB-EUTRANCELLTDD-2A-V3.5.0-20300110130000-15.csv.gz")
+                .as_deref(),
+            Some("2030-01-10 13:00:00")
         );
     }
 }

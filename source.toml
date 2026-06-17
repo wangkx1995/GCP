@@ -1,10 +1,11 @@
 [source]
 type = "sftp"
 download_dir = "./downloads"
-remote_pattern = "/data/pm/${SCAN_START_TIME,yyyyMMdd}/EastCom_WIRELESS_PM_ENB_EUTRANCELL_V3.*_${SCAN_START_TIME,yyyyMMddHHmm}_${SCAN_START_TIME+15m,yyyyMMddHHmm}.*.csv.zip"
+remote_pattern = "/Users/wangkaixi/Desktop/WX/PA/WIRELESS_PM/${SCAN_START_TIME,yyyyMMdd}/EastCom_WIRELESS_PM_ENB_EUTRANCELL_V3.3.0_15m_${SCAN_START_TIME,yyyyMMddHHmm}_${SCAN_START_TIME+15m,yyyyMMddHHmm}_.*.csv.(zip|gz);/Users/wangkaixi/Desktop/WX/PA/WIRELESS_PM/${SCAN_START_TIME,yyyyMMdd}/East(c|C)om_.*_15m_${SCAN_START_TIME,yyyyMMddHHmm}_${SCAN_START_TIME+15m,yyyyMMddHHmm}_.*.csv.(zip|gz)"
 cache_retention_days = 7
 connect_retry = 3
 download_retry = 3
+download_parallel = 1
 retry_interval_secs = 30
 connect_timeout_secs = 30
 read_timeout_secs = 300
@@ -12,5 +13,5 @@ read_timeout_secs = 300
 [source.connection]
 host = "127.0.0.1"
 port = 22
-username = "user"
-password = "password"
+username = "wangkaixi"
+password = "wkx19950606"

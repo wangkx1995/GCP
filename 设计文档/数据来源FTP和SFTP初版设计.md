@@ -71,6 +71,7 @@ resolve_remote_files()
 - source.download_dir 不能为空
 - source.connect_retry 必须大于 0，默认 3
 - source.download_retry 必须大于 0，默认 3
+- source.download_parallel 必须大于 0，默认 1
 - source.retry_interval_secs 必须大于 0，默认 30
 - source.connect_timeout_secs 必须大于 0，默认 30
 - source.read_timeout_secs 必须大于 0，默认 300
@@ -92,6 +93,8 @@ resolve_remote_files()
 ### 3. 路径模板渲染 (`render_scan_start_time`)
 
 将 `source.remote_pattern` 中的 `${SCAN_START_TIME,格式}` 替换为实际日期字符串。也支持在 `SCAN_START_TIME` 后追加时间偏移。
+
+`source.remote_pattern` 支持用英文分号 `;` 配置多个完整远程路径正则模板。每个模板会独立渲染、推导扫描目录、扫描和匹配。
 
 #### 支持的格式
 
@@ -214,6 +217,13 @@ resolve_remote_files()
 
 1. **正则过滤**：保留完整远程路径匹配 `remote_pattern` 渲染后正则的文件。
 2. **字典序排序**：匹配到的文件按完整远程路径升序排序，确保导入顺序可预测。
+3. **去重**：多个模板命中同一个远程文件时只下载一次。
+
+多目录扫描策略：
+
+- 某个扫描目录不存在或扫描失败时，打印警告并继续处理其他目录。
+- 所有扫描目录都失败时，整体报错。
+- 至少一个目录扫描成功但总匹配数为 0 时，整体报错并输出每个目录的扫描统计。
 
 如果匹配数为 0，返回包含以下信息的详细排障错误：
 
@@ -232,7 +242,12 @@ matched_regex: /home/xxx/20260210/DIR/FILE_20260210120000.*.csv
 
 ### 10. 远程文件下载
 
-匹配到的文件逐个下载到本地缓存目录。下载策略：
+匹配到的文件下载到本地缓存目录。下载策略：
+
+- `download_parallel = 1` 时串行下载，保持原行为。
+- `download_parallel > 1` 时启用并行下载，每个 worker 独立建立 FTP/SFTP 连接。
+- 并行下载中单个文件失败仍按 `download_retry` 重试。
+- 并行下载完成后如果存在失败文件，整体报错并列出失败详情。
 
 #### 临时文件
 
@@ -305,6 +320,7 @@ download_dir = "./downloads" # 远程文件下载到本地的缓存目录
 cache_retention_days = 7     # 本地缓存文件保留天数
 connect_retry = 3            # 连接和登录失败重试次数
 download_retry = 3           # 单文件下载失败重试次数
+download_parallel = 1        # 并行下载 worker 数，默认 1
 retry_interval_secs = 30     # 两次重试之间的等待时间，默认 30 秒
 connect_timeout_secs = 30    # 连接超时时间，默认 30 秒
 read_timeout_secs = 300      # 读取/写入超时时间，默认 300 秒
@@ -323,9 +339,9 @@ password = "pass"
 ## 错误处理策略
 
 ### 扫描阶段
-- 目录不可访问 → 返回包含 scan_dir 的排障错误；连接日志包含 host/user/port。
-- 目录可访问但扫描递归失败 → 返回带上下文 `with_context` 的错误。
-- 扫描完成但匹配数为 0 → 返回包含源类型、扫描目录、扫描文件数、匹配正则和 scan_start_time 的错误。
+- 单个目录不可访问或扫描递归失败 → 打印警告并继续其他目录。
+- 所有目录都不可访问或扫描失败 → 返回包含每个目录失败原因的错误。
+- 扫描完成但匹配数为 0 → 返回包含扫描目录、扫描文件数、匹配正则和 scan_start_time 的错误。
 
 ### 下载阶段
 - 连接失败 → 返回带 host/user 上下文的连接错误。
@@ -333,6 +349,7 @@ password = "pass"
 - 连接或登录失败 → 按 `connect_retry` 重试，每次失败打印日志；两次重试之间等待 `retry_interval_secs`。
 - 单文件下载失败 → 清理 `.part` 临时文件，向上传播错误。
 - 单文件下载失败 → 按 `download_retry` 重试，每次失败打印日志；两次重试之间等待 `retry_interval_secs`。
+- `download_parallel > 1` 时启用多 worker 并行下载，每个 worker 独立建立连接。
 - 流式 `io::copy` 失败 → 返回带远程路径和本地路径的错误信息。
 
 ### 导入阶段（`src/main.rs`）
@@ -352,7 +369,7 @@ password = "pass"
 ## 已知限制
 
 1. **FTP 被动模式**：`passive=false` 配置当前会被忽略并记录警告，因为 `suppaftp` 同步 API 默认走被动模式，没有提供 `set_passive(false)` 的方法。
-2. **文件名冲突**：不同远程目录下同名文件会互相覆盖。如果生产实际存在这种情况，需要在文件名中增加远程路径 hash 避免覆盖。
+2. **文件名冲突**：不同远程目录下同名文件会互相覆盖；当前业务约束要求远程文件名不重复。
 3. **SFTP 认证**：当前仅支持用户名密码认证，不支持密钥认证。
 4. **最大递归深度**：当前没有限制递归深度，配置不当可能导致扫描范围过大的远程目录树。
 5. **点号语义**：`remote_pattern` 作为正则使用，`V3.3.0` 中的 `.` 会匹配任意字符。如果要求精确匹配点号，需要在配置中使用 `V3\\.3\\.0`。
