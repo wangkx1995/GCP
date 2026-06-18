@@ -17,24 +17,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config cmake
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cross
-        uses: taiki-e/install-action@cross
-
       - name: Build release binary
-        run: cross build --release --target x86_64-unknown-linux-gnu --locked
+        run: cargo build --release --locked
 
       - name: Prepare artifact
         run: |
           mkdir -p dist
-          cp target/x86_64-unknown-linux-gnu/release/wy-gnb-pm-parser dist/wy-gnb-pm-parser-linux-x86_64
+          cp target/release/wy-gnb-pm-parser dist/wy-gnb-pm-parser-linux-x86_64
           chmod +x dist/wy-gnb-pm-parser-linux-x86_64
           file dist/wy-gnb-pm-parser-linux-x86_64
 
