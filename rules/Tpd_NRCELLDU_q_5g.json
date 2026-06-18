@@ -25,7 +25,7 @@
     },
     {
       "name": "Related_GNBDUFunction_0",
-      "expression": "max(parent_dn)",
+      "expression": "max(substring(dn,1,locate(',NRCellDU',dn)-1))",
       "related_group": "related_rdn01"
     },
     {
@@ -36,6 +36,21 @@
     {
       "name": "is_nsa_0",
       "expression": "max(is_nsa)",
+      "related_group": "related_rdn01"
+    },
+    {
+      "name": "ManagedElement_0",
+      "expression": "max(substring(dn,locate('ManagedElement=',dn)+15,locate(',GNBDUFunction',dn)-locate('ManagedElement=',dn)-15))",
+      "related_group": "related_rdn01"
+    },
+    {
+      "name": "GNBDUFunction_0",
+      "expression": "max(substring(dn,locate('GNBDUFunction=',dn)+14,locate(',NRCellDU',dn)-locate('GNBDUFunction=',dn)-14))",
+      "related_group": "related_rdn01"
+    },
+    {
+      "name": "NRCELLDU_0",
+      "expression": "max(substring(dn,locate('NRCellDU=',dn)+9,length(dn)))",
       "related_group": "related_rdn01"
     }
   ],
@@ -88,18 +103,15 @@
     },
     {
       "name": "managedelement",
-      "expression": "max(ManagedElement)",
-      "related_group": "related_rdn01"
+      "expression": "ManagedElement_0"
     },
     {
       "name": "gnbdufunction",
-      "expression": "max(GNBDUFunction)",
-      "related_group": "related_rdn01"
+      "expression": "GNBDUFunction_0"
     },
     {
       "name": "nrcelldu",
-      "expression": "max(NRCELLDU)",
-      "related_group": "related_rdn01"
+      "expression": "NRCELLDU_0"
     },
     {
       "name": "name",

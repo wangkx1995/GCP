@@ -1,0 +1,46 @@
+name: Build Linux Binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  build-linux:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build release binary
+        run: cross build --release --target x86_64-unknown-linux-gnu --locked
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-gnu/release/wy-gnb-pm-parser dist/wy-gnb-pm-parser-linux-x86_64
+          chmod +x dist/wy-gnb-pm-parser-linux-x86_64
+          file dist/wy-gnb-pm-parser-linux-x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wy-gnb-pm-parser-linux-x86_64
+          path: dist/wy-gnb-pm-parser-linux-x86_64
+          if-no-files-found: error

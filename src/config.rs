@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 
-use crate::util::{column_name_format, file_name, normalize_lookup_name, read_text};
+use crate::util::{file_name, read_text};
 
 pub struct MappingConfig {
     pub table_mapping: HashMap<String, String>,
@@ -116,39 +116,4 @@ pub fn detect_counter_from_filename(path: &Path, mapping: &MappingConfig) -> Res
         }
     }
     bail!("could not determine counter from {}", path.display())
-}
-
-pub fn lookup_source_value(
-    source: &HashMap<String, String>,
-    source_name: &str,
-    target_name: &str,
-) -> String {
-    let mut candidates = vec![
-        normalize_lookup_name(source_name),
-        normalize_lookup_name(target_name),
-        normalize_lookup_name(&column_name_format(source_name)),
-        normalize_lookup_name(&column_name_format(target_name)),
-    ];
-
-    match normalize_lookup_name(source_name).as_str() {
-        "RMUID" => candidates.push("RMUID".to_string()),
-        "DN" => candidates.push("DN".to_string()),
-        "STARTTIME" => candidates.push("BEGINTIME".to_string()),
-        "ENDTIME" => candidates.push("ENDTIME".to_string()),
-        "USERLABEL" => candidates.push("RDN".to_string()),
-        "HO_ATTOUTPERRELATION_CAUSECOVERING" => {
-            candidates.push("HO_ATTOUTPERRELATION_CAUSE".to_string())
-        }
-        _ => {}
-    }
-
-    let mut seen = HashSet::new();
-    for candidate in candidates {
-        if seen.insert(candidate.clone()) {
-            if let Some(value) = source.get(&candidate) {
-                return value.clone();
-            }
-        }
-    }
-    String::new()
 }

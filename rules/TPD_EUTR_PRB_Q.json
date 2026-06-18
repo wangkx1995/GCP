@@ -6,7 +6,7 @@
       "enabled": true,
       "source_table": ["OP_EUTRANCELLTDDPRB","OP_EUTRANCELLFDDPRB"],
       "group_by": [
-        "dn",
+        "RDN",
         "timestamp14(SOURCEFILENAME)"
       ],
       "join_keys": [

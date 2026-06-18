@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDateTime};
@@ -63,6 +64,142 @@ struct WriteOptions<'a> {
     collect_id: &'a str,
     load_type: LoadType,
     load_config: &'a LoadConfig,
+}
+
+pub struct StreamingTableWriter<'a> {
+    options: WriteOptions<'a>,
+    table: String,
+    headers: Vec<String>,
+    packages: HashMap<String, StreamingPackage>,
+    total_rows: usize,
+}
+
+struct StreamingPackage {
+    scan_start: ScanStart,
+    package_dir: PathBuf,
+    writer: csv::Writer<File>,
+    row_count: usize,
+}
+
+impl<'a> StreamingTableWriter<'a> {
+    pub fn new_with_headers(
+        headers: Vec<String>,
+        table: &str,
+        output_dir: &'a Path,
+        delimiter: u8,
+        collect_id: &'a str,
+        load_type: LoadType,
+        load_config: &'a LoadConfig,
+    ) -> Result<Self> {
+        Ok(Self {
+            options: WriteOptions {
+                output_dir,
+                delimiter,
+                collect_id,
+                load_type,
+                load_config,
+            },
+            table: table.to_string(),
+            headers,
+            packages: HashMap::new(),
+            total_rows: 0,
+        })
+    }
+
+    pub fn write_row(&mut self, row: &Row) -> Result<()> {
+        let scan_value = row
+            .get("scan_start_time")
+            .context("output row missing scan_start_time")?
+            .clone();
+        if !self.packages.contains_key(&scan_value) {
+            let package = create_streaming_package(
+                &self.options,
+                &self.table,
+                &self.headers,
+                parse_scan_start(&scan_value)?,
+            )?;
+            self.packages.insert(scan_value.clone(), package);
+        }
+        let package = self.packages.get_mut(&scan_value).expect("package exists");
+        let mut record = Vec::with_capacity(self.headers.len());
+        for header in &self.headers {
+            record.push(row.get(header).map(String::as_str).unwrap_or_default());
+        }
+        package.writer.write_record(&record)?;
+        package.row_count += 1;
+        self.total_rows += 1;
+        Ok(())
+    }
+
+    pub fn finish(self) -> Result<()> {
+        let package_count = self.packages.len();
+        let mut packages: Vec<_> = self.packages.into_values().collect();
+        packages
+            .sort_by(|left, right| left.scan_start.minute_key.cmp(&right.scan_start.minute_key));
+        for mut package in packages {
+            package.writer.flush()?;
+            let result_path = package.package_dir.join("result.csv");
+            write_result_csv(
+                &result_path,
+                &self.table,
+                &package.scan_start.value,
+                package.row_count,
+            )?;
+            eprintln!(
+                "[write] {} -> {} ({} rows)",
+                self.table,
+                package.package_dir.display(),
+                package.row_count
+            );
+        }
+        eprintln!(
+            "[write] {} ({} rows, {} package(s), streamed)",
+            self.table, self.total_rows, package_count,
+        );
+        Ok(())
+    }
+}
+
+fn create_streaming_package(
+    options: &WriteOptions<'_>,
+    table: &str,
+    headers: &[String],
+    scan_start: ScanStart,
+) -> Result<StreamingPackage> {
+    let table_lower = table.to_ascii_lowercase();
+    let table_dir = options
+        .output_dir
+        .join(format!("{}_{}", table_lower, scan_start.hour_key));
+    let package_dir = table_dir.join(format!("{}_{}", options.collect_id, scan_start.minute_key));
+    fs::create_dir_all(&package_dir)?;
+
+    let csv_name = format!("{}.csv", table_lower);
+    let ini_name = format!("{}.ini", table_lower);
+    let csv_path = package_dir.join(&csv_name);
+    let ini_path = package_dir.join(&ini_name);
+    let ctl_path = package_dir.join("load.ctl");
+
+    write_ini(&ini_path, headers)?;
+    write_load_ctl(
+        &ctl_path,
+        table,
+        headers,
+        &csv_name,
+        options.delimiter,
+        options.load_type,
+        options.load_config,
+    )?;
+    let writer = csv::WriterBuilder::new()
+        .delimiter(options.delimiter)
+        .has_headers(false)
+        .from_path(csv_path)?;
+
+    Ok(StreamingPackage {
+        scan_start,
+        package_dir,
+        writer,
+        row_count: 0,
+    })
 }
 
 fn write_package(

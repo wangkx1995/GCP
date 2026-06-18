@@ -81,12 +81,6 @@ fn main() -> Result<()> {
         source_config: cli.source_config,
         scan_start_time: cli.scan_start_time,
     })?;
-    eprintln!("[input] {} file(s) to process", inputs.len());
-    for input in &inputs {
-        parser::parse_path(&ctx, input, temp_dir.path(), &mut tables)
-            .with_context(|| format!("failed to parse {}", input.display()))?;
-    }
-
     let mut rule_files: Vec<PathBuf> = cli.rule_files;
     if let Some(rules_dir) = &cli.rules_dir {
         let mut entries: Vec<_> = fs::read_dir(rules_dir)
@@ -103,10 +97,76 @@ fn main() -> Result<()> {
         rule_files.extend(entries);
     }
 
+    let mut rules = Vec::new();
     for rule_file in &rule_files {
         eprintln!("[rule] loading {}", rule_file.display());
-        let rule = tpd::load_rule(rule_file)?;
-        tpd::execute_tpd_rule(&rule, &mut tables)
+        rules.push(tpd::load_rule(rule_file)?);
+    }
+
+    let streaming_source_tables = tpd::streaming_source_tables(&rules);
+    let streaming_rule_tables = tpd::streaming_rule_tables(&rules);
+    let streaming_required_fields = tpd::streaming_required_fields_by_table(&rules);
+    let streaming_ordered_fields = tpd::streaming_ordered_fields_by_table(&rules);
+    let non_streaming_source_tables =
+        non_streaming_source_tables(&rules, &streaming_rule_tables, &streaming_source_tables);
+    let streaming_engine = std::cell::RefCell::new(tpd::StreamingTpdEngine::new(&rules));
+    if !streaming_engine.borrow().is_empty() {
+        eprintln!(
+            "[aggregate] streaming source tables: {:?}",
+            streaming_source_tables
+        );
+    }
+
+    eprintln!("[input] {} file(s) to process", inputs.len());
+    for input in &inputs {
+        parser::parse_path_with_streaming_values(
+            &ctx,
+            input,
+            temp_dir.path(),
+            &streaming_required_fields,
+            &streaming_ordered_fields,
+            &mut |table, row| {
+                let table_upper = table.to_ascii_uppercase();
+                let stream_consumed = streaming_engine.borrow().consumes_table(&table_upper);
+                let keep_rows =
+                    !stream_consumed || non_streaming_source_tables.contains(&table_upper);
+
+                if stream_consumed && !keep_rows {
+                    streaming_engine
+                        .borrow_mut()
+                        .accept_owned(&table_upper, row)?;
+                } else {
+                    if stream_consumed {
+                        streaming_engine.borrow_mut().accept(&table_upper, &row)?;
+                    }
+                    tables.entry(table_upper).or_default().push(row);
+                }
+                Ok(())
+            },
+            &mut |table, values| {
+                streaming_engine
+                    .borrow_mut()
+                    .accept_values(&table.to_ascii_uppercase(), values)
+            },
+        )
+        .with_context(|| format!("failed to parse {}", input.display()))?;
+    }
+    let streaming_finish_options = tpd::StreamingFinishOptions {
+        output_dir: &cli.output_dir,
+        delimiter: output_delimiter,
+        collect_id: &cli.collect_id,
+        load_type: cli.load_type,
+        load_config: &load_config,
+    };
+    streaming_engine
+        .into_inner()
+        .finish(&mut tables, &streaming_finish_options)?;
+
+    for (rule_file, rule) in rule_files.iter().zip(&rules) {
+        if streaming_rule_tables.contains(&rule.table_name.to_ascii_uppercase()) {
+            continue;
+        }
+        tpd::execute_tpd_rule(rule, &mut tables)
             .with_context(|| format!("failed to execute rule {}", rule_file.display()))?;
     }
 
@@ -121,6 +181,22 @@ fn main() -> Result<()> {
     )?;
     eprintln!("[done] {:.2}s total", start.elapsed().as_secs_f64());
     Ok(())
+}
+
+fn non_streaming_source_tables(
+    rules: &[tpd::TpdRule],
+    streaming_rule_tables: &std::collections::HashSet<String>,
+    streaming_source_tables: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    rules
+        .iter()
+        .filter(|rule| !streaming_rule_tables.contains(&rule.table_name.to_ascii_uppercase()))
+        .flat_map(|rule| rule.groups.iter())
+        .filter(|group| group.enabled)
+        .flat_map(|group| group.source_table.iter())
+        .map(|table| table.to_ascii_uppercase())
+        .filter(|table| streaming_source_tables.contains(table))
+        .collect()
 }
 
 fn parse_delimiter(value: &str) -> Result<u8> {
