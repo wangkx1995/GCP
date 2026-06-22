@@ -262,6 +262,44 @@ struct StreamingRulePlan<'a> {
     output_exprs: Vec<CompiledFieldExpr<'a>>,
 }
 
+impl<'a> StreamingRulePlan<'a> {
+    fn new(
+        rule: &'a TpdRule,
+        group: &'a GroupRule,
+        field_indexes: &FastHashMap<String, usize>,
+    ) -> Self {
+        Self {
+            rule,
+            group,
+            temp_exprs: rule
+                .temp_fields
+                .iter()
+                .map(|field| CompiledFieldExpr::new(field, field_indexes))
+                .collect(),
+            output_exprs: rule
+                .output_fields
+                .iter()
+                .map(|field| CompiledFieldExpr::new(field, field_indexes))
+                .collect(),
+        }
+    }
+
+    fn rebind_indexes(&mut self, field_indexes: &FastHashMap<String, usize>) {
+        self.temp_exprs = self
+            .rule
+            .temp_fields
+            .iter()
+            .map(|field| CompiledFieldExpr::new(field, field_indexes))
+            .collect();
+        self.output_exprs = self
+            .rule
+            .output_fields
+            .iter()
+            .map(|field| CompiledFieldExpr::new(field, field_indexes))
+            .collect();
+    }
+}
+
 impl<'a> StreamingRuleAggregator<'a> {
     fn new(rule: &'a TpdRule) -> Option<Self> {
         if rule.groups.iter().filter(|group| group.enabled).count() != 1 {
@@ -325,23 +363,8 @@ impl<'a> StreamingRuleAggregator<'a> {
         let mut ordered_fields: Vec<String> = required_fields.iter().cloned().collect();
         sort_ordered_fields(&mut ordered_fields);
         let field_indexes = build_field_indexes(&ordered_fields);
-        let temp_exprs = rule
-            .temp_fields
-            .iter()
-            .map(CompiledFieldExpr::new)
-            .collect();
-        let output_exprs = rule
-            .output_fields
-            .iter()
-            .map(CompiledFieldExpr::new)
-            .collect();
         Some(Self {
-            plans: vec![StreamingRulePlan {
-                rule,
-                group,
-                temp_exprs,
-                output_exprs,
-            }],
+            plans: vec![StreamingRulePlan::new(rule, group, &field_indexes)],
             group,
             source_tables,
             distinct_fields,
@@ -378,6 +401,13 @@ impl<'a> StreamingRuleAggregator<'a> {
         sort_ordered_fields(&mut self.ordered_fields);
         self.field_indexes = build_field_indexes(&self.ordered_fields);
         self.plans.extend(other.plans);
+        self.rebind_plan_indexes();
+    }
+
+    fn rebind_plan_indexes(&mut self) {
+        for plan in &mut self.plans {
+            plan.rebind_indexes(&self.field_indexes);
+        }
     }
 
     fn consumes_table(&self, table: &str) -> bool {
@@ -435,16 +465,31 @@ impl<'a> StreamingRuleAggregator<'a> {
     }
 
     fn accept_values(&mut self, values: Vec<String>) -> Result<()> {
-        let row = row_from_values_ref(&self.ordered_fields, &values);
-        if !eval_where_expr(&self.group.where_expr, &row)? {
-            return Ok(());
-        }
-        let key = self.key_builder.build(&row).with_context(|| {
-            format!(
-                "rule {} group {} group_by expression failed",
-                self.plans[0].rule.table_name, self.group.name,
-            )
-        })?;
+        let row;
+        let row_ref = if self.group.where_expr.trim().is_empty() {
+            None
+        } else {
+            row = row_from_values_ref(&self.ordered_fields, &values);
+            if !eval_where_expr(&self.group.where_expr, &row)? {
+                return Ok(());
+            }
+            Some(&row)
+        };
+        let key = self
+            .key_builder
+            .build_values(&self.field_indexes, &values)
+            .or_else(|_| {
+                let row = row_ref
+                    .cloned()
+                    .unwrap_or_else(|| row_from_values_ref(&self.ordered_fields, &values));
+                self.key_builder.build(&row)
+            })
+            .with_context(|| {
+                format!(
+                    "rule {} group {} group_by expression failed",
+                    self.plans[0].rule.table_name, self.group.name,
+                )
+            })?;
         match self.grouped.get_mut(&key) {
             Some(existing) => {
                 merge_projected_max_values(
@@ -453,10 +498,18 @@ impl<'a> StreamingRuleAggregator<'a> {
                     &self.ordered_fields,
                     &values,
                 )?;
-                existing.update_distinct(&row, &self.distinct_fields)?;
+                existing.update_distinct_values(
+                    &self.field_indexes,
+                    &values,
+                    &self.distinct_fields,
+                )?;
             }
             None => {
-                let distinct = build_distinct(&row, &self.distinct_fields)?;
+                let distinct =
+                    build_distinct_values(&self.field_indexes, &values, &self.distinct_fields)?;
+                let row = row_ref
+                    .cloned()
+                    .unwrap_or_else(|| row_from_values_ref(&self.ordered_fields, &values));
                 let state = StreamingGroupState {
                     row,
                     values: Some(values),
@@ -511,14 +564,7 @@ impl<'a> StreamingRuleAggregator<'a> {
         )?;
         let mut output_rows = 0_usize;
         for state in self.grouped.values() {
-            let row;
-            let rebuilt_row;
-            if let Some(values) = &state.values {
-                rebuilt_row = row_from_values_ref(&self.ordered_fields, values);
-                row = &rebuilt_row;
-            } else {
-                row = &state.row;
-            }
+            let row = &state.row;
             let rows = [row];
             let mut context = Row::new();
             for field in &plan.group.group_by {
@@ -649,6 +695,19 @@ fn build_distinct(
     Ok(distinct)
 }
 
+fn build_distinct_values(
+    field_indexes: &FastHashMap<String, usize>,
+    values: &[String],
+    distinct_fields: &[String],
+) -> Result<FastHashMap<String, FastHashSet<String>>> {
+    let mut distinct: FastHashMap<String, FastHashSet<String>> = FastHashMap::default();
+    for field in distinct_fields {
+        let value = indexed_value(field_indexes, values, field)?.to_string();
+        distinct.entry(field.clone()).or_default().insert(value);
+    }
+    Ok(distinct)
+}
+
 fn build_field_indexes(fields: &[String]) -> FastHashMap<String, usize> {
     fields
         .iter()
@@ -714,6 +773,20 @@ impl StreamingGroupState {
         }
     }
 
+    fn value_at(&self, idx: usize) -> Option<&str> {
+        self.values
+            .as_ref()
+            .and_then(|values| values.get(idx))
+            .map(String::as_str)
+    }
+
+    fn value_or_row(&self, field: &str, idx: usize) -> Result<String> {
+        if let Some(value) = self.value_at(idx) {
+            return Ok(value.to_string());
+        }
+        require_row_value(&self.row, field)
+    }
+
     fn update(
         &mut self,
         row: &Row,
@@ -727,6 +800,22 @@ impl StreamingGroupState {
     fn update_distinct(&mut self, row: &Row, distinct_fields: &[String]) -> Result<()> {
         for field in distinct_fields {
             let value = require_row_value(row, field)?;
+            self.distinct
+                .entry(field.clone())
+                .or_default()
+                .insert(value);
+        }
+        Ok(())
+    }
+
+    fn update_distinct_values(
+        &mut self,
+        field_indexes: &FastHashMap<String, usize>,
+        values: &[String],
+        distinct_fields: &[String],
+    ) -> Result<()> {
+        for field in distinct_fields {
+            let value = indexed_value(field_indexes, values, field)?.to_string();
             self.distinct
                 .entry(field.clone())
                 .or_default()
@@ -820,6 +909,70 @@ impl GroupKeyBuilder {
             }
         }
     }
+
+    fn build_values(
+        &self,
+        field_indexes: &FastHashMap<String, usize>,
+        values: &[String],
+    ) -> Result<String> {
+        match self {
+            Self::Fields(fields) => join_key_values(fields.iter().map(|field| {
+                indexed_value(field_indexes, values, field).map(|value| value.to_string())
+            })),
+            Self::DnTimestamp14Source => {
+                let dn = indexed_value(field_indexes, values, "dn")?;
+                let source = indexed_value(field_indexes, values, "SOURCEFILENAME")?;
+                let scan_start = extract_timestamp14(source)
+                    .or_else(|| optional_indexed_value(field_indexes, values, "scan_start_time"))
+                    .unwrap_or_default();
+                Ok(format!("{}\u{1f}{}", dn, scan_start))
+            }
+            Self::RdnTimestamp14Source => {
+                let rdn = indexed_value(field_indexes, values, "RDN")?;
+                let source = indexed_value(field_indexes, values, "SOURCEFILENAME")?;
+                let scan_start = extract_timestamp14(source)
+                    .or_else(|| optional_indexed_value(field_indexes, values, "scan_start_time"))
+                    .unwrap_or_default();
+                Ok(format!("{}\u{1f}{}", rdn, scan_start))
+            }
+            Self::DnScanStartStop => {
+                let dn = indexed_value(field_indexes, values, "dn")?;
+                let scan_start = indexed_value(field_indexes, values, "scan_start_time")?;
+                let scan_stop = indexed_value(field_indexes, values, "scan_stop_time")?;
+                Ok(format!("{}\u{1f}{}\u{1f}{}", dn, scan_start, scan_stop))
+            }
+            Self::ObjectRdnScanStartStop => {
+                let object_rdn = indexed_value(field_indexes, values, "object_rdn")?;
+                let scan_start = indexed_value(field_indexes, values, "scan_start_time")?;
+                let scan_stop = indexed_value(field_indexes, values, "scan_stop_time")?;
+                Ok(format!(
+                    "{}\u{1f}{}\u{1f}{}",
+                    object_rdn, scan_start, scan_stop
+                ))
+            }
+            Self::Expressions(_) => bail!("expression group key requires row evaluation"),
+        }
+    }
+}
+
+fn indexed_value<'a>(
+    field_indexes: &FastHashMap<String, usize>,
+    values: &'a [String],
+    field: &str,
+) -> Result<&'a str> {
+    let Some(idx) = field_indexes.get(&normalize_lookup_name(field)) else {
+        bail!("missing field {field}");
+    };
+    Ok(values.get(*idx).map(String::as_str).unwrap_or_default())
+}
+
+fn optional_indexed_value(
+    field_indexes: &FastHashMap<String, usize>,
+    values: &[String],
+    field: &str,
+) -> Option<String> {
+    let idx = field_indexes.get(&normalize_lookup_name(field))?;
+    values.get(*idx).filter(|value| !value.is_empty()).cloned()
 }
 
 fn join_key_values<I>(values: I) -> Result<String>
@@ -842,10 +995,10 @@ struct CompiledFieldExpr<'a> {
 }
 
 impl<'a> CompiledFieldExpr<'a> {
-    fn new(field: &'a FieldRule) -> Self {
+    fn new(field: &'a FieldRule, field_indexes: &FastHashMap<String, usize>) -> Self {
         Self {
             field,
-            kind: CompiledExpr::compile(&field.expression),
+            kind: CompiledExpr::compile(&field.expression, field_indexes),
         }
     }
 
@@ -864,40 +1017,89 @@ impl<'a> CompiledFieldExpr<'a> {
 }
 
 enum CompiledExpr {
+    MaxIndex {
+        field: String,
+        idx: usize,
+    },
     MaxField(String),
+    LowerMaxIndex {
+        field: String,
+        idx: usize,
+    },
     LowerMaxField(String),
+    Crc64MaxIndex {
+        field: String,
+        idx: usize,
+    },
     Crc64MaxField(String),
-    Crc64LiteralMaxField { prefix: String, field: String },
+    Crc64LiteralMaxIndex {
+        prefix: String,
+        field: String,
+        idx: usize,
+    },
+    Crc64LiteralMaxField {
+        prefix: String,
+        field: String,
+    },
     CountDistinct(String),
     Literal(String),
     Env(String),
     CurrentTimestamp,
+    FieldIndex {
+        field: String,
+        idx: usize,
+    },
     Field(String),
     Fallback,
 }
 
 impl CompiledExpr {
-    fn compile(expr: &str) -> Self {
+    fn compile(expr: &str, field_indexes: &FastHashMap<String, usize>) -> Self {
         let expr = expr.trim();
         let lower = expr.to_ascii_lowercase();
         if expr.is_empty() {
             return Self::Literal(String::new());
         }
         if let Some(field) = simple_max_field(expr) {
+            if let Some(idx) = field_index(field_indexes, field) {
+                return Self::MaxIndex {
+                    field: field.to_string(),
+                    idx,
+                };
+            }
             return Self::MaxField(field.to_string());
         }
         if lower.starts_with("lower(") && expr.ends_with(')') {
             let inner = &expr[6..expr.len() - 1];
             if let Some(field) = simple_max_field(inner) {
+                if let Some(idx) = field_index(field_indexes, field) {
+                    return Self::LowerMaxIndex {
+                        field: field.to_string(),
+                        idx,
+                    };
+                }
                 return Self::LowerMaxField(field.to_string());
             }
         }
         if lower.starts_with("crc64(") && expr.ends_with(')') {
             let inner = expr[6..expr.len() - 1].trim();
             if let Some(field) = simple_max_field(inner) {
+                if let Some(idx) = field_index(field_indexes, field) {
+                    return Self::Crc64MaxIndex {
+                        field: field.to_string(),
+                        idx,
+                    };
+                }
                 return Self::Crc64MaxField(field.to_string());
             }
             if let Some((prefix, field)) = crc64_literal_plus_simple_max(inner) {
+                if let Some(idx) = field_index(field_indexes, field) {
+                    return Self::Crc64LiteralMaxIndex {
+                        prefix,
+                        field: field.to_string(),
+                        idx,
+                    };
+                }
                 return Self::Crc64LiteralMaxField {
                     prefix,
                     field: field.to_string(),
@@ -923,6 +1125,12 @@ impl CompiledExpr {
             return Self::Fallback;
         }
         if is_simple_field_expr(expr) && expr.parse::<f64>().is_err() {
+            if let Some(idx) = field_index(field_indexes, expr) {
+                return Self::FieldIndex {
+                    field: expr.to_string(),
+                    idx,
+                };
+            }
             return Self::Field(expr.to_string());
         }
         Self::Fallback
@@ -936,14 +1144,30 @@ impl CompiledExpr {
         output: Option<&Row>,
     ) -> Option<Result<String>> {
         match self {
+            Self::MaxIndex { field, idx } => Some(state.value_or_row(field, *idx)),
             Self::MaxField(field) => Some(require_row_value(rows[0], field)),
+            Self::LowerMaxIndex { field, idx } => Some(
+                state
+                    .value_or_row(field, *idx)
+                    .map(|value| value.to_ascii_lowercase()),
+            ),
             Self::LowerMaxField(field) => {
                 Some(require_row_value(rows[0], field).map(|value| value.to_ascii_lowercase()))
             }
+            Self::Crc64MaxIndex { field, idx } => Some(
+                state
+                    .value_or_row(field, *idx)
+                    .map(|value| crate::crc64::crc64_ecma(&value).to_string()),
+            ),
             Self::Crc64MaxField(field) => Some(
                 require_row_value(rows[0], field)
                     .map(|value| crate::crc64::crc64_ecma(&value).to_string()),
             ),
+            Self::Crc64LiteralMaxIndex { prefix, field, idx } => {
+                Some(state.value_or_row(field, *idx).map(|value| {
+                    crate::crc64::crc64_ecma(&format!("{}{}", prefix, value)).to_string()
+                }))
+            }
             Self::Crc64LiteralMaxField { prefix, field } => {
                 Some(require_row_value(rows[0], field).map(|value| {
                     crate::crc64::crc64_ecma(&format!("{}{}", prefix, value)).to_string()
@@ -959,6 +1183,10 @@ impl CompiledExpr {
             Self::CurrentTimestamp => {
                 Some(Ok(Local::now().format("%Y-%m-%d %H:%M:%S").to_string()))
             }
+            Self::FieldIndex { field, idx } => Some(
+                get_eval_context_value(context, output, field)
+                    .map_or_else(|| state.value_or_row(field, *idx), Ok),
+            ),
             Self::Field(field) => Some(
                 get_eval_context_value(context, output, field)
                     .map_or_else(|| require_row_value(&state.row, field), Ok),
@@ -966,6 +1194,10 @@ impl CompiledExpr {
             Self::Fallback => None,
         }
     }
+}
+
+fn field_index(field_indexes: &FastHashMap<String, usize>, field: &str) -> Option<usize> {
+    field_indexes.get(&normalize_lookup_name(field)).copied()
 }
 
 fn collect_count_distinct_fields(rule: &TpdRule) -> Vec<String> {
@@ -1982,6 +2214,76 @@ mod tests {
             .ordered_fields
             .iter()
             .any(|field| field.eq_ignore_ascii_case("VENDORNAME")));
+    }
+
+    #[test]
+    fn streaming_value_path_binds_group_keys_and_simple_expressions_to_indexes() {
+        let rule: TpdRule = serde_json::from_str(
+            r#"{
+              "table_name": "TPD_TEST",
+              "groups": [{"name":"related_rdn01","enabled":true,"source_table":["OP_A"],"group_by":["dn","scan_start_time","scan_stop_time"]}],
+              "temp_fields": [{"name":"lower_vendor","expression":"lower(max(VENDORNAME))","related_group":"related_rdn01"}],
+              "output_fields": [
+                {"name":"dn_out","expression":"max(dn)"},
+                {"name":"vendor_crc","expression":"crc64(max(VENDORNAME))"},
+                {"name":"vendor_lower","expression":"lower_vendor"},
+                {"name":"nsa_count","expression":"count(distinct is_nsa)"}
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let mut aggregator = StreamingRuleAggregator::new(&rule).unwrap();
+        let dn_idx = aggregator.field_indexes[&normalize_lookup_name("dn")];
+        let start_idx = aggregator.field_indexes[&normalize_lookup_name("scan_start_time")];
+        let stop_idx = aggregator.field_indexes[&normalize_lookup_name("scan_stop_time")];
+        let vendor_idx = aggregator.field_indexes[&normalize_lookup_name("VENDORNAME")];
+        let nsa_idx = aggregator.field_indexes[&normalize_lookup_name("is_nsa")];
+
+        let mut values = vec![String::new(); aggregator.ordered_fields.len()];
+        values[dn_idx] = "dn-1".to_string();
+        values[start_idx] = "2026-06-17 15:15:00".to_string();
+        values[stop_idx] = "2026-06-17 15:30:00".to_string();
+        values[vendor_idx] = "ZTE".to_string();
+        values[nsa_idx] = "1".to_string();
+
+        let key = aggregator
+            .key_builder
+            .build_values(&aggregator.field_indexes, &values)
+            .unwrap();
+        assert_eq!(
+            key,
+            "dn-1\u{1f}2026-06-17 15:15:00\u{1f}2026-06-17 15:30:00"
+        );
+
+        aggregator.accept_values(values).unwrap();
+        let state = aggregator.grouped.values().next().unwrap();
+        let plan = &aggregator.plans[0];
+        let context = Row::new();
+        let output = Row::new();
+
+        assert_eq!(
+            plan.temp_exprs[0].eval(state, &[], &context, None).unwrap(),
+            "zte"
+        );
+        assert_eq!(
+            plan.output_exprs[0]
+                .eval(state, &[], &context, Some(&output))
+                .unwrap(),
+            "dn-1"
+        );
+        assert_eq!(
+            plan.output_exprs[1]
+                .eval(state, &[], &context, Some(&output))
+                .unwrap(),
+            crate::crc64::crc64_ecma("ZTE").to_string()
+        );
+        assert_eq!(
+            plan.output_exprs[3]
+                .eval(state, &[], &context, Some(&output))
+                .unwrap(),
+            "1"
+        );
     }
 
     #[test]
