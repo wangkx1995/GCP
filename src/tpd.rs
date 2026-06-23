@@ -13,6 +13,7 @@ use crate::util::*;
 use crate::writer::StreamingTableWriter;
 use crate::{load_config::LoadConfig, LoadType};
 use crate::{Row, TableRows};
+use tracing::info;
 
 type FastHashBuilder = RandomState;
 type FastHashSet<T> = HashSet<T, FastHashBuilder>;
@@ -516,7 +517,7 @@ impl<'a> StreamingRuleAggregator<'a> {
     fn finish(self, _tables: &mut TableRows, options: &StreamingFinishOptions<'_>) -> Result<()> {
         if self.grouped.is_empty() {
             for plan in &self.plans {
-                eprintln!(
+                info!(
                     "[aggregate] SKIP {} <- {:?}: no streamed source rows",
                     plan.rule.table_name, plan.group.source_table,
                 );
@@ -530,7 +531,7 @@ impl<'a> StreamingRuleAggregator<'a> {
         let mut output_rows = vec![0_usize; self.plans.len()];
         for plan in &self.plans {
             let t = Instant::now();
-            eprintln!(
+            info!(
                 "[aggregate] {} <- {:?} ({} streamed groups, group by {:?})",
                 plan.rule.table_name,
                 plan.group.source_table,
@@ -568,8 +569,9 @@ impl<'a> StreamingRuleAggregator<'a> {
 
         for (plan_idx, writer) in writers.into_iter().enumerate() {
             writer.finish()?;
-            eprintln!(
-                "  -> {} streamed groups -> {} output rows ({:.2}s)",
+            info!(
+                "[aggregate] {} {} streamed groups -> {} output rows ({:.2}s)",
+                self.plans[plan_idx].rule.table_name,
                 self.grouped.len(),
                 output_rows[plan_idx],
                 starts[plan_idx].elapsed().as_secs_f64(),

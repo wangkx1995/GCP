@@ -8,6 +8,7 @@ use chrono::{Local, NaiveDateTime};
 
 use crate::load_config::LoadConfig;
 use crate::LoadType;
+use tracing::info;
 
 struct WriteOptions<'a> {
     output_dir: &'a Path,
@@ -99,14 +100,14 @@ impl<'a> StreamingTableWriter<'a> {
                 &package.scan_start.value,
                 package.row_count,
             )?;
-            eprintln!(
+            info!(
                 "[write] {} -> {} ({} rows)",
                 self.table,
                 package.package_dir.display(),
                 package.row_count
             );
         }
-        eprintln!(
+        info!(
             "[write] {} ({} rows, {} package(s), streamed)",
             self.table, self.total_rows, package_count,
         );

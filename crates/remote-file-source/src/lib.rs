@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
+use tracing::{info, warn};
 
 use config::SourceConfig;
 
@@ -103,7 +104,7 @@ where
         let scan_dir = template::infer_scan_dir(&rendered);
         let matcher = Regex::new(&rendered)
             .with_context(|| format!("invalid source.remote_pattern regex: {rendered}"))?;
-        eprintln!(
+        info!(
             "[source] remote context: index={}/{} type={:?} pattern={} rendered={} scan_dir={}",
             scan_index,
             patterns.len(),
@@ -121,7 +122,7 @@ where
                     .filter(|path| matcher.is_match(path))
                     .collect();
                 let matched_count = pattern_matched.len();
-                eprintln!(
+                info!(
                     "[source] remote scan completed: index={}/{} scan_dir={} scanned={} matched={}",
                     scan_index,
                     patterns.len(),
@@ -140,7 +141,7 @@ where
                 });
             }
             Err(err) => {
-                eprintln!(
+                warn!(
                     "[source] remote scan failed, skipping: index={}/{} scan_dir={} error={:#}",
                     scan_index,
                     patterns.len(),
@@ -184,7 +185,7 @@ where
             format_scan_summaries(&summaries)
         );
     }
-    eprintln!(
+    info!(
         "[source] matched {} remote file(s) from {} successful scan(s), {} failed scan(s)",
         matched.len(),
         successful_scans,

@@ -12,6 +12,7 @@ use zip::ZipArchive;
 use crate::config::{detect_counter_from_filename, resolve_table, ContextData};
 use crate::util::*;
 use crate::Row;
+use tracing::info;
 
 pub fn parse_path_with_projection<F>(
     ctx: &ContextData,
@@ -24,7 +25,7 @@ where
     F: FnMut(&str, Row) -> Result<()>,
 {
     let lower_name = file_name(path).to_ascii_lowercase();
-    eprintln!("[parse] {} ...", path.display());
+    info!("[parse] {} ...", path.display());
 
     if lower_name.ends_with(".gz") {
         let out_path = temp_root.join(strip_suffix(&file_name(path), ".gz"));
@@ -187,7 +188,7 @@ where
     };
 
     let cols = columns.len();
-    eprintln!(
+    info!(
         "  -> table={table} rows={rows} cols={cols} counter={counter} filenum={filenum} ({:.2}s)",
         t.elapsed().as_secs_f64()
     );
@@ -242,7 +243,7 @@ where
         }
         _ => return parse_csv(ctx, path, projections, row_handler),
     };
-    eprintln!(
+    info!(
         "  -> table={table} rows={rows} cols={} counter={counter} filenum={filenum} fast=values ({:.2}s)",
         columns.len(),
         t.elapsed().as_secs_f64()

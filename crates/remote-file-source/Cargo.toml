@@ -11,4 +11,5 @@ serde = { version = "1.0", features = ["derive"] }
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 suppaftp = "6.0"
 toml = "0.8"
+tracing = "0.1"
 walkdir = "2.5"

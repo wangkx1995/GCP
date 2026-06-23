@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
+use tracing::{info, warn};
 use walkdir::WalkDir;
 
 use crate::config::{SourceConfig, SourceKind};
@@ -29,14 +30,14 @@ pub(crate) fn connect_with_retry(config: &SourceConfig) -> Result<RemoteClient> 
         };
         match result {
             Ok(client) => {
-                eprintln!(
+                info!(
                     "[source] connected: type={:?} host={} port={} user={}",
                     source.kind, conn.host, conn.port, conn.username
                 );
                 return Ok(client);
             }
             Err(err) => {
-                eprintln!(
+                warn!(
                     "[source] connect attempt {}/{} failed: type={:?} host={} port={} user={} error={:#}",
                     attempt, attempts, source.kind, conn.host, conn.port, conn.username, err
                 );
@@ -95,7 +96,7 @@ fn download_files_parallel(
 ) -> Result<RoutedInputs> {
     let target_count = targets.len();
     let workers = config.source.download_parallel.min(target_count);
-    eprintln!(
+    info!(
         "[source] downloading {} remote target(s) for {} remote file(s) with {} worker(s)",
         target_count, remote_file_count, workers
     );
@@ -113,7 +114,7 @@ fn download_files_parallel(
             let client = match connect_with_retry(&config) {
                 Ok(client) => client,
                 Err(err) => {
-                    eprintln!(
+                    warn!(
                         "[source] download worker {} failed to create connection: {err:#}",
                         worker_id
                     );
@@ -217,7 +218,7 @@ fn download_one_with_retry(
         }
         .and_then(|_| {
             if local_path.exists() {
-                eprintln!(
+                info!(
                     "[source] local file exists, overwriting: {}",
                     local_path.display()
                 );
@@ -229,7 +230,7 @@ fn download_one_with_retry(
 
         match result {
             Ok(()) => {
-                eprintln!(
+                info!(
                     "[source] downloaded: {} -> {}",
                     remote_file,
                     local_path.display()
@@ -238,7 +239,7 @@ fn download_one_with_retry(
             }
             Err(err) => {
                 let _ = fs::remove_file(&part_path);
-                eprintln!(
+                warn!(
                     "[source] download attempt {}/{} failed: remote={} local={} error={:#}",
                     attempt,
                     attempts,
@@ -261,7 +262,7 @@ fn download_one_with_retry(
 
 fn wait_before_retry(attempt: usize, attempts: usize, interval_secs: u64, operation: &str) {
     if attempt < attempts {
-        eprintln!(
+        info!(
             "[source] waiting {}s before next {} attempt",
             interval_secs, operation
         );
@@ -281,7 +282,7 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
         let entry = match entry {
             Ok(entry) => entry,
             Err(err) => {
-                eprintln!("[source] cache cleanup skipped unreadable entry: {err:#}");
+                warn!("[source] cache cleanup skipped unreadable entry: {err:#}");
                 continue;
             }
         };
@@ -293,7 +294,7 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
         let metadata = match entry.metadata() {
             Ok(metadata) => metadata,
             Err(err) => {
-                eprintln!(
+                warn!(
                     "[source] cache cleanup skipped {}: failed to read metadata: {err:#}",
                     path.display()
                 );
@@ -303,7 +304,7 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
         let modified = match metadata.modified() {
             Ok(modified) => modified,
             Err(err) => {
-                eprintln!(
+                warn!(
                     "[source] cache cleanup skipped {}: failed to read modified time: {err:#}",
                     path.display()
                 );
@@ -317,8 +318,8 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
             continue;
         }
         match fs::remove_file(&path) {
-            Ok(()) => eprintln!("[source] cache cleanup deleted: {}", path.display()),
-            Err(err) => eprintln!(
+            Ok(()) => info!("[source] cache cleanup deleted: {}", path.display()),
+            Err(err) => warn!(
                 "[source] cache cleanup failed to delete {}: {err:#}",
                 path.display()
             ),

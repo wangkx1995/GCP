@@ -1,13 +1,19 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
-use std::time::Instant;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
 use indexmap::IndexMap;
 use remote_file_source::ResolveOptions;
 use tempfile::TempDir;
+use tracing::{info, warn};
+use tracing_subscriber::fmt::time::ChronoLocal;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 mod config;
 mod crc64;
@@ -62,6 +68,36 @@ pub enum LoadType {
 
 fn main() -> Result<()> {
     let start = Instant::now();
+
+    let log_dir = Path::new("logs");
+    fs::create_dir_all(log_dir)?;
+    cleanup_old_logs(log_dir, 30)?;
+
+    let file_appender = tracing_appender::rolling::daily(log_dir, "app.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info".into());
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_ansi(false)
+                .with_timer(ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string()))
+                .with_writer(std::io::stderr)
+                .with_filter(filter.clone()),
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_ansi(false)
+                .with_timer(ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string()))
+                .with_writer(non_blocking)
+                .with_filter(filter),
+        )
+        .init();
+
     let cli = Cli::parse();
     let mapping_path = cli.config_dir.join("mapping_dx.ini");
     let output_delimiter = parse_delimiter(&cli.output_delimiter)?;
@@ -77,7 +113,7 @@ fn main() -> Result<()> {
     let rule_files = discover_rule_files(cli.rule_files, cli.rules_dir.as_ref())?;
     let mut rules = Vec::new();
     for rule_file in &rule_files {
-        eprintln!("[rule] loading {}", rule_file.display());
+        info!("[rule] loading {}", rule_file.display());
         rules.push(tpd::load_rule(rule_file)?);
     }
     tpd::validate_streaming_rules(&rules)?;
@@ -98,7 +134,7 @@ fn main() -> Result<()> {
         &routed_inputs.representative_files,
     )?;
     let streaming_parallel = effective_streaming_parallelism(tasks.len());
-    eprintln!(
+    info!(
         "[aggregate] streaming destination tables: {} task(s), parallel={}",
         tasks.len(),
         streaming_parallel
@@ -113,7 +149,7 @@ fn main() -> Result<()> {
         &load_config,
     )?;
 
-    eprintln!("[done] {:.2}s total", start.elapsed().as_secs_f64());
+    info!("[done] {:.2}s total", start.elapsed().as_secs_f64());
     Ok(())
 }
 
@@ -130,7 +166,7 @@ fn run_streaming_table_task(
     let streaming_required_fields = tpd::streaming_required_fields_by_table(&task.rules);
     let streaming_ordered_fields = tpd::streaming_ordered_fields_by_table(&task.rules);
     let streaming_engine = std::cell::RefCell::new(tpd::StreamingTpdEngine::new(&task.rules));
-    eprintln!(
+    info!(
         "[aggregate] {} input file(s) for {}",
         task.inputs.len(),
         task.dest_table
@@ -256,7 +292,7 @@ fn discover_rule_files(
             .collect();
         entries.sort();
         if entries.is_empty() {
-            eprintln!("[rule] no .json files found in {}", rules_dir.display());
+            warn!("[rule] no .json files found in {}", rules_dir.display());
         }
         rule_files.extend(entries);
     }
@@ -336,7 +372,7 @@ fn build_streaming_table_tasks(
                 .cloned()
                 .filter(|files| !files.is_empty())
             else {
-                eprintln!("[input] skip {dest_table}: no routed input files");
+                warn!("[input] skip {dest_table}: no routed input files");
                 continue;
             };
             files
@@ -356,6 +392,23 @@ fn build_streaming_table_tasks(
         });
     }
     Ok(tasks)
+}
+
+fn cleanup_old_logs(dir: &Path, retention_days: u64) -> Result<()> {
+    let cutoff = SystemTime::now()
+        .checked_sub(Duration::from_secs(retention_days * 24 * 60 * 60))
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            if let Ok(modified) = entry.metadata()?.modified() {
+                if modified < cutoff {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn parse_delimiter(value: &str) -> Result<u8> {
