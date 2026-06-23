@@ -332,11 +332,15 @@ fn build_streaming_table_tasks(
     let mut tasks = Vec::with_capacity(dest_order.len());
     for dest_table in dest_order {
         let inputs = if use_routed_inputs {
-            grouped_inputs
+            let Some(files) = grouped_inputs
                 .get(&dest_table)
                 .cloned()
                 .filter(|files| !files.is_empty())
-                .with_context(|| format!("missing routed input group for {dest_table}"))?
+            else {
+                eprintln!("[input] skip {dest_table}: no routed input files");
+                continue;
+            };
+            files
         } else {
             if fallback_inputs.is_empty() {
                 bail!("missing input files for {dest_table}");
@@ -408,6 +412,20 @@ mod tests {
             tasks[1].inputs,
             vec![PathBuf::from("downloads/tpd_b/b.csv.gz")]
         );
+    }
+
+    #[test]
+    fn build_streaming_table_tasks_skips_missing_routed_group() {
+        let rules = vec![test_rule("TPD_A", "OP_A"), test_rule("TPD_B", "OP_B")];
+        let groups = vec![remote_file_source::RoutedInputGroup {
+            route: "TPD_A".to_string(),
+            files: vec![PathBuf::from("downloads/tpd_a/a.csv.gz")],
+        }];
+
+        let tasks = build_streaming_table_tasks(&rules, &groups, &[]).unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].dest_table, "TPD_A");
     }
 
     #[test]
