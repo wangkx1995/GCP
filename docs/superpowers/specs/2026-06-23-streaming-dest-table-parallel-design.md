@@ -11,7 +11,7 @@ Make TPD processing streaming-only and prepare parsing/output to run independent
 - Fail at startup when any rule cannot be represented by the streaming engine.
 - Parallelize only by destination table in this phase.
 - Keep each destination table single-threaded internally to avoid writer and aggregator sharing.
-- Add `--streaming-parallel <N>` with default `1` so current behavior stays conservative unless explicitly increased.
+- Do not expose a parallelism flag; automatically run one worker per destination table task.
 
 ## Streaming Compatibility
 
@@ -75,12 +75,9 @@ No task shares a writer, aggregator, or mutable table map with another task.
 
 ## Parallelism
 
-`--streaming-parallel` controls the maximum number of destination-table tasks running at once.
+The main process automatically runs one worker thread per destination-table task. For example, `3 task(s)` starts 3 table workers without requiring a CLI parameter.
 
-- `1`: run destination tables sequentially.
-- `N > 1`: run up to `N` destination tables concurrently.
-
-The implementation can use scoped threads so task closures can borrow loaded rules safely without cloning large rule structures. Result ordering in logs is not guaranteed when parallelism is enabled, but output paths remain deterministic because each task writes a distinct destination table.
+The implementation uses scoped threads or owned task data so each worker owns its rule subset and parser state. Result ordering in logs is not guaranteed, but output paths remain deterministic because each task writes a distinct destination table.
 
 ## Removed Main-Flow Behavior
 
@@ -96,7 +93,7 @@ The following main-flow concepts are removed:
 ## Error Handling
 
 - Unsupported rules fail before remote downloads when possible.
-- Missing routed input groups fail if the destination table has no local or remote files.
+- Missing routed input groups are skipped with an `[input] skip <table>: no routed input files` log line.
 - Any task failure fails the whole command.
 - Parallel task errors are collected and reported with the destination table name.
 
@@ -105,6 +102,8 @@ The following main-flow concepts are removed:
 - Unit-test streaming compatibility validation with compatible and incompatible rules.
 - Unit-test routed input grouping returns one group per destination table route.
 - Unit-test task construction maps each destination table to only its own rules.
+- Unit-test missing routed groups are skipped instead of failing.
+- Unit-test automatic parallelism uses task count as effective worker count.
 - Keep existing streaming aggregation tests.
 - Verify with:
 
@@ -118,5 +117,5 @@ cargo build --release --locked
 - All configured TPD rules run through streaming only.
 - Incompatible rules fail fast with actionable messages.
 - Remote NRCELLDU files downloaded under multiple destination-table directories are parsed separately by each destination table task.
-- `--streaming-parallel 1` preserves deterministic sequential execution.
-- `--streaming-parallel N` can process multiple destination tables concurrently without shared mutable aggregation state.
+- `3 task(s)` automatically runs with `parallel=3` in the aggregate log.
+- Multiple destination tables process concurrently without shared mutable aggregation state.
