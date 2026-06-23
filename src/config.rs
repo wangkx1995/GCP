@@ -9,8 +9,6 @@ use crate::util::{file_name, read_text};
 pub struct MappingConfig {
     pub table_mapping: HashMap<String, String>,
     pub columns: IndexMap<String, IndexMap<String, String>>,
-    #[allow(dead_code)]
-    pub headers: HashMap<String, Vec<String>>,
     pub filenum: i32,
 }
 
@@ -24,7 +22,6 @@ pub fn parse_mapping_config(path: &Path) -> Result<MappingConfig> {
     let mut section = String::new();
     let mut table_mapping = HashMap::new();
     let mut columns: IndexMap<String, IndexMap<String, String>> = IndexMap::new();
-    let mut headers: HashMap<String, Vec<String>> = HashMap::new();
     let mut filenum = -1;
 
     for raw_line in text.lines() {
@@ -59,7 +56,6 @@ pub fn parse_mapping_config(path: &Path) -> Result<MappingConfig> {
                         .entry(table.clone())
                         .or_default()
                         .insert(source, target.clone());
-                    headers.entry(table).or_default().push(target);
                 }
             }
             _ => {}
@@ -69,7 +65,6 @@ pub fn parse_mapping_config(path: &Path) -> Result<MappingConfig> {
     Ok(MappingConfig {
         table_mapping,
         columns,
-        headers,
         filenum,
     })
 }

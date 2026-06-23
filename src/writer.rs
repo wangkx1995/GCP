@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use chrono::{Local, NaiveDateTime};
 
 use crate::load_config::LoadConfig;
-use crate::{LoadType, Row};
+use crate::LoadType;
 
 struct WriteOptions<'a> {
     output_dir: &'a Path,
@@ -55,32 +55,6 @@ impl<'a> StreamingTableWriter<'a> {
             packages: HashMap::new(),
             total_rows: 0,
         })
-    }
-
-    #[allow(dead_code)]
-    pub fn write_row(&mut self, row: &Row) -> Result<()> {
-        let scan_value = row
-            .get("scan_start_time")
-            .context("output row missing scan_start_time")?
-            .clone();
-        if !self.packages.contains_key(&scan_value) {
-            let package = create_streaming_package(
-                &self.options,
-                &self.table,
-                &self.headers,
-                parse_scan_start(&scan_value)?,
-            )?;
-            self.packages.insert(scan_value.clone(), package);
-        }
-        let package = self.packages.get_mut(&scan_value).expect("package exists");
-        let mut record = Vec::with_capacity(self.headers.len());
-        for header in &self.headers {
-            record.push(row.get(header).map(String::as_str).unwrap_or_default());
-        }
-        package.writer.write_record(&record)?;
-        package.row_count += 1;
-        self.total_rows += 1;
-        Ok(())
     }
 
     pub fn write_values(&mut self, scan_start_time: &str, values: &[String]) -> Result<()> {

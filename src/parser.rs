@@ -11,32 +11,7 @@ use zip::ZipArchive;
 
 use crate::config::{detect_counter_from_filename, resolve_table, ContextData};
 use crate::util::*;
-use crate::{Row, TableRows};
-
-#[allow(dead_code)]
-pub fn parse_path(
-    ctx: &ContextData,
-    path: &Path,
-    temp_root: &Path,
-    tables: &mut TableRows,
-) -> Result<()> {
-    parse_path_with_handler(ctx, path, temp_root, &mut |table, row| {
-        tables.entry(table.to_string()).or_default().push(row);
-        Ok(())
-    })
-}
-
-pub fn parse_path_with_handler<F>(
-    ctx: &ContextData,
-    path: &Path,
-    temp_root: &Path,
-    handler: &mut F,
-) -> Result<()>
-where
-    F: FnMut(&str, Row) -> Result<()>,
-{
-    parse_path_with_projection(ctx, path, temp_root, &HashMap::new(), handler)
-}
+use crate::Row;
 
 pub fn parse_path_with_projection<F>(
     ctx: &ContextData,

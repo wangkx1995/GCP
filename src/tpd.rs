@@ -27,7 +27,6 @@ pub struct TpdRule {
     pub output_fields: Vec<FieldRule>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct GroupRule {
     pub name: String,
@@ -39,8 +38,6 @@ pub struct GroupRule {
     pub where_expr: String,
     #[serde(default)]
     pub group_by: Vec<String>,
-    #[serde(default)]
-    pub join_keys: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -66,14 +63,11 @@ where
         .collect())
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 pub struct FieldRule {
     pub name: String,
     #[serde(default)]
     pub expression: String,
-    #[serde(default)]
-    pub related_group: String,
 }
 
 pub fn load_rule(path: &Path) -> Result<TpdRule> {
@@ -101,25 +95,10 @@ impl<'a> StreamingTpdEngine<'a> {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.aggregators.is_empty()
-    }
-
     pub fn consumes_table(&self, table: &str) -> bool {
         self.aggregators
             .iter()
             .any(|aggregator| aggregator.consumes_table(table))
-    }
-
-    #[allow(dead_code)]
-    pub fn accept(&mut self, table: &str, row: &Row) -> Result<()> {
-        for aggregator in &mut self.aggregators {
-            if aggregator.consumes_table(table) {
-                aggregator.accept(row)?;
-            }
-        }
-        Ok(())
     }
 
     pub fn accept_owned(&mut self, table: &str, row: Row) -> Result<()> {
@@ -185,25 +164,6 @@ fn build_streaming_aggregators<'a>(rules: &'a [TpdRule]) -> Vec<StreamingRuleAgg
         }
     }
     aggregators
-}
-
-#[allow(dead_code)]
-pub fn streaming_source_tables(rules: &[TpdRule]) -> HashSet<String> {
-    rules
-        .iter()
-        .filter_map(StreamingRuleAggregator::new)
-        .flat_map(|aggregator| aggregator.source_tables)
-        .collect()
-}
-
-#[allow(dead_code)]
-pub fn streaming_rule_tables(rules: &[TpdRule]) -> HashSet<String> {
-    rules
-        .iter()
-        .filter_map(|rule| {
-            StreamingRuleAggregator::new(rule).map(|_| rule.table_name.to_ascii_uppercase())
-        })
-        .collect()
 }
 
 pub fn validate_streaming_rules(rules: &[TpdRule]) -> Result<()> {
@@ -2322,17 +2282,14 @@ mod tests {
         let left = FieldRule {
             name: "vendor_id_0".to_string(),
             expression: "lower(max(VENDORNAME))".to_string(),
-            related_group: "related_rdn01".to_string(),
         };
         let same = FieldRule {
             name: "vendor_id_0".to_string(),
             expression: "lower(max(VENDORNAME))".to_string(),
-            related_group: "related_rdn02".to_string(),
         };
         let different_name = FieldRule {
             name: "vendor_id_1".to_string(),
             expression: "lower(max(VENDORNAME))".to_string(),
-            related_group: "related_rdn01".to_string(),
         };
         let field_indexes = FastHashMap::default();
         let left = CompiledFieldExpr::new(&left, &field_indexes);
