@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -6,58 +6,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDateTime};
 
-use crate::config::MappingConfig;
 use crate::load_config::LoadConfig;
-use crate::{LoadType, Row, TableRows};
-
-#[allow(dead_code)]
-pub fn write_tables(
-    mapping: &MappingConfig,
-    tables: &TableRows,
-    output_dir: &Path,
-    delimiter: u8,
-    collect_id: &str,
-    load_type: LoadType,
-    load_config: &LoadConfig,
-) -> Result<()> {
-    let options = WriteOptions {
-        output_dir,
-        delimiter,
-        collect_id,
-        load_type,
-        load_config,
-    };
-    fs::create_dir_all(output_dir)?;
-    for (table, rows) in tables {
-        if table.starts_with("OP_") {
-            eprintln!("[write] SKIP {} ({} rows)", table, rows.len());
-            continue;
-        }
-        let t = std::time::Instant::now();
-        let headers = mapping
-            .headers
-            .get(table)
-            .cloned()
-            .unwrap_or_else(|| infer_headers(rows));
-        let groups = group_rows_by_scan_start(rows)?;
-
-        for (scan_start, group_rows) in groups {
-            write_package(&options, table, &headers, &group_rows, &scan_start)?;
-        }
-
-        eprintln!(
-            "[write] {} ({} rows, {} package(s), {:.2}s)",
-            table,
-            rows.len(),
-            rows.iter()
-                .filter_map(|row| row.get("scan_start_time"))
-                .collect::<HashSet<_>>()
-                .len(),
-            t.elapsed().as_secs_f64()
-        );
-    }
-    Ok(())
-}
+use crate::{LoadType, Row};
 
 struct WriteOptions<'a> {
     output_dir: &'a Path,
@@ -232,68 +182,6 @@ fn create_streaming_package(
     })
 }
 
-#[allow(dead_code)]
-fn write_package(
-    options: &WriteOptions<'_>,
-    table: &str,
-    headers: &[String],
-    rows: &[&Row],
-    scan_start: &ScanStart,
-) -> Result<()> {
-    let table_lower = table.to_ascii_lowercase();
-    let table_dir = options
-        .output_dir
-        .join(format!("{}_{}", table_lower, scan_start.hour_key));
-    let package_dir = table_dir.join(format!("{}_{}", options.collect_id, scan_start.minute_key));
-    fs::create_dir_all(&package_dir)?;
-
-    let csv_name = format!("{}.csv", table_lower);
-    let ini_name = format!("{}.ini", table_lower);
-    let csv_path = package_dir.join(&csv_name);
-    let ini_path = package_dir.join(&ini_name);
-    let ctl_path = package_dir.join("load.ctl");
-    let result_path = package_dir.join("result.csv");
-
-    write_csv(&csv_path, headers, rows, options.delimiter)?;
-    write_ini(&ini_path, headers)?;
-    write_load_ctl(
-        &ctl_path,
-        table,
-        headers,
-        &csv_name,
-        options.delimiter,
-        options.load_type,
-        options.load_config,
-    )?;
-    write_result_csv(&result_path, table, &scan_start.value, rows.len())?;
-
-    eprintln!(
-        "[write] {} -> {} ({} rows)",
-        table,
-        package_dir.display(),
-        rows.len()
-    );
-    Ok(())
-}
-
-#[allow(dead_code)]
-fn write_csv(path: &Path, headers: &[String], rows: &[&Row], delimiter: u8) -> Result<()> {
-    let mut writer = csv::WriterBuilder::new()
-        .delimiter(delimiter)
-        .has_headers(false)
-        .from_path(path)?;
-    let mut record = Vec::with_capacity(headers.len());
-    for row in rows {
-        record.clear();
-        for header in headers {
-            record.push(row.get(header).map(String::as_str).unwrap_or_default());
-        }
-        writer.write_record(&record)?;
-    }
-    writer.flush()?;
-    Ok(())
-}
-
 fn write_ini(path: &Path, headers: &[String]) -> Result<()> {
     fs::write(path, format!("{}\n", headers.join("\n")))?;
     Ok(())
@@ -403,24 +291,6 @@ fn shell_word(value: &str) -> String {
         .collect()
 }
 
-#[allow(dead_code)]
-fn group_rows_by_scan_start(rows: &[Row]) -> Result<Vec<(ScanStart, Vec<&Row>)>> {
-    let mut grouped: HashMap<String, Vec<&Row>> = HashMap::new();
-    for row in rows {
-        let value = row
-            .get("scan_start_time")
-            .context("output row missing scan_start_time")?;
-        grouped.entry(value.clone()).or_default().push(row);
-    }
-
-    let mut result = Vec::with_capacity(grouped.len());
-    for (value, rows) in grouped {
-        result.push((parse_scan_start(&value)?, rows));
-    }
-    result.sort_by(|left, right| left.0.minute_key.cmp(&right.0.minute_key));
-    Ok(result)
-}
-
 fn parse_scan_start(value: &str) -> Result<ScanStart> {
     let parsed = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
         .with_context(|| format!("invalid scan_start_time: {value}"))?;
@@ -435,20 +305,6 @@ struct ScanStart {
     value: String,
     hour_key: String,
     minute_key: String,
-}
-
-#[allow(dead_code)]
-fn infer_headers(rows: &[Row]) -> Vec<String> {
-    let mut headers = Vec::new();
-    let mut seen = HashSet::new();
-    for row in rows {
-        for key in row.keys() {
-            if seen.insert(key.clone()) {
-                headers.push(key.clone());
-            }
-        }
-    }
-    headers
 }
 
 #[cfg(test)]
