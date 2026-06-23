@@ -52,8 +52,6 @@ struct Cli {
     rule_files: Vec<PathBuf>,
     #[arg(long = "rules-dir")]
     rules_dir: Option<PathBuf>,
-    #[arg(long, default_value_t = 1)]
-    streaming_parallel: usize,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -65,9 +63,6 @@ pub enum LoadType {
 fn main() -> Result<()> {
     let start = Instant::now();
     let cli = Cli::parse();
-    if cli.streaming_parallel == 0 {
-        bail!("--streaming-parallel must be greater than 0");
-    }
     let mapping_path = cli.config_dir.join("mapping_dx.ini");
     let output_delimiter = parse_delimiter(&cli.output_delimiter)?;
     let load_config = load_config::load_config(&cli.load_config)
@@ -102,14 +97,14 @@ fn main() -> Result<()> {
         &routed_inputs.groups,
         &routed_inputs.representative_files,
     )?;
+    let streaming_parallel = effective_streaming_parallelism(tasks.len());
     eprintln!(
         "[aggregate] streaming destination tables: {} task(s), parallel={}",
         tasks.len(),
-        cli.streaming_parallel
+        streaming_parallel
     );
     run_streaming_table_tasks(
         tasks,
-        cli.streaming_parallel,
         &ctx,
         &cli.output_dir,
         output_delimiter,
@@ -185,7 +180,6 @@ fn run_streaming_table_task(
 
 fn run_streaming_table_tasks(
     tasks: Vec<StreamingTableTask>,
-    parallel: usize,
     ctx: &ContextData,
     output_dir: &std::path::Path,
     output_delimiter: u8,
@@ -193,6 +187,7 @@ fn run_streaming_table_tasks(
     load_type: LoadType,
     load_config: &LoadConfig,
 ) -> Result<()> {
+    let parallel = effective_streaming_parallelism(tasks.len());
     let mut pending = tasks.into_iter();
     loop {
         let batch = pending.by_ref().take(parallel).collect::<Vec<_>>();
@@ -241,6 +236,10 @@ fn run_streaming_table_tasks(
         }
     }
     Ok(())
+}
+
+fn effective_streaming_parallelism(task_count: usize) -> usize {
+    task_count
 }
 
 fn discover_rule_files(
@@ -438,5 +437,12 @@ mod tests {
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].inputs, fallback_inputs);
         assert_eq!(tasks[1].inputs, vec![PathBuf::from("local/a.csv.gz")]);
+    }
+
+    #[test]
+    fn effective_streaming_parallelism_uses_task_count() {
+        assert_eq!(effective_streaming_parallelism(0), 0);
+        assert_eq!(effective_streaming_parallelism(1), 1);
+        assert_eq!(effective_streaming_parallelism(3), 3);
     }
 }
