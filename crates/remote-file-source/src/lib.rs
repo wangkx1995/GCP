@@ -28,6 +28,17 @@ pub struct ResolveOptions {
 
 /// Resolves input files from a local path or downloads matching FTP/SFTP files first.
 pub fn resolve_files(options: ResolveOptions) -> Result<Vec<PathBuf>> {
+    resolve_files_with_router(options, |_| Vec::new())
+}
+
+/// Resolves input files and routes remote downloads into caller-provided subdirectories.
+pub fn resolve_files_with_router<F>(
+    options: ResolveOptions,
+    route_remote_file: F,
+) -> Result<Vec<PathBuf>>
+where
+    F: Fn(&str) -> Vec<String>,
+{
     match (&options.local_input, &options.source_config) {
         (Some(_), Some(_)) => bail!("--input and --source-config cannot be used together"),
         (None, None) => bail!("either --input or --source-config is required"),
@@ -39,12 +50,19 @@ pub fn resolve_files(options: ResolveOptions) -> Result<Vec<PathBuf>> {
                 .context("--scan-start-time is required when --source-config is used")?;
             let config = config::load_source_config(config_path)
                 .with_context(|| format!("failed to parse {}", config_path.display()))?;
-            resolve_remote_files(&config, scan_start_time)
+            resolve_remote_files(&config, scan_start_time, &route_remote_file)
         }
     }
 }
 
-fn resolve_remote_files(config: &SourceConfig, scan_start_time: &str) -> Result<Vec<PathBuf>> {
+fn resolve_remote_files<F>(
+    config: &SourceConfig,
+    scan_start_time: &str,
+    route_remote_file: &F,
+) -> Result<Vec<PathBuf>>
+where
+    F: Fn(&str) -> Vec<String>,
+{
     let patterns = remote_patterns(&config.source.remote_pattern)?;
     let client = remote::connect_with_retry(config)?;
     let mut matched = Vec::new();
@@ -145,7 +163,7 @@ fn resolve_remote_files(config: &SourceConfig, scan_start_time: &str) -> Result<
         summaries.len() - successful_scans
     );
 
-    remote::download_files(&client, config, &matched)
+    remote::download_files_with_router(&client, config, &matched, route_remote_file)
 }
 
 fn remote_patterns(pattern: &str) -> Result<Vec<String>> {

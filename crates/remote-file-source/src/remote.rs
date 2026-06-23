@@ -1,11 +1,12 @@
 use std::collections::VecDeque;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
+use walkdir::WalkDir;
 
 use crate::config::{SourceConfig, SourceKind};
 use crate::{ftp, sftp};
@@ -53,51 +54,53 @@ pub(crate) fn list_files(client: &RemoteClient, scan_dir: &str) -> Result<Vec<St
     }
 }
 
-pub(crate) fn download_files(
+pub(crate) fn download_files_with_router<F>(
     client: &RemoteClient,
     config: &SourceConfig,
     remote_files: &[String],
-) -> Result<Vec<PathBuf>> {
+    route_remote_file: &F,
+) -> Result<Vec<PathBuf>>
+where
+    F: Fn(&str) -> Vec<String>,
+{
     fs::create_dir_all(&config.source.download_dir)?;
     cleanup_download_dir(config)?;
+    let targets = download_targets(config, remote_files, route_remote_file);
     if config.source.download_parallel > 1 {
-        return download_files_parallel(config, remote_files);
+        return download_files_parallel(config, targets, remote_files.len());
     }
-    download_files_sequential(client, config, remote_files)
+    download_files_sequential(client, config, targets, remote_files.len())
 }
 
 fn download_files_sequential(
     client: &RemoteClient,
     config: &SourceConfig,
-    remote_files: &[String],
+    targets: Vec<DownloadTarget>,
+    remote_file_count: usize,
 ) -> Result<Vec<PathBuf>> {
-    let mut local_files = Vec::with_capacity(remote_files.len());
-    for remote_file in remote_files {
-        let local_path = config
-            .source
-            .download_dir
-            .join(remote_file_name(remote_file));
-        download_one_with_retry(client, config, remote_file, &local_path)
-            .with_context(|| format!("failed to download remote file {remote_file}"))?;
-        local_files.push(local_path);
+    let mut local_files = vec![None; remote_file_count];
+    for target in targets {
+        download_one_with_retry(client, config, &target.remote_file, &target.local_path)
+            .with_context(|| format!("failed to download remote file {}", target.remote_file))?;
+        if target.route_index == 0 {
+            local_files[target.remote_index] = Some(target.local_path);
+        }
     }
-    Ok(local_files)
+    representative_paths(local_files)
 }
 
-fn download_files_parallel(config: &SourceConfig, remote_files: &[String]) -> Result<Vec<PathBuf>> {
-    let workers = config.source.download_parallel.min(remote_files.len());
+fn download_files_parallel(
+    config: &SourceConfig,
+    targets: Vec<DownloadTarget>,
+    remote_file_count: usize,
+) -> Result<Vec<PathBuf>> {
+    let target_count = targets.len();
+    let workers = config.source.download_parallel.min(target_count);
     eprintln!(
-        "[source] downloading {} remote file(s) with {} worker(s)",
-        remote_files.len(),
-        workers
+        "[source] downloading {} remote target(s) for {} remote file(s) with {} worker(s)",
+        target_count, remote_file_count, workers
     );
-    let queue = Arc::new(Mutex::new(
-        remote_files
-            .iter()
-            .cloned()
-            .enumerate()
-            .collect::<VecDeque<_>>(),
-    ));
+    let queue = Arc::new(Mutex::new(targets.into_iter().collect::<VecDeque<_>>()));
     let successes = Arc::new(Mutex::new(Vec::new()));
     let failures = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::with_capacity(workers);
@@ -121,21 +124,24 @@ fn download_files_parallel(config: &SourceConfig, remote_files: &[String]) -> Re
 
             loop {
                 let next = queue.lock().expect("queue mutex poisoned").pop_front();
-                let Some((index, remote_file)) = next else {
+                let Some(target) = next else {
                     break;
                 };
-                let local_path = config
-                    .source
-                    .download_dir
-                    .join(remote_file_name(&remote_file));
-                match download_one_with_retry(&client, &config, &remote_file, &local_path) {
-                    Ok(()) => successes
-                        .lock()
-                        .expect("successes mutex poisoned")
-                        .push((index, local_path)),
+                match download_one_with_retry(
+                    &client,
+                    &config,
+                    &target.remote_file,
+                    &target.local_path,
+                ) {
+                    Ok(()) => successes.lock().expect("successes mutex poisoned").push((
+                        target.remote_index,
+                        target.route_index,
+                        target.local_path,
+                    )),
                     Err(err) => failures.lock().expect("failures mutex poisoned").push((
-                        index,
-                        remote_file,
+                        target.remote_index,
+                        target.route_index,
+                        target.remote_file,
                         format!("{err:#}"),
                     )),
                 }
@@ -154,23 +160,24 @@ fn download_files_parallel(config: &SourceConfig, remote_files: &[String]) -> Re
         .collect::<Vec<_>>();
     if !remaining.is_empty() {
         let mut failures = failures.lock().expect("failures mutex poisoned");
-        for (index, remote_file) in remaining {
+        for target in remaining {
             failures.push((
-                index,
-                remote_file,
+                target.remote_index,
+                target.route_index,
+                target.remote_file,
                 "no download worker was available".to_string(),
             ));
         }
     }
 
     let mut failures = failures.lock().expect("failures mutex poisoned");
-    failures.sort_by_key(|(index, _, _)| *index);
+    failures.sort_by_key(|(remote_index, route_index, _, _)| (*remote_index, *route_index));
     if !failures.is_empty() {
         let failure_count = failures.len();
         let success_count = successes.lock().expect("successes mutex poisoned").len();
         let details = failures
             .iter()
-            .map(|(_, remote_file, err)| format!("remote={} error={}", remote_file, err))
+            .map(|(_, _, remote_file, err)| format!("remote={} error={}", remote_file, err))
             .collect::<Vec<_>>()
             .join("; ");
         bail!(
@@ -182,16 +189,25 @@ fn download_files_parallel(config: &SourceConfig, remote_files: &[String]) -> Re
     }
 
     let mut successes = successes.lock().expect("successes mutex poisoned");
-    successes.sort_by_key(|(index, _)| *index);
-    Ok(successes.iter().map(|(_, path)| path.clone()).collect())
+    successes.sort_by_key(|(remote_index, route_index, _)| (*remote_index, *route_index));
+    let mut local_files = vec![None; remote_file_count];
+    for (remote_index, route_index, path) in successes.iter() {
+        if *route_index == 0 {
+            local_files[*remote_index] = Some(path.clone());
+        }
+    }
+    representative_paths(local_files)
 }
 
 fn download_one_with_retry(
     client: &RemoteClient,
     config: &SourceConfig,
     remote_file: &str,
-    local_path: &PathBuf,
+    local_path: &Path,
 ) -> Result<()> {
+    if let Some(parent) = local_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let attempts = config.source.download_retry;
     let mut last_error = None;
     for attempt in 1..=attempts {
@@ -268,12 +284,7 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
             .saturating_mul(24 * 60 * 60),
     );
     let now = SystemTime::now();
-    for entry in fs::read_dir(&config.source.download_dir).with_context(|| {
-        format!(
-            "failed to read download_dir for cache cleanup: {}",
-            config.source.download_dir.display()
-        )
-    })? {
+    for entry in WalkDir::new(&config.source.download_dir).min_depth(1) {
         let entry = match entry {
             Ok(entry) => entry,
             Err(err) => {
@@ -282,16 +293,7 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
             }
         };
         let path = entry.path();
-        let file_type = match entry.file_type() {
-            Ok(file_type) => file_type,
-            Err(err) => {
-                eprintln!(
-                    "[source] cache cleanup skipped {}: failed to read file type: {err:#}",
-                    path.display()
-                );
-                continue;
-            }
-        };
+        let file_type = entry.file_type();
         if !file_type.is_file() {
             continue;
         }
@@ -332,6 +334,84 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
     Ok(())
 }
 
+fn representative_paths(local_files: Vec<Option<PathBuf>>) -> Result<Vec<PathBuf>> {
+    local_files
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| {
+            path.with_context(|| {
+                format!("missing representative download for remote index {index}")
+            })
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DownloadTarget {
+    remote_index: usize,
+    route_index: usize,
+    remote_file: String,
+    local_path: PathBuf,
+}
+
+fn download_targets<F>(
+    config: &SourceConfig,
+    remote_files: &[String],
+    route_remote_file: &F,
+) -> Vec<DownloadTarget>
+where
+    F: Fn(&str) -> Vec<String>,
+{
+    remote_files
+        .iter()
+        .enumerate()
+        .flat_map(|(remote_index, remote_file)| {
+            let mut routes = route_remote_file(remote_file);
+            routes.sort();
+            routes.dedup();
+            if routes.is_empty() {
+                routes.push(String::new());
+            }
+            routes
+                .into_iter()
+                .enumerate()
+                .map(move |(route_index, route)| {
+                    let file_name = remote_file_name(remote_file);
+                    let local_path = if route.is_empty() {
+                        config.source.download_dir.join(file_name)
+                    } else {
+                        config
+                            .source
+                            .download_dir
+                            .join(sanitize_route_dir(&route))
+                            .join(file_name)
+                    };
+                    DownloadTarget {
+                        remote_index,
+                        route_index,
+                        remote_file: remote_file.clone(),
+                        local_path,
+                    }
+                })
+        })
+        .collect()
+}
+
+fn sanitize_route_dir(route: &str) -> String {
+    route
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn remote_file_name(remote_file: &str) -> &str {
     remote_file.rsplit('/').next().unwrap_or(remote_file)
 }
@@ -339,32 +419,18 @@ fn remote_file_name(remote_file: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::config::{ConnectionConfig, SourceConfig, SourceKind, SourceSection};
 
     use super::*;
 
-    #[test]
-    fn cache_cleanup_removes_direct_files_only() {
-        let dir = std::env::temp_dir().join(format!(
-            "remote-file-source-cache-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("old.csv.part");
-        fs::write(&file, b"partial").unwrap();
-        let child_dir = dir.join("child");
-        fs::create_dir_all(&child_dir).unwrap();
-        fs::write(child_dir.join("keep.csv.part"), b"partial").unwrap();
-
-        let config = SourceConfig {
+    fn test_config_with_download_dir(download_dir: PathBuf) -> SourceConfig {
+        SourceConfig {
             source: SourceSection {
                 kind: SourceKind::Sftp,
-                download_dir: dir.clone(),
+                download_dir,
                 remote_pattern: ".*".to_string(),
                 cache_retention_days: 0,
                 connect_retry: 1,
@@ -380,12 +446,65 @@ mod tests {
                     password: "password".to_string(),
                 },
             },
-        };
+        }
+    }
+
+    #[test]
+    fn download_targets_expand_dest_table_routes() {
+        let config = test_config_with_download_dir(PathBuf::from("downloads"));
+        let remote_files = vec!["/remote/NRCELLDU.csv.gz".to_string()];
+        let targets = download_targets(&config, &remote_files, &|_| {
+            vec!["TPD_A".to_string(), "TPD_B".to_string()]
+        });
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(
+            targets[0].local_path,
+            PathBuf::from("downloads/tpd_a/NRCELLDU.csv.gz")
+        );
+        assert_eq!(
+            targets[1].local_path,
+            PathBuf::from("downloads/tpd_b/NRCELLDU.csv.gz")
+        );
+    }
+
+    #[test]
+    fn download_targets_fallback_to_legacy_location_without_routes() {
+        let config = test_config_with_download_dir(PathBuf::from("downloads"));
+        let remote_files = vec!["/remote/NRCELLDU.csv.gz".to_string()];
+        let targets = download_targets(&config, &remote_files, &|_| Vec::new());
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(
+            targets[0].local_path,
+            PathBuf::from("downloads/NRCELLDU.csv.gz")
+        );
+    }
+
+    #[test]
+    fn cache_cleanup_removes_nested_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "remote-file-source-cache-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("old.csv.part");
+        fs::write(&file, b"partial").unwrap();
+        let child_dir = dir.join("child");
+        fs::create_dir_all(&child_dir).unwrap();
+        let child_file = child_dir.join("old.csv.part");
+        fs::write(&child_file, b"partial").unwrap();
+
+        let config = test_config_with_download_dir(dir.clone());
 
         cleanup_download_dir(&config).unwrap();
 
         assert!(!file.exists());
-        assert!(child_dir.join("keep.csv.part").exists());
+        assert!(!child_file.exists());
+        assert!(child_dir.exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -73,35 +73,25 @@ fn main() -> Result<()> {
         encoding: cli.encoding,
     };
 
-    let temp_dir = TempDir::new().context("failed to create temp dir")?;
-    let mut tables = TableRows::new();
-    let inputs = remote_file_source::resolve_files(ResolveOptions {
-        local_input: cli.input,
-        recursive: cli.recursive,
-        source_config: cli.source_config,
-        scan_start_time: cli.scan_start_time,
-    })?;
-    let mut rule_files: Vec<PathBuf> = cli.rule_files;
-    if let Some(rules_dir) = &cli.rules_dir {
-        let mut entries: Vec<_> = fs::read_dir(rules_dir)
-            .with_context(|| format!("failed to read rules dir {}", rules_dir.display()))?
-            .filter_map(|entry| entry.ok())
-            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-            .map(|e| e.path())
-            .filter(|p| p.extension().map(|ext| ext == "json").unwrap_or(false))
-            .collect();
-        entries.sort();
-        if entries.is_empty() {
-            eprintln!("[rule] no .json files found in {}", rules_dir.display());
-        }
-        rule_files.extend(entries);
-    }
-
+    let rule_files = discover_rule_files(cli.rule_files, cli.rules_dir.as_ref())?;
     let mut rules = Vec::new();
     for rule_file in &rule_files {
         eprintln!("[rule] loading {}", rule_file.display());
         rules.push(tpd::load_rule(rule_file)?);
     }
+    let dest_tables_by_source = dest_tables_by_source_table(&rules);
+
+    let temp_dir = TempDir::new().context("failed to create temp dir")?;
+    let mut tables = TableRows::new();
+    let inputs = remote_file_source::resolve_files_with_router(
+        ResolveOptions {
+            local_input: cli.input,
+            recursive: cli.recursive,
+            source_config: cli.source_config,
+            scan_start_time: cli.scan_start_time,
+        },
+        |remote_file| route_remote_file(remote_file, &ctx, &dest_tables_by_source),
+    )?;
 
     let streaming_source_tables = tpd::streaming_source_tables(&rules);
     let streaming_rule_tables = tpd::streaming_rule_tables(&rules);
@@ -181,6 +171,63 @@ fn main() -> Result<()> {
     )?;
     eprintln!("[done] {:.2}s total", start.elapsed().as_secs_f64());
     Ok(())
+}
+
+fn discover_rule_files(
+    mut rule_files: Vec<PathBuf>,
+    rules_dir: Option<&PathBuf>,
+) -> Result<Vec<PathBuf>> {
+    if let Some(rules_dir) = rules_dir {
+        let mut entries: Vec<_> = fs::read_dir(rules_dir)
+            .with_context(|| format!("failed to read rules dir {}", rules_dir.display()))?
+            .filter_map(|entry| entry.ok())
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|ext| ext == "json").unwrap_or(false))
+            .collect();
+        entries.sort();
+        if entries.is_empty() {
+            eprintln!("[rule] no .json files found in {}", rules_dir.display());
+        }
+        rule_files.extend(entries);
+    }
+    Ok(rule_files)
+}
+
+fn dest_tables_by_source_table(rules: &[tpd::TpdRule]) -> HashMap<String, Vec<String>> {
+    let mut dest_tables_by_source: HashMap<String, Vec<String>> = HashMap::new();
+    for rule in rules {
+        let dest_table = rule.table_name.to_ascii_uppercase();
+        for group in rule.groups.iter().filter(|group| group.enabled) {
+            for source_table in &group.source_table {
+                let tables = dest_tables_by_source
+                    .entry(source_table.to_ascii_uppercase())
+                    .or_default();
+                if !tables.contains(&dest_table) {
+                    tables.push(dest_table.clone());
+                }
+            }
+        }
+    }
+    dest_tables_by_source
+}
+
+fn route_remote_file(
+    remote_file: &str,
+    ctx: &ContextData,
+    dest_tables_by_source: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let path = PathBuf::from(remote_file);
+    let Ok(counter) = config::detect_counter_from_filename(&path, &ctx.mapping) else {
+        return Vec::new();
+    };
+    let Ok(source_table) = config::resolve_table(&ctx.mapping, &counter, &path) else {
+        return Vec::new();
+    };
+    dest_tables_by_source
+        .get(&source_table.to_ascii_uppercase())
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn non_streaming_source_tables(
