@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Run all TPD rules through streaming-only execution and process independent destination tables with optional parallelism.
+**Goal:** Run all TPD rules through streaming-only execution and process independent destination tables with automatic per-table parallelism.
 
 **Architecture:** `remote-file-source` returns both representative files and routed groups keyed by destination table. `main.rs` validates all rules are streaming-compatible, builds one task per destination table, and runs each task with its own `StreamingTpdEngine`, parser callbacks, and output finish. Non-streaming TPD execution is removed from the main flow.
 
@@ -15,7 +15,7 @@
 - Fail at startup when any rule cannot be represented by the streaming engine.
 - Parallelize only by destination table in this phase.
 - Keep each destination table single-threaded internally to avoid writer and aggregator sharing.
-- Add `--streaming-parallel <N>` with default `1`.
+- Do not expose a streaming parallelism flag; effective parallelism equals destination table task count.
 - Preserve local `--input` support by giving each destination table task the same local input list.
 - Do not modify or rely on local secret-bearing `source.toml`.
 
@@ -153,8 +153,8 @@ Expected: validation tests pass.
 - Modify: `src/main.rs`
 
 **Interfaces:**
-- Produces: `struct StreamingTableTask<'a> { dest_table: String, rules: Vec<&'a tpd::TpdRule>, inputs: Vec<PathBuf> }`
-- Produces: `fn build_streaming_table_tasks<'a>(rules: &'a [tpd::TpdRule], routed_groups: &[remote_file_source::RoutedInputGroup], fallback_inputs: &[PathBuf]) -> Result<Vec<StreamingTableTask<'a>>>`
+- Produces: `struct StreamingTableTask { dest_table: String, rules: Vec<tpd::TpdRule>, inputs: Vec<PathBuf> }`
+- Produces: `fn build_streaming_table_tasks(rules: &[tpd::TpdRule], routed_groups: &[remote_file_source::RoutedInputGroup], fallback_inputs: &[PathBuf]) -> Result<Vec<StreamingTableTask>>`
 
 - [ ] **Step 1: Add task construction tests**
 
@@ -168,7 +168,7 @@ Expected: FAIL because helper does not exist.
 
 - [ ] **Step 3: Implement task construction**
 
-Group rules by uppercase `table_name`. Match routed groups by uppercase `route`. If routed groups exist, each destination table must have a matching non-empty group. If routed groups are empty, use `fallback_inputs` for every destination table.
+Group rules by uppercase `table_name`. Match routed groups by uppercase `route`. If routed groups exist, destination tables without a matching non-empty group are skipped with an `[input] skip <table>: no routed input files` log line. If routed groups are empty, use `fallback_inputs` for every destination table.
 
 - [ ] **Step 4: Verify focused tests**
 
@@ -188,38 +188,27 @@ Expected: PASS.
 - Consumes: `tpd::validate_streaming_rules`
 - Produces: `fn run_streaming_table_task(...) -> Result<()>`
 
-- [ ] **Step 1: Add CLI argument**
-
-Add to `Cli`:
-
-```rust
-#[arg(long, default_value_t = 1)]
-streaming_parallel: usize,
-```
-
-Validate it is greater than zero after parsing.
-
-- [ ] **Step 2: Replace input resolution**
+- [ ] **Step 1: Replace input resolution**
 
 Use `resolve_routed_files_with_router` and keep both `routed_inputs.representative_files` and `routed_inputs.groups`.
 
-- [ ] **Step 3: Validate streaming rules before downloads when possible**
+- [ ] **Step 2: Validate streaming rules before downloads when possible**
 
 Call `tpd::validate_streaming_rules(&rules)?` immediately after loading rules and before remote resolution.
 
-- [ ] **Step 4: Remove non-streaming table flow from main**
+- [ ] **Step 3: Remove non-streaming table flow from main**
 
 Delete main-flow uses of `TableRows`, `non_streaming_source_tables`, and `tpd::execute_tpd_rule`. Keep `TableRows` type alias if still used by `tpd.rs` through crate imports.
 
-- [ ] **Step 5: Implement single task runner**
+- [ ] **Step 4: Implement single task runner**
 
 For one `StreamingTableTask`, build a `StreamingTpdEngine` from its rules, parse its `inputs`, accept only consumed tables, and finish with a local empty `TableRows`.
 
-- [ ] **Step 6: Implement sequential execution**
+- [ ] **Step 5: Implement automatic task execution**
 
-When `--streaming-parallel 1`, run tasks in order and fail immediately on the first error with destination table context.
+Run all destination table tasks with effective parallelism equal to task count. A single task still runs normally with one worker.
 
-- [ ] **Step 7: Verify full tests**
+- [ ] **Step 6: Verify full tests**
 
 Run: `cargo test`
 
@@ -234,21 +223,43 @@ Expected: all tests pass.
 
 **Interfaces:**
 - Consumes: `run_streaming_table_task`
-- Produces: `fn run_streaming_table_tasks(tasks: Vec<StreamingTableTask<'_>>, parallel: usize, ...) -> Result<()>`
+- Produces: `fn effective_streaming_parallelism(task_count: usize) -> usize`
+- Produces: `fn run_streaming_table_tasks(tasks: Vec<StreamingTableTask>, ...) -> Result<()>`
 
-- [ ] **Step 1: Implement bounded parallel runner**
+- [ ] **Step 1: Add failing automatic parallelism test**
 
-Use `std::thread::scope` and process tasks in chunks of `streaming_parallel`. Each scoped thread returns `Result<()>`; collect errors with destination table names.
+Add a unit test in `src/main.rs`:
 
-- [ ] **Step 2: Add logs**
+```rust
+#[test]
+fn effective_streaming_parallelism_uses_task_count() {
+    assert_eq!(effective_streaming_parallelism(0), 0);
+    assert_eq!(effective_streaming_parallelism(1), 1);
+    assert_eq!(effective_streaming_parallelism(3), 3);
+}
+```
+
+Run: `cargo test effective_streaming_parallelism_uses_task_count`
+
+Expected: FAIL because `effective_streaming_parallelism` does not exist.
+
+- [ ] **Step 2: Remove CLI parameter**
+
+Remove `streaming_parallel` from `Cli`, remove its validation, and remove it from `run_streaming_table_tasks` arguments.
+
+- [ ] **Step 3: Implement automatic parallel runner**
+
+Use `std::thread::scope` and spawn one scoped thread per task. Each scoped thread returns `Result<()>`; collect errors with destination table names.
+
+- [ ] **Step 4: Add logs**
 
 Log task count and effective parallelism:
 
 ```text
-[aggregate] streaming destination tables: 5 task(s), parallel=2
+[aggregate] streaming destination tables: 5 task(s), parallel=5
 ```
 
-- [ ] **Step 3: Verify full tests**
+- [ ] **Step 5: Verify full tests**
 
 Run: `cargo test --workspace`
 
