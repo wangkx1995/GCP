@@ -106,6 +106,7 @@ impl<'a> StreamingTableWriter<'a> {
         })
     }
 
+    #[allow(dead_code)]
     pub fn write_row(&mut self, row: &Row) -> Result<()> {
         let scan_value = row
             .get("scan_start_time")
@@ -126,6 +127,34 @@ impl<'a> StreamingTableWriter<'a> {
             record.push(row.get(header).map(String::as_str).unwrap_or_default());
         }
         package.writer.write_record(&record)?;
+        package.row_count += 1;
+        self.total_rows += 1;
+        Ok(())
+    }
+
+    pub fn write_values(&mut self, scan_start_time: &str, values: &[String]) -> Result<()> {
+        if values.len() != self.headers.len() {
+            anyhow::bail!(
+                "streaming output value count mismatch for {}: got {}, expected {}",
+                self.table,
+                values.len(),
+                self.headers.len()
+            );
+        }
+        if !self.packages.contains_key(scan_start_time) {
+            let package = create_streaming_package(
+                &self.options,
+                &self.table,
+                &self.headers,
+                parse_scan_start(scan_start_time)?,
+            )?;
+            self.packages.insert(scan_start_time.to_string(), package);
+        }
+        let package = self
+            .packages
+            .get_mut(scan_start_time)
+            .expect("package exists");
+        package.writer.write_record(values)?;
         package.row_count += 1;
         self.total_rows += 1;
         Ok(())
@@ -415,4 +444,65 @@ fn infer_headers(rows: &[Row]) -> Vec<String> {
         }
     }
     headers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn load_config() -> LoadConfig {
+        LoadConfig {
+            clickhouse: crate::load_config::ClickHouseConfig {
+                client: "clickhouse-client".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 9000,
+                user: "default".to_string(),
+                password: String::new(),
+                database: "default".to_string(),
+                table_name_case: "lower".to_string(),
+            },
+            postgresql: crate::load_config::PostgresConfig {
+                client: "psql".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 5432,
+                user: "postgres".to_string(),
+                password: String::new(),
+                database: "postgres".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn streaming_writer_writes_ordered_values_directly() {
+        let dir = tempdir().unwrap();
+        let load_config = load_config();
+        let headers = vec!["scan_start_time".to_string(), "name".to_string()];
+        let mut writer = StreamingTableWriter::new_with_headers(
+            headers,
+            "TPD_TEST",
+            dir.path(),
+            b'|',
+            "collect_1",
+            LoadType::Clickhouse,
+            &load_config,
+        )
+        .unwrap();
+
+        writer
+            .write_values(
+                "2026-06-17 15:15:00",
+                &["2026-06-17 15:15:00".to_string(), "cell-1".to_string()],
+            )
+            .unwrap();
+        writer.finish().unwrap();
+
+        let csv_path = dir
+            .path()
+            .join("tpd_test_2026061715")
+            .join("collect_1_202606171515")
+            .join("tpd_test.csv");
+        let text = std::fs::read_to_string(csv_path).unwrap();
+        assert_eq!(text.trim_end(), "2026-06-17 15:15:00|cell-1");
+    }
 }

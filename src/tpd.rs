@@ -532,85 +532,125 @@ impl<'a> StreamingRuleAggregator<'a> {
             return Ok(());
         }
 
+        let mut headers_by_plan = Vec::with_capacity(self.plans.len());
+        let mut writers = Vec::with_capacity(self.plans.len());
+        let mut starts = Vec::with_capacity(self.plans.len());
+        let mut output_rows = vec![0_usize; self.plans.len()];
         for plan in &self.plans {
-            self.finish_plan(plan, options)?;
+            let t = Instant::now();
+            eprintln!(
+                "[aggregate] {} <- {:?} ({} streamed groups, group by {:?})",
+                plan.rule.table_name,
+                plan.group.source_table,
+                self.grouped.len(),
+                plan.group.group_by,
+            );
+            let headers = unique_output_headers(plan.rule);
+            let writer = StreamingTableWriter::new_with_headers(
+                headers.clone(),
+                &plan.rule.table_name.to_ascii_uppercase(),
+                options.output_dir,
+                options.delimiter,
+                options.collect_id,
+                options.load_type,
+                options.load_config,
+            )?;
+            headers_by_plan.push(headers);
+            writers.push(writer);
+            starts.push(t);
+        }
+
+        for state in self.grouped.values() {
+            let mut temp_cache = FastHashMap::default();
+            for plan_idx in 0..self.plans.len() {
+                self.finish_plan_row(
+                    &self.plans[plan_idx],
+                    &headers_by_plan[plan_idx],
+                    state,
+                    &mut temp_cache,
+                    &mut writers[plan_idx],
+                )?;
+                output_rows[plan_idx] += 1;
+            }
+        }
+
+        for (plan_idx, writer) in writers.into_iter().enumerate() {
+            writer.finish()?;
+            eprintln!(
+                "  -> {} streamed groups -> {} output rows ({:.2}s)",
+                self.grouped.len(),
+                output_rows[plan_idx],
+                starts[plan_idx].elapsed().as_secs_f64(),
+            );
         }
         Ok(())
     }
 
-    fn finish_plan(
+    fn finish_plan_row(
         &self,
         plan: &StreamingRulePlan<'_>,
-        options: &StreamingFinishOptions<'_>,
+        headers: &[String],
+        state: &StreamingGroupState,
+        temp_cache: &mut FastHashMap<String, String>,
+        writer: &mut StreamingTableWriter<'_>,
     ) -> Result<()> {
-        let t = Instant::now();
-        eprintln!(
-            "[aggregate] {} <- {:?} ({} streamed groups, group by {:?})",
-            plan.rule.table_name,
-            plan.group.source_table,
-            self.grouped.len(),
-            plan.group.group_by,
-        );
+        let row = &state.row;
+        let rows = [row];
+        let mut context = Row::new();
+        for field in &plan.group.group_by {
+            let value = eval_group_by_expr(row, field).with_context(|| {
+                format!(
+                    "rule {} group {} group_by expression {} failed",
+                    plan.rule.table_name, plan.group.name, field
+                )
+            })?;
+            context.insert(field.clone(), value);
+        }
 
-        let headers = unique_output_headers(plan.rule);
-        let mut writer = StreamingTableWriter::new_with_headers(
-            headers,
-            &plan.rule.table_name.to_ascii_uppercase(),
-            options.output_dir,
-            options.delimiter,
-            options.collect_id,
-            options.load_type,
-            options.load_config,
-        )?;
-        let mut output_rows = 0_usize;
-        for state in self.grouped.values() {
-            let row = &state.row;
-            let rows = [row];
-            let mut context = Row::new();
-            for field in &plan.group.group_by {
-                let value = eval_group_by_expr(row, field).with_context(|| {
-                    format!(
-                        "rule {} group {} group_by expression {} failed",
-                        plan.rule.table_name, plan.group.name, field
-                    )
-                })?;
-                context.insert(field.clone(), value);
-            }
-
-            for field in &plan.temp_exprs {
-                let value = field.eval(state, &rows, &context, None).with_context(|| {
+        for field in &plan.temp_exprs {
+            let value = if field.is_temp_cacheable() {
+                let cache_key = temp_cache_key(field);
+                if let Some(value) = temp_cache.get(&cache_key) {
+                    value.clone()
+                } else {
+                    let value = field.eval(state, &rows, &context, None).with_context(|| {
+                        format!(
+                            "rule {} temp field {} expression {} failed",
+                            plan.rule.table_name, field.field.name, field.field.expression
+                        )
+                    })?;
+                    temp_cache.insert(cache_key, value.clone());
+                    value
+                }
+            } else {
+                field.eval(state, &rows, &context, None).with_context(|| {
                     format!(
                         "rule {} temp field {} expression {} failed",
                         plan.rule.table_name, field.field.name, field.field.expression
                     )
-                })?;
-                context.insert(field.field.name.trim().to_string(), value);
-            }
-
-            let mut output = Row::new();
-            for field in &plan.output_exprs {
-                let value = field
-                    .eval(state, &rows, &context, Some(&output))
-                    .with_context(|| {
-                        format!(
-                            "rule {} output field {} expression {} failed",
-                            plan.rule.table_name, field.field.name, field.field.expression
-                        )
-                    })?;
-                output.insert(field.field.name.trim().to_string(), value);
-            }
-            fill_output_time_from_context(&mut output, &context, row);
-            writer.write_row(&output)?;
-            output_rows += 1;
+                })?
+            };
+            context.insert(field.field.name.trim().to_string(), value);
         }
-        writer.finish()?;
 
-        eprintln!(
-            "  -> {} streamed groups -> {} output rows ({:.2}s)",
-            self.grouped.len(),
-            output_rows,
-            t.elapsed().as_secs_f64(),
-        );
+        let mut output = Row::new();
+        for field in &plan.output_exprs {
+            let value = field
+                .eval(state, &rows, &context, Some(&output))
+                .with_context(|| {
+                    format!(
+                        "rule {} output field {} expression {} failed",
+                        plan.rule.table_name, field.field.name, field.field.expression
+                    )
+                })?;
+            output.insert(field.field.name.trim().to_string(), value);
+        }
+        fill_output_time_from_context(&mut output, &context, row);
+        let scan_start_time = output
+            .get("scan_start_time")
+            .context("output row missing scan_start_time")?;
+        let output_values = ordered_output_values(&headers, &output);
+        writer.write_values(scan_start_time, &output_values)?;
         Ok(())
     }
 }
@@ -1014,6 +1054,10 @@ impl<'a> CompiledFieldExpr<'a> {
         }
         eval_stream_expression(&self.field.expression, state, rows, context, output)
     }
+
+    fn is_temp_cacheable(&self) -> bool {
+        self.kind.is_temp_cacheable()
+    }
 }
 
 enum CompiledExpr {
@@ -1054,6 +1098,23 @@ enum CompiledExpr {
 }
 
 impl CompiledExpr {
+    fn is_temp_cacheable(&self) -> bool {
+        matches!(
+            self,
+            Self::MaxIndex { .. }
+                | Self::MaxField(_)
+                | Self::LowerMaxIndex { .. }
+                | Self::LowerMaxField(_)
+                | Self::Crc64MaxIndex { .. }
+                | Self::Crc64MaxField(_)
+                | Self::Crc64LiteralMaxIndex { .. }
+                | Self::Crc64LiteralMaxField { .. }
+                | Self::CountDistinct(_)
+                | Self::Literal(_)
+                | Self::Env(_)
+        )
+    }
+
     fn compile(expr: &str, field_indexes: &FastHashMap<String, usize>) -> Self {
         let expr = expr.trim();
         let lower = expr.to_ascii_lowercase();
@@ -1225,6 +1286,21 @@ fn unique_output_headers(rule: &TpdRule) -> Vec<String> {
         }
     }
     headers
+}
+
+fn ordered_output_values(headers: &[String], output: &Row) -> Vec<String> {
+    headers
+        .iter()
+        .map(|header| output.get(header).cloned().unwrap_or_default())
+        .collect()
+}
+
+fn temp_cache_key(field: &CompiledFieldExpr<'_>) -> String {
+    format!(
+        "{}\u{1f}{}",
+        normalize_lookup_name(&field.field.name),
+        field.field.expression.trim()
+    )
 }
 
 fn collect_required_source_fields(
@@ -2284,6 +2360,42 @@ mod tests {
                 .unwrap(),
             "1"
         );
+    }
+
+    #[test]
+    fn ordered_output_values_follow_unique_headers() {
+        let headers = vec!["a".to_string(), "b".to_string()];
+        let mut output = Row::new();
+        output.insert("b".to_string(), "2".to_string());
+        output.insert("a".to_string(), "1".to_string());
+
+        assert_eq!(ordered_output_values(&headers, &output), vec!["1", "2"]);
+    }
+
+    #[test]
+    fn temp_cache_key_requires_name_and_expression() {
+        let left = FieldRule {
+            name: "vendor_id_0".to_string(),
+            expression: "lower(max(VENDORNAME))".to_string(),
+            related_group: "related_rdn01".to_string(),
+        };
+        let same = FieldRule {
+            name: "vendor_id_0".to_string(),
+            expression: "lower(max(VENDORNAME))".to_string(),
+            related_group: "related_rdn02".to_string(),
+        };
+        let different_name = FieldRule {
+            name: "vendor_id_1".to_string(),
+            expression: "lower(max(VENDORNAME))".to_string(),
+            related_group: "related_rdn01".to_string(),
+        };
+        let field_indexes = FastHashMap::default();
+        let left = CompiledFieldExpr::new(&left, &field_indexes);
+        let same = CompiledFieldExpr::new(&same, &field_indexes);
+        let different_name = CompiledFieldExpr::new(&different_name, &field_indexes);
+
+        assert_eq!(temp_cache_key(&left), temp_cache_key(&same));
+        assert_ne!(temp_cache_key(&left), temp_cache_key(&different_name));
     }
 
     #[test]
