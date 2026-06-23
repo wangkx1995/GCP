@@ -19,7 +19,7 @@ type FastHashSet<T> = HashSet<T, FastHashBuilder>;
 type FastHashMap<K, V> = HashMap<K, V, FastHashBuilder>;
 type FastIndexMap<K, V> = IndexMap<K, V, FastHashBuilder>;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct TpdRule {
     pub table_name: String,
     pub groups: Vec<GroupRule>,
@@ -28,7 +28,7 @@ pub struct TpdRule {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct GroupRule {
     pub name: String,
     #[serde(default)]
@@ -67,7 +67,7 @@ where
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct FieldRule {
     pub name: String,
     #[serde(default)]
@@ -101,6 +101,7 @@ impl<'a> StreamingTpdEngine<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.aggregators.is_empty()
     }
@@ -111,6 +112,7 @@ impl<'a> StreamingTpdEngine<'a> {
             .any(|aggregator| aggregator.consumes_table(table))
     }
 
+    #[allow(dead_code)]
     pub fn accept(&mut self, table: &str, row: &Row) -> Result<()> {
         for aggregator in &mut self.aggregators {
             if aggregator.consumes_table(table) {
@@ -185,6 +187,7 @@ fn build_streaming_aggregators<'a>(rules: &'a [TpdRule]) -> Vec<StreamingRuleAgg
     aggregators
 }
 
+#[allow(dead_code)]
 pub fn streaming_source_tables(rules: &[TpdRule]) -> HashSet<String> {
     rules
         .iter()
@@ -193,6 +196,7 @@ pub fn streaming_source_tables(rules: &[TpdRule]) -> HashSet<String> {
         .collect()
 }
 
+#[allow(dead_code)]
 pub fn streaming_rule_tables(rules: &[TpdRule]) -> HashSet<String> {
     rules
         .iter()
@@ -200,6 +204,34 @@ pub fn streaming_rule_tables(rules: &[TpdRule]) -> HashSet<String> {
             StreamingRuleAggregator::new(rule).map(|_| rule.table_name.to_ascii_uppercase())
         })
         .collect()
+}
+
+pub fn validate_streaming_rules(rules: &[TpdRule]) -> Result<()> {
+    let errors = rules
+        .iter()
+        .filter_map(|rule| {
+            streaming_incompatibility_reason(rule).map(|reason| {
+                format!(
+                    "rule {} is not streaming-compatible: {reason}",
+                    rule.table_name
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if !errors.is_empty() {
+        bail!(errors.join("; "));
+    }
+    Ok(())
+}
+
+fn streaming_incompatibility_reason(rule: &TpdRule) -> Option<&'static str> {
+    if rule.groups.iter().filter(|group| group.enabled).count() != 1 {
+        return Some("expected exactly one enabled group");
+    }
+    if StreamingRuleAggregator::new(rule).is_none() {
+        return Some("failed to build streaming aggregator");
+    }
+    None
 }
 
 pub fn streaming_required_fields_by_table(rules: &[TpdRule]) -> HashMap<String, HashSet<String>> {
@@ -1585,6 +1617,7 @@ fn compare_max_value(candidate: &str, current: &str) -> bool {
     }
 }
 
+#[allow(dead_code)]
 pub fn execute_tpd_rule(rule: &TpdRule, tables: &mut TableRows) -> Result<()> {
     let t = Instant::now();
     let Some(group) = rule.groups.iter().find(|group| group.enabled) else {
@@ -2290,6 +2323,30 @@ mod tests {
             .ordered_fields
             .iter()
             .any(|field| field.eq_ignore_ascii_case("VENDORNAME")));
+    }
+
+    #[test]
+    fn validate_streaming_rules_rejects_rule_without_one_enabled_group() {
+        let rule: TpdRule = serde_json::from_str(
+            r#"{
+              "table_name":"TPD_BAD",
+              "groups":[
+                {"name":"g1","enabled":true,"source_table":"OP_A","group_by":["dn"]},
+                {"name":"g2","enabled":true,"source_table":"OP_A","group_by":["dn"]}
+              ],
+              "temp_fields":[],
+              "output_fields":[]
+            }"#,
+        )
+        .unwrap();
+
+        let err = validate_streaming_rules(&[rule]).unwrap_err();
+
+        assert!(err.to_string().contains("TPD_BAD"));
+        assert!(err.to_string().contains("streaming-compatible"));
+        assert!(err
+            .to_string()
+            .contains("expected exactly one enabled group"));
     }
 
     #[test]

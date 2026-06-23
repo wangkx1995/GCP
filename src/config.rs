@@ -9,6 +9,7 @@ use crate::util::{file_name, read_text};
 pub struct MappingConfig {
     pub table_mapping: HashMap<String, String>,
     pub columns: IndexMap<String, IndexMap<String, String>>,
+    #[allow(dead_code)]
     pub headers: HashMap<String, Vec<String>>,
     pub filenum: i32,
 }

@@ -26,6 +26,20 @@ pub struct ResolveOptions {
     pub scan_start_time: Option<String>,
 }
 
+/// Files resolved for parsing plus optional route-based groups.
+pub struct RoutedInputs {
+    /// One representative local path per matched input, preserving legacy parser behavior.
+    pub representative_files: Vec<PathBuf>,
+    /// Downloaded files grouped by caller-provided route, such as destination table name.
+    pub groups: Vec<RoutedInputGroup>,
+}
+
+/// Local files for one caller-provided route.
+pub struct RoutedInputGroup {
+    pub route: String,
+    pub files: Vec<PathBuf>,
+}
+
 /// Resolves input files from a local path or downloads matching FTP/SFTP files first.
 pub fn resolve_files(options: ResolveOptions) -> Result<Vec<PathBuf>> {
     resolve_files_with_router(options, |_| Vec::new())
@@ -39,10 +53,24 @@ pub fn resolve_files_with_router<F>(
 where
     F: Fn(&str) -> Vec<String>,
 {
+    Ok(resolve_routed_files_with_router(options, route_remote_file)?.representative_files)
+}
+
+/// Resolves input files and returns both representative files and routed groups.
+pub fn resolve_routed_files_with_router<F>(
+    options: ResolveOptions,
+    route_remote_file: F,
+) -> Result<RoutedInputs>
+where
+    F: Fn(&str) -> Vec<String>,
+{
     match (&options.local_input, &options.source_config) {
         (Some(_), Some(_)) => bail!("--input and --source-config cannot be used together"),
         (None, None) => bail!("either --input or --source-config is required"),
-        (Some(input), None) => local::collect_inputs(input, options.recursive),
+        (Some(input), None) => Ok(RoutedInputs {
+            representative_files: local::collect_inputs(input, options.recursive)?,
+            groups: Vec::new(),
+        }),
         (None, Some(config_path)) => {
             let scan_start_time = options
                 .scan_start_time
@@ -59,7 +87,7 @@ fn resolve_remote_files<F>(
     config: &SourceConfig,
     scan_start_time: &str,
     route_remote_file: &F,
-) -> Result<Vec<PathBuf>>
+) -> Result<RoutedInputs>
 where
     F: Fn(&str) -> Vec<String>,
 {

@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 
 use crate::config::{SourceConfig, SourceKind};
 use crate::{ftp, sftp};
+use crate::{RoutedInputGroup, RoutedInputs};
 
 pub(crate) enum RemoteClient {
     Ftp(ftp::FtpClient),
@@ -59,7 +60,7 @@ pub(crate) fn download_files_with_router<F>(
     config: &SourceConfig,
     remote_files: &[String],
     route_remote_file: &F,
-) -> Result<Vec<PathBuf>>
+) -> Result<RoutedInputs>
 where
     F: Fn(&str) -> Vec<String>,
 {
@@ -77,23 +78,21 @@ fn download_files_sequential(
     config: &SourceConfig,
     targets: Vec<DownloadTarget>,
     remote_file_count: usize,
-) -> Result<Vec<PathBuf>> {
-    let mut local_files = vec![None; remote_file_count];
+) -> Result<RoutedInputs> {
+    let mut successes = Vec::new();
     for target in targets {
         download_one_with_retry(client, config, &target.remote_file, &target.local_path)
             .with_context(|| format!("failed to download remote file {}", target.remote_file))?;
-        if target.route_index == 0 {
-            local_files[target.remote_index] = Some(target.local_path);
-        }
+        successes.push(target);
     }
-    representative_paths(local_files)
+    download_result_from_successes(remote_file_count, successes)
 }
 
 fn download_files_parallel(
     config: &SourceConfig,
     targets: Vec<DownloadTarget>,
     remote_file_count: usize,
-) -> Result<Vec<PathBuf>> {
+) -> Result<RoutedInputs> {
     let target_count = targets.len();
     let workers = config.source.download_parallel.min(target_count);
     eprintln!(
@@ -133,11 +132,10 @@ fn download_files_parallel(
                     &target.remote_file,
                     &target.local_path,
                 ) {
-                    Ok(()) => successes.lock().expect("successes mutex poisoned").push((
-                        target.remote_index,
-                        target.route_index,
-                        target.local_path,
-                    )),
+                    Ok(()) => successes
+                        .lock()
+                        .expect("successes mutex poisoned")
+                        .push(target),
                     Err(err) => failures.lock().expect("failures mutex poisoned").push((
                         target.remote_index,
                         target.route_index,
@@ -189,14 +187,9 @@ fn download_files_parallel(
     }
 
     let mut successes = successes.lock().expect("successes mutex poisoned");
-    successes.sort_by_key(|(remote_index, route_index, _)| (*remote_index, *route_index));
-    let mut local_files = vec![None; remote_file_count];
-    for (remote_index, route_index, path) in successes.iter() {
-        if *route_index == 0 {
-            local_files[*remote_index] = Some(path.clone());
-        }
-    }
-    representative_paths(local_files)
+    successes.sort_by_key(|target| (target.remote_index, target.route_index));
+    let successes = successes.clone();
+    download_result_from_successes(remote_file_count, successes)
 }
 
 fn download_one_with_retry(
@@ -334,8 +327,38 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
     Ok(())
 }
 
-fn representative_paths(local_files: Vec<Option<PathBuf>>) -> Result<Vec<PathBuf>> {
-    local_files
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DownloadTarget {
+    remote_index: usize,
+    route_index: usize,
+    route: Option<String>,
+    remote_file: String,
+    local_path: PathBuf,
+}
+
+fn download_result_from_successes(
+    remote_file_count: usize,
+    mut successes: Vec<DownloadTarget>,
+) -> Result<RoutedInputs> {
+    successes.sort_by_key(|target| (target.remote_index, target.route_index));
+    let mut representative_files = vec![None; remote_file_count];
+    let mut groups: Vec<RoutedInputGroup> = Vec::new();
+    for target in successes {
+        if target.route_index == 0 {
+            representative_files[target.remote_index] = Some(target.local_path.clone());
+        }
+        if let Some(route) = target.route {
+            if let Some(group) = groups.iter_mut().find(|group| group.route == route) {
+                group.files.push(target.local_path);
+            } else {
+                groups.push(RoutedInputGroup {
+                    route,
+                    files: vec![target.local_path],
+                });
+            }
+        }
+    }
+    let representative_files = representative_files
         .into_iter()
         .enumerate()
         .map(|(index, path)| {
@@ -343,15 +366,11 @@ fn representative_paths(local_files: Vec<Option<PathBuf>>) -> Result<Vec<PathBuf
                 format!("missing representative download for remote index {index}")
             })
         })
-        .collect()
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct DownloadTarget {
-    remote_index: usize,
-    route_index: usize,
-    remote_file: String,
-    local_path: PathBuf,
+        .collect::<Result<Vec<_>>>()?;
+    Ok(RoutedInputs {
+        representative_files,
+        groups,
+    })
 }
 
 fn download_targets<F>(
@@ -389,6 +408,7 @@ where
                     DownloadTarget {
                         remote_index,
                         route_index,
+                        route: (!route.is_empty()).then_some(route),
                         remote_file: remote_file.clone(),
                         local_path,
                     }
@@ -478,6 +498,44 @@ mod tests {
         assert_eq!(
             targets[0].local_path,
             PathBuf::from("downloads/NRCELLDU.csv.gz")
+        );
+    }
+
+    #[test]
+    fn download_result_groups_successes_by_route() {
+        let targets = vec![
+            DownloadTarget {
+                remote_index: 0,
+                route_index: 0,
+                route: Some("TPD_A".to_string()),
+                remote_file: "/remote/a.csv.gz".to_string(),
+                local_path: PathBuf::from("downloads/tpd_a/a.csv.gz"),
+            },
+            DownloadTarget {
+                remote_index: 0,
+                route_index: 1,
+                route: Some("TPD_B".to_string()),
+                remote_file: "/remote/a.csv.gz".to_string(),
+                local_path: PathBuf::from("downloads/tpd_b/a.csv.gz"),
+            },
+        ];
+
+        let result = download_result_from_successes(1, targets).unwrap();
+
+        assert_eq!(
+            result.representative_files,
+            vec![PathBuf::from("downloads/tpd_a/a.csv.gz")]
+        );
+        assert_eq!(result.groups.len(), 2);
+        assert_eq!(result.groups[0].route, "TPD_A");
+        assert_eq!(
+            result.groups[0].files,
+            vec![PathBuf::from("downloads/tpd_a/a.csv.gz")]
+        );
+        assert_eq!(result.groups[1].route, "TPD_B");
+        assert_eq!(
+            result.groups[1].files,
+            vec![PathBuf::from("downloads/tpd_b/a.csv.gz")]
         );
     }
 

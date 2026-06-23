@@ -10,6 +10,7 @@ use crate::config::MappingConfig;
 use crate::load_config::LoadConfig;
 use crate::{LoadType, Row, TableRows};
 
+#[allow(dead_code)]
 pub fn write_tables(
     mapping: &MappingConfig,
     tables: &TableRows,
@@ -231,6 +232,7 @@ fn create_streaming_package(
     })
 }
 
+#[allow(dead_code)]
 fn write_package(
     options: &WriteOptions<'_>,
     table: &str,
@@ -274,6 +276,7 @@ fn write_package(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn write_csv(path: &Path, headers: &[String], rows: &[&Row], delimiter: u8) -> Result<()> {
     let mut writer = csv::WriterBuilder::new()
         .delimiter(delimiter)
@@ -400,6 +403,7 @@ fn shell_word(value: &str) -> String {
         .collect()
 }
 
+#[allow(dead_code)]
 fn group_rows_by_scan_start(rows: &[Row]) -> Result<Vec<(ScanStart, Vec<&Row>)>> {
     let mut grouped: HashMap<String, Vec<&Row>> = HashMap::new();
     for row in rows {
@@ -433,6 +437,7 @@ struct ScanStart {
     minute_key: String,
 }
 
+#[allow(dead_code)]
 fn infer_headers(rows: &[Row]) -> Vec<String> {
     let mut headers = Vec::new();
     let mut seen = HashSet::new();

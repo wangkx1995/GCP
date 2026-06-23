@@ -17,6 +17,7 @@ mod tpd;
 mod util;
 mod writer;
 use crate::config::ContextData;
+use crate::load_config::LoadConfig;
 
 type Row = IndexMap<String, String>;
 type TableRows = HashMap<String, Vec<Row>>;
@@ -51,6 +52,8 @@ struct Cli {
     rule_files: Vec<PathBuf>,
     #[arg(long = "rules-dir")]
     rules_dir: Option<PathBuf>,
+    #[arg(long, default_value_t = 1)]
+    streaming_parallel: usize,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -62,6 +65,9 @@ pub enum LoadType {
 fn main() -> Result<()> {
     let start = Instant::now();
     let cli = Cli::parse();
+    if cli.streaming_parallel == 0 {
+        bail!("--streaming-parallel must be greater than 0");
+    }
     let mapping_path = cli.config_dir.join("mapping_dx.ini");
     let output_delimiter = parse_delimiter(&cli.output_delimiter)?;
     let load_config = load_config::load_config(&cli.load_config)
@@ -79,11 +85,10 @@ fn main() -> Result<()> {
         eprintln!("[rule] loading {}", rule_file.display());
         rules.push(tpd::load_rule(rule_file)?);
     }
+    tpd::validate_streaming_rules(&rules)?;
     let dest_tables_by_source = dest_tables_by_source_table(&rules);
 
-    let temp_dir = TempDir::new().context("failed to create temp dir")?;
-    let mut tables = TableRows::new();
-    let inputs = remote_file_source::resolve_files_with_router(
+    let routed_inputs = remote_file_source::resolve_routed_files_with_router(
         ResolveOptions {
             local_input: cli.input,
             recursive: cli.recursive,
@@ -92,25 +97,52 @@ fn main() -> Result<()> {
         },
         |remote_file| route_remote_file(remote_file, &ctx, &dest_tables_by_source),
     )?;
+    let tasks = build_streaming_table_tasks(
+        &rules,
+        &routed_inputs.groups,
+        &routed_inputs.representative_files,
+    )?;
+    eprintln!(
+        "[aggregate] streaming destination tables: {} task(s), parallel={}",
+        tasks.len(),
+        cli.streaming_parallel
+    );
+    run_streaming_table_tasks(
+        tasks,
+        cli.streaming_parallel,
+        &ctx,
+        &cli.output_dir,
+        output_delimiter,
+        &cli.collect_id,
+        cli.load_type,
+        &load_config,
+    )?;
 
-    let streaming_source_tables = tpd::streaming_source_tables(&rules);
-    let streaming_rule_tables = tpd::streaming_rule_tables(&rules);
-    let streaming_required_fields = tpd::streaming_required_fields_by_table(&rules);
-    let streaming_ordered_fields = tpd::streaming_ordered_fields_by_table(&rules);
-    let non_streaming_source_tables =
-        non_streaming_source_tables(&rules, &streaming_rule_tables, &streaming_source_tables);
-    let streaming_engine = std::cell::RefCell::new(tpd::StreamingTpdEngine::new(&rules));
-    if !streaming_engine.borrow().is_empty() {
-        eprintln!(
-            "[aggregate] streaming source tables: {:?}",
-            streaming_source_tables
-        );
-    }
+    eprintln!("[done] {:.2}s total", start.elapsed().as_secs_f64());
+    Ok(())
+}
 
-    eprintln!("[input] {} file(s) to process", inputs.len());
-    for input in &inputs {
+fn run_streaming_table_task(
+    task: StreamingTableTask,
+    ctx: &ContextData,
+    output_dir: &std::path::Path,
+    output_delimiter: u8,
+    collect_id: &str,
+    load_type: LoadType,
+    load_config: &LoadConfig,
+) -> Result<()> {
+    let temp_dir = TempDir::new().context("failed to create temp dir")?;
+    let streaming_required_fields = tpd::streaming_required_fields_by_table(&task.rules);
+    let streaming_ordered_fields = tpd::streaming_ordered_fields_by_table(&task.rules);
+    let streaming_engine = std::cell::RefCell::new(tpd::StreamingTpdEngine::new(&task.rules));
+    eprintln!(
+        "[aggregate] {} input file(s) for {}",
+        task.inputs.len(),
+        task.dest_table
+    );
+    for input in &task.inputs {
         parser::parse_path_with_streaming_values(
-            &ctx,
+            ctx,
             input,
             temp_dir.path(),
             &streaming_required_fields,
@@ -118,58 +150,96 @@ fn main() -> Result<()> {
             &mut |table, row| {
                 let table_upper = table.to_ascii_uppercase();
                 let stream_consumed = streaming_engine.borrow().consumes_table(&table_upper);
-                let keep_rows =
-                    !stream_consumed || non_streaming_source_tables.contains(&table_upper);
-
-                if stream_consumed && !keep_rows {
+                if stream_consumed {
                     streaming_engine
                         .borrow_mut()
                         .accept_owned(&table_upper, row)?;
-                } else {
-                    if stream_consumed {
-                        streaming_engine.borrow_mut().accept(&table_upper, &row)?;
-                    }
-                    tables.entry(table_upper).or_default().push(row);
                 }
                 Ok(())
             },
             &mut |table, values| {
-                streaming_engine
-                    .borrow_mut()
-                    .accept_values(&table.to_ascii_uppercase(), values)
+                let table_upper = table.to_ascii_uppercase();
+                if streaming_engine.borrow().consumes_table(&table_upper) {
+                    streaming_engine
+                        .borrow_mut()
+                        .accept_values(&table_upper, values)?;
+                }
+                Ok(())
             },
         )
         .with_context(|| format!("failed to parse {}", input.display()))?;
     }
     let streaming_finish_options = tpd::StreamingFinishOptions {
-        output_dir: &cli.output_dir,
+        output_dir,
         delimiter: output_delimiter,
-        collect_id: &cli.collect_id,
-        load_type: cli.load_type,
-        load_config: &load_config,
+        collect_id,
+        load_type,
+        load_config,
     };
+    let mut tables = TableRows::new();
     streaming_engine
         .into_inner()
         .finish(&mut tables, &streaming_finish_options)?;
+    Ok(())
+}
 
-    for (rule_file, rule) in rule_files.iter().zip(&rules) {
-        if streaming_rule_tables.contains(&rule.table_name.to_ascii_uppercase()) {
-            continue;
+fn run_streaming_table_tasks(
+    tasks: Vec<StreamingTableTask>,
+    parallel: usize,
+    ctx: &ContextData,
+    output_dir: &std::path::Path,
+    output_delimiter: u8,
+    collect_id: &str,
+    load_type: LoadType,
+    load_config: &LoadConfig,
+) -> Result<()> {
+    let mut pending = tasks.into_iter();
+    loop {
+        let batch = pending.by_ref().take(parallel).collect::<Vec<_>>();
+        if batch.is_empty() {
+            break;
         }
-        tpd::execute_tpd_rule(rule, &mut tables)
-            .with_context(|| format!("failed to execute rule {}", rule_file.display()))?;
-    }
+        let results = std::thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(batch.len());
+            for task in batch {
+                handles.push(scope.spawn(move || {
+                    let dest_table = task.dest_table.clone();
+                    let result = run_streaming_table_task(
+                        task,
+                        ctx,
+                        output_dir,
+                        output_delimiter,
+                        collect_id,
+                        load_type,
+                        load_config,
+                    )
+                    .with_context(|| {
+                        format!("failed to process streaming destination table {dest_table}")
+                    });
+                    (dest_table, result)
+                }));
+            }
+            handles
+                .into_iter()
+                .map(|handle| handle.join())
+                .collect::<Vec<_>>()
+        });
 
-    writer::write_tables(
-        &ctx.mapping,
-        &tables,
-        &cli.output_dir,
-        output_delimiter,
-        &cli.collect_id,
-        cli.load_type,
-        &load_config,
-    )?;
-    eprintln!("[done] {:.2}s total", start.elapsed().as_secs_f64());
+        let mut errors = Vec::new();
+        for result in results {
+            match result {
+                Ok((_, Ok(()))) => {}
+                Ok((dest_table, Err(err))) => errors.push(format!("{dest_table}: {err:#}")),
+                Err(_) => errors.push("streaming destination table worker panicked".to_string()),
+            }
+        }
+        if !errors.is_empty() {
+            bail!(
+                "streaming destination table task(s) failed: {}",
+                errors.join("; ")
+            );
+        }
+    }
     Ok(())
 }
 
@@ -230,20 +300,59 @@ fn route_remote_file(
         .unwrap_or_default()
 }
 
-fn non_streaming_source_tables(
+struct StreamingTableTask {
+    dest_table: String,
+    rules: Vec<tpd::TpdRule>,
+    inputs: Vec<PathBuf>,
+}
+
+fn build_streaming_table_tasks(
     rules: &[tpd::TpdRule],
-    streaming_rule_tables: &std::collections::HashSet<String>,
-    streaming_source_tables: &std::collections::HashSet<String>,
-) -> std::collections::HashSet<String> {
-    rules
+    routed_groups: &[remote_file_source::RoutedInputGroup],
+    fallback_inputs: &[PathBuf],
+) -> Result<Vec<StreamingTableTask>> {
+    let mut dest_order = Vec::new();
+    let mut rules_by_dest: HashMap<String, Vec<tpd::TpdRule>> = HashMap::new();
+    for rule in rules {
+        let dest_table = rule.table_name.to_ascii_uppercase();
+        if !rules_by_dest.contains_key(&dest_table) {
+            dest_order.push(dest_table.clone());
+        }
+        rules_by_dest
+            .entry(dest_table)
+            .or_default()
+            .push(rule.clone());
+    }
+
+    let grouped_inputs: HashMap<String, Vec<PathBuf>> = routed_groups
         .iter()
-        .filter(|rule| !streaming_rule_tables.contains(&rule.table_name.to_ascii_uppercase()))
-        .flat_map(|rule| rule.groups.iter())
-        .filter(|group| group.enabled)
-        .flat_map(|group| group.source_table.iter())
-        .map(|table| table.to_ascii_uppercase())
-        .filter(|table| streaming_source_tables.contains(table))
-        .collect()
+        .map(|group| (group.route.to_ascii_uppercase(), group.files.clone()))
+        .collect();
+    let use_routed_inputs = !routed_groups.is_empty();
+    let mut tasks = Vec::with_capacity(dest_order.len());
+    for dest_table in dest_order {
+        let inputs = if use_routed_inputs {
+            grouped_inputs
+                .get(&dest_table)
+                .cloned()
+                .filter(|files| !files.is_empty())
+                .with_context(|| format!("missing routed input group for {dest_table}"))?
+        } else {
+            if fallback_inputs.is_empty() {
+                bail!("missing input files for {dest_table}");
+            }
+            fallback_inputs.to_vec()
+        };
+        let rules = rules_by_dest
+            .remove(&dest_table)
+            .expect("destination table must have grouped rules");
+        tasks.push(StreamingTableTask {
+            dest_table,
+            rules,
+            inputs,
+        });
+    }
+    Ok(tasks)
 }
 
 fn parse_delimiter(value: &str) -> Result<u8> {
@@ -252,4 +361,64 @@ fn parse_delimiter(value: &str) -> Result<u8> {
         bail!("output delimiter must be exactly one ASCII byte, got {value:?}");
     }
     Ok(bytes[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_rule(table_name: &str, source_table: &str) -> tpd::TpdRule {
+        serde_json::from_str(&format!(
+            r#"{{
+              "table_name":"{table_name}",
+              "groups":[{{"name":"g1","enabled":true,"source_table":"{source_table}","group_by":["dn"]}}],
+              "temp_fields":[],
+              "output_fields":[{{"name":"dn","expression":"max(dn)"}}]
+            }}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn build_streaming_table_tasks_uses_routed_group_files() {
+        let rules = vec![test_rule("TPD_A", "OP_A"), test_rule("TPD_B", "OP_B")];
+        let groups = vec![
+            remote_file_source::RoutedInputGroup {
+                route: "TPD_A".to_string(),
+                files: vec![PathBuf::from("downloads/tpd_a/a.csv.gz")],
+            },
+            remote_file_source::RoutedInputGroup {
+                route: "TPD_B".to_string(),
+                files: vec![PathBuf::from("downloads/tpd_b/b.csv.gz")],
+            },
+        ];
+
+        let tasks = build_streaming_table_tasks(&rules, &groups, &[]).unwrap();
+
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].dest_table, "TPD_A");
+        assert_eq!(tasks[0].rules.len(), 1);
+        assert_eq!(
+            tasks[0].inputs,
+            vec![PathBuf::from("downloads/tpd_a/a.csv.gz")]
+        );
+        assert_eq!(tasks[1].dest_table, "TPD_B");
+        assert_eq!(tasks[1].rules.len(), 1);
+        assert_eq!(
+            tasks[1].inputs,
+            vec![PathBuf::from("downloads/tpd_b/b.csv.gz")]
+        );
+    }
+
+    #[test]
+    fn build_streaming_table_tasks_uses_fallback_inputs_without_groups() {
+        let rules = vec![test_rule("TPD_A", "OP_A"), test_rule("TPD_B", "OP_B")];
+        let fallback_inputs = vec![PathBuf::from("local/a.csv.gz")];
+
+        let tasks = build_streaming_table_tasks(&rules, &[], &fallback_inputs).unwrap();
+
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].inputs, fallback_inputs);
+        assert_eq!(tasks[1].inputs, vec![PathBuf::from("local/a.csv.gz")]);
+    }
 }
