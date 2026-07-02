@@ -23,8 +23,9 @@ async fn dispatch_task(axum::extract::State(state): axum::extract::State<AgentSt
     match state.store.persist_task(&request) {
         Ok(task_dir) => {
             let runner = state.runner.clone();
+            let store = state.store.clone();
             tokio::spawn(async move {
-                if let Err(err) = runner.run_task(request, task_dir).await {
+                if let Err(err) = runner.run_task(&store, request, task_dir).await {
                     tracing::warn!("agent task failed: {err:#}");
                 }
             });

@@ -28,8 +28,18 @@ impl AgentStore {
         std::fs::create_dir_all(task_dir.join("config"))?;
         std::fs::create_dir_all(task_dir.join("config").join("rules"))?;
         std::fs::write(task_dir.join("task.json"), serde_json::to_vec_pretty(request)?)?;
-        std::fs::write(task_dir.join("state.json"), serde_json::json!({"status": TaskStatus::Accepted}).to_string())?;
+        self.write_state(&task_dir, TaskStatus::Accepted)?;
         Ok(task_dir)
+    }
+
+    pub fn update_task_state(&self, task_id: &str, status: TaskStatus) -> Result<()> {
+        let task_dir = self.task_dir(task_id);
+        self.write_state(&task_dir, status)
+    }
+
+    fn write_state(&self, task_dir: &PathBuf, status: TaskStatus) -> Result<()> {
+        std::fs::write(task_dir.join("state.json"), serde_json::json!({"status": status}).to_string())?;
+        Ok(())
     }
 }
 
