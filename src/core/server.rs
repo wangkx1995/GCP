@@ -20,6 +20,7 @@ pub fn router(state: CoreState) -> Router {
         .route("/api/config-snapshots/:config_snapshot_id", get(config_snapshot))
         .route("/api/tasks/:task_id/events", post(task_event))
         .route("/api/tasks/:task_id/result", post(task_result))
+        .route("/api/results/grid", get(result_grid))
         .with_state(state)
 }
 
@@ -38,6 +39,19 @@ async fn config_snapshot() -> Json<serde_json::Value> {
 
 async fn task_event() -> Json<serde_json::Value> {
     Json(serde_json::json!({"accepted": true}))
+}
+
+#[derive(serde::Deserialize)]
+struct GridQuery {
+    strategy_id: String,
+    day: String,
+    interval_minutes: Option<u32>,
+}
+
+async fn result_grid(axum::extract::State(state): axum::extract::State<CoreState>, axum::extract::Query(query): axum::extract::Query<GridQuery>) -> Json<crate::core::grid::DailyGrid> {
+    let rows = state.db.lock().unwrap().result_rows_for_day(&query.strategy_id, &query.day).unwrap();
+    let expected_tables = rows.iter().map(|row| row.table_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    Json(crate::core::grid::build_daily_grid(&query.day, query.interval_minutes.unwrap_or(15), &expected_tables, &rows))
 }
 
 async fn task_result(axum::extract::State(state): axum::extract::State<CoreState>, Json(report): Json<TaskResultReport>) -> Json<serde_json::Value> {
