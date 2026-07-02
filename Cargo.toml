@@ -23,8 +23,7 @@ toml = "0.8"
 axum = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
-sha2 = "0.10"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 walkdir = "2.5"
 zip = "2.2"

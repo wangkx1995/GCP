@@ -118,11 +118,24 @@ impl CoreDb {
     }
 
     pub fn accept_task_result(&self, report: &TaskResultReport) -> Result<()> {
-        let (strategy_id, config_snapshot_id): (String, String) = self.conn.query_row(
-            "SELECT strategy_id, config_snapshot_id FROM collect_tasks WHERE task_id = ?1 AND assigned_agent_id = ?2",
+        let (strategy_id, config_snapshot_id, current_status): (String, String, String) = self.conn.query_row(
+            "SELECT strategy_id, config_snapshot_id, status FROM collect_tasks WHERE task_id = ?1 AND assigned_agent_id = ?2",
             rusqlite::params![report.task_id, report.agent_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
+        match current_status.as_str() {
+            "SUCCEEDED" | "FAILED" | "TIMEOUT" | "CANCELLED" => {
+                anyhow::bail!("task {} is already in terminal state {}", report.task_id, current_status);
+            }
+            _ => {}
+        }
+        let status_str = match report.status {
+            TaskStatus::Succeeded => "SUCCEEDED",
+            TaskStatus::Failed => "FAILED",
+            TaskStatus::Timeout => "TIMEOUT",
+            TaskStatus::Cancelled => "CANCELLED",
+            _ => "SUCCEEDED",
+        };
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         for result in &report.result_rows {
             self.conn.execute(
@@ -131,8 +144,8 @@ impl CoreDb {
             )?;
         }
         self.conn.execute(
-            "UPDATE collect_tasks SET status = 'SUCCEEDED', finished_at = ?2 WHERE task_id = ?1",
-            rusqlite::params![report.task_id, now],
+            "UPDATE collect_tasks SET status = ?2, finished_at = ?3 WHERE task_id = ?1",
+            rusqlite::params![report.task_id, status_str, now],
         )?;
         Ok(())
     }
@@ -160,7 +173,7 @@ mod tests {
     use std::ops::Deref;
 
     use super::*;
-    use crate::core_agent_api::{AgentCapabilities, RuleFile};
+    use crate::core_agent_api::{AgentCapabilities, RuleFile, TaskStatus};
     use tempfile::{tempdir, TempDir};
 
     struct TestDb {
@@ -237,5 +250,11 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].table_name, "TPD_A");
         assert_eq!(rows[0].row_count, 123);
+        let stored_status: String = db.conn.query_row(
+            "SELECT status FROM collect_tasks WHERE task_id = 'task_1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(stored_status, "SUCCEEDED");
     }
 }

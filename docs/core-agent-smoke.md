@@ -28,6 +28,30 @@ curl -sS -X POST http://127.0.0.1:18080/api/agents/register \
   -d '{"agent_id":"agent_local","agent_name":"agent-local","host":"127.0.0.1","port":18081,"version":"1.0.0","capabilities":{"can_collect":true,"can_parse":true,"can_load":false,"supported_protocols":["ftp","sftp","local"]}}'
 ```
 
+## Create Config Snapshot
+
+```bash
+curl -sS -X POST http://127.0.0.1:18080/api/config/snapshots \
+  -H 'content-type: application/json' \
+  -d '{"config_snapshot_id":"cfg_001","content_hash":"sha256:test","source_toml":"[source]\nhost = \"127.0.0.1\"","mapping_dx_ini":"[mapping]","load_toml":"[load]","col_name_cut_config_ini":null,"rules":[{"relative_path":"rules/a.json","content":"{\"table_name\":\"TPD_A\"}"}]}'
+```
+
+## Create Task
+
+```bash
+curl -sS -X POST http://127.0.0.1:18080/api/tasks \
+  -H 'content-type: application/json' \
+  -d '{"task_id":"task_001","logical_task_key":"strategy:2026-06-17 15:15:00:cfg","strategy_id":"strategy_1","config_snapshot_id":"cfg_001","scan_start_time":"2026-06-17 15:15:00","collect_id":"collect_001","load_type":"clickhouse","encoding":"UTF-8","output_delimiter":"|","timeout_seconds":1800,"callback_base_url":"http://127.0.0.1:18080/api"}'
+```
+
+## Dispatch Task
+
+```bash
+curl -sS -X POST http://127.0.0.1:18081/api/tasks \
+  -H 'content-type: application/json' \
+  -d '{"task_id":"task_001","logical_task_key":"strategy:2026-06-17 15:15:00:cfg","strategy_id":"strategy_1","config_snapshot_id":"cfg_001","scan_start_time":"2026-06-17 15:15:00","collect_id":"collect_001","load_type":"clickhouse","encoding":"UTF-8","output_delimiter":"|","timeout_seconds":1800,"callback_base_url":"http://127.0.0.1:18080/api"}'
+```
+
 ## Query Result Grid
 
 ```bash

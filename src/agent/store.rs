@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use crate::core_agent_api::TaskDispatchRequest;
+use crate::core_agent_api::{TaskDispatchRequest, TaskStatus};
 
 #[derive(Clone, Debug)]
 pub struct AgentStore {
@@ -25,8 +25,10 @@ impl AgentStore {
         std::fs::create_dir_all(task_dir.join("downloads"))?;
         std::fs::create_dir_all(task_dir.join("output"))?;
         std::fs::create_dir_all(task_dir.join("logs"))?;
+        std::fs::create_dir_all(task_dir.join("config"))?;
+        std::fs::create_dir_all(task_dir.join("config").join("rules"))?;
         std::fs::write(task_dir.join("task.json"), serde_json::to_vec_pretty(request)?)?;
-        std::fs::write(task_dir.join("state.json"), serde_json::json!({"status": "ACCEPTED"}).to_string())?;
+        std::fs::write(task_dir.join("state.json"), serde_json::json!({"status": TaskStatus::Accepted}).to_string())?;
         Ok(task_dir)
     }
 }
@@ -56,5 +58,6 @@ mod tests {
         let task_dir = store.persist_task(&request).unwrap();
         assert!(task_dir.join("task.json").exists());
         assert!(task_dir.join("output").is_dir());
+        assert!(task_dir.join("config").is_dir());
     }
 }
