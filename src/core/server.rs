@@ -1,9 +1,14 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::Result;
-use axum::{routing::{get, post}, Json, Router};
+use axum::{
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use tokio::sync::Mutex;
 
 use crate::core::db::CoreDb;
 use crate::core_agent_api::{AgentRegisterRequest, AgentRegisterResponse, TaskResultReport};
@@ -24,9 +29,9 @@ pub fn router(state: CoreState) -> Router {
         .with_state(state)
 }
 
-async fn register_agent(axum::extract::State(state): axum::extract::State<CoreState>, Json(request): Json<AgentRegisterRequest>) -> Json<AgentRegisterResponse> {
-    let agent_id = state.db.lock().unwrap().register_agent(&request).unwrap();
-    Json(AgentRegisterResponse { agent_id, heartbeat_interval_seconds: 10, task_report_interval_seconds: 10 })
+async fn register_agent(axum::extract::State(state): axum::extract::State<CoreState>, Json(request): Json<AgentRegisterRequest>) -> Result<Json<AgentRegisterResponse>, (StatusCode, String)> {
+    let agent_id = state.db.lock().await.register_agent(&request).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    Ok(Json(AgentRegisterResponse { agent_id, heartbeat_interval_seconds: 10, task_report_interval_seconds: 10 }))
 }
 
 async fn heartbeat() -> Json<serde_json::Value> {
@@ -48,15 +53,15 @@ struct GridQuery {
     interval_minutes: Option<u32>,
 }
 
-async fn result_grid(axum::extract::State(state): axum::extract::State<CoreState>, axum::extract::Query(query): axum::extract::Query<GridQuery>) -> Json<crate::core::grid::DailyGrid> {
-    let rows = state.db.lock().unwrap().result_rows_for_day(&query.strategy_id, &query.day).unwrap();
+async fn result_grid(axum::extract::State(state): axum::extract::State<CoreState>, axum::extract::Query(query): axum::extract::Query<GridQuery>) -> Result<Json<crate::core::grid::DailyGrid>, (StatusCode, String)> {
+    let rows = state.db.lock().await.result_rows_for_day(&query.strategy_id, &query.day).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
     let expected_tables = rows.iter().map(|row| row.table_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-    Json(crate::core::grid::build_daily_grid(&query.day, query.interval_minutes.unwrap_or(15), &expected_tables, &rows))
+    Ok(Json(crate::core::grid::build_daily_grid(&query.day, query.interval_minutes.unwrap_or(15), &expected_tables, &rows)))
 }
 
-async fn task_result(axum::extract::State(state): axum::extract::State<CoreState>, Json(report): Json<TaskResultReport>) -> Json<serde_json::Value> {
-    state.db.lock().unwrap().accept_task_result(&report).unwrap();
-    Json(serde_json::json!({"accepted": true}))
+async fn task_result(axum::extract::State(state): axum::extract::State<CoreState>, Json(report): Json<TaskResultReport>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    state.db.lock().await.accept_task_result(&report).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    Ok(Json(serde_json::json!({"accepted": true})))
 }
 
 pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf) -> Result<()> {
