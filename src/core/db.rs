@@ -118,34 +118,53 @@ impl CoreDb {
     }
 
     pub fn accept_task_result(&self, report: &TaskResultReport) -> Result<()> {
-        let (strategy_id, config_snapshot_id, current_status): (String, String, String) = self.conn.query_row(
-            "SELECT strategy_id, config_snapshot_id, status FROM collect_tasks WHERE task_id = ?1 AND assigned_agent_id = ?2",
-            rusqlite::params![report.task_id, report.agent_id],
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let task_row: Result<(String, String, String), _> = self.conn.query_row(
+            "SELECT strategy_id, config_snapshot_id, status FROM collect_tasks WHERE task_id = ?1",
+            rusqlite::params![report.task_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )?;
-        match current_status.as_str() {
-            "SUCCEEDED" | "FAILED" | "TIMEOUT" | "CANCELLED" => {
-                anyhow::bail!("task {} is already in terminal state {}", report.task_id, current_status);
+        );
+
+        let (strategy_id, config_snapshot_id) = match task_row {
+            Ok((sid, cid, status)) => {
+                match status.as_str() {
+                    "SUCCEEDED" | "FAILED" | "TIMEOUT" | "CANCELLED" => {
+                        anyhow::bail!("task {} is already in terminal state {}", report.task_id, status);
+                    }
+                    _ => {}
+                }
+                (sid, cid)
             }
-            _ => {}
-        }
-        let status_str = match report.status {
+            Err(_) => {
+                let sid = format!("unknown_{}", report.task_id);
+                let cid = "unknown".to_string();
+                self.conn.execute(
+                    "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'CREATED', ?8)",
+                    rusqlite::params![report.task_id, "", &sid, &cid, "", "", report.agent_id, now],
+                )?;
+                (sid, cid)
+            }
+        };
+
+        let terminal_status = match report.status {
             TaskStatus::Succeeded => "SUCCEEDED",
             TaskStatus::Failed => "FAILED",
             TaskStatus::Timeout => "TIMEOUT",
             TaskStatus::Cancelled => "CANCELLED",
             _ => "SUCCEEDED",
         };
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
         for result in &report.result_rows {
             self.conn.execute(
                 "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'SUCCEEDED', NULL, ?10, ?10)",
                 rusqlite::params![report.task_id, strategy_id, report.agent_id, config_snapshot_id, result.table_name, result.data_time, result.row_count, result.success, result.collect_time, now],
             )?;
         }
+
         self.conn.execute(
             "UPDATE collect_tasks SET status = ?2, finished_at = ?3 WHERE task_id = ?1",
-            rusqlite::params![report.task_id, status_str, now],
+            rusqlite::params![report.task_id, terminal_status, now],
         )?;
         Ok(())
     }
