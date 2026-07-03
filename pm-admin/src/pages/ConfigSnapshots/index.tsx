@@ -50,6 +50,13 @@ export default function ConfigSnapshotsPage() {
       render: (v: string) => <span className="mono" style={{ color: '#64748b', fontSize: 12 }}>{v}</span>,
     },
     {
+      title: '版本标签',
+      dataIndex: 'version_label',
+      key: 'version',
+      width: 120,
+      render: (v: string | null) => v ?? <span style={{ color: '#94a3b8' }}>-</span>,
+    },
+    {
       title: '状态',
       key: 'active',
       width: 80,

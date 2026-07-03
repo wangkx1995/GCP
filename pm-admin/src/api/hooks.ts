@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { listSnapshots, getSnapshot, uploadSnapshot, activateSnapshot } from './config-snapshots';
 import { fetchGrid } from './results';
-import { listTasks, dispatchTask } from './tasks';
-import { listAgents } from './agents';
-import type { GridQuery, TaskDispatchRequest } from '../types/api';
+import { dispatchTask } from './tasks';
+import { registerAgent } from './agents';
+import type { GridQuery, TaskDispatchRequest, AgentRegisterRequest } from '../types/api';
 
 export function useSnapshots() {
   return useQuery({
@@ -50,28 +50,14 @@ export function useGrid(query: GridQuery) {
   });
 }
 
-export function useTasks() {
-  return useQuery({
-    queryKey: ['tasks'],
-    queryFn: listTasks,
-    refetchInterval: 30_000,
-  });
-}
-
 export function useDispatchTask() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: TaskDispatchRequest) => dispatchTask(data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks'] });
-    },
   });
 }
 
-export function useAgents() {
-  return useQuery({
-    queryKey: ['agents'],
-    queryFn: listAgents,
-    refetchInterval: 15_000,
+export function useRegisterAgent() {
+  return useMutation({
+    mutationFn: (data: AgentRegisterRequest) => registerAgent(data),
   });
 }
