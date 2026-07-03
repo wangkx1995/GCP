@@ -280,7 +280,7 @@ cat agent_data/tasks/task_001/state.json
 ## 步骤四：查询采集结果 Grid
 
 ```bash
-curl -sS 'http://127.0.0.1:18080/api/results/grid?strategy_id=strategy_1&day=2026-06-17&interval_minutes=15' | python3 -m json.tool
+curl -sS 'http://127.0.0.1:18080/api/results/grid?strategy_id=unknown_task_001&day=2026-06-17&interval_minutes=15' | python3 -m json.tool
 ```
 
 返回示例：

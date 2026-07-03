@@ -26,6 +26,7 @@
 - Create: `src/core/config_storage.rs` (skeleton with struct, path helpers)
 - Modify: `src/core/mod.rs` (add `pub mod config_storage;`)
 - Modify: `src/bin/core.rs` (add `--config-storage` arg)
+- Modify: `src/core/server.rs` (add `ConfigStorage` to `CoreState`, update `run_core_server` signature)
 
 - [ ] **Step 1: Add sha2 to Cargo.toml**
 
@@ -115,6 +116,41 @@ async fn main() -> Result<()> {
     let result = crate::core::server::run_core_server(cli.listen, cli.db, config_storage).await;
     result
 }
+```
+
+Also update `src/core/server.rs` to accept the new parameter and add `ConfigStorage` to `CoreState`:
+
+```rust
+use crate::core::config_storage::ConfigStorage;
+
+#[derive(Clone)]
+pub struct CoreState {
+    pub db: Arc<Mutex<CoreDb>>,
+    pub http: reqwest::Client,
+    pub storage: Arc<ConfigStorage>,
+}
+
+pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
+    let state = CoreState {
+        db: Arc::new(Mutex::new(CoreDb::open(db_path)?)),
+        http: reqwest::Client::new(),
+        storage: Arc::new(storage),
+    };
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, router(state)).await?;
+    Ok(())
+}
+```
+
+Update the test in `server.rs` to include `storage`:
+
+```rust
+let storage = ConfigStorage::new(dir.path().join("config_storage")).unwrap();
+let state = CoreState {
+    db: Arc::new(Mutex::new(CoreDb::open(dir.path().join("core.db")).unwrap())),
+    http: reqwest::Client::new(),
+    storage: Arc::new(storage),
+};
 ```
 
 - [ ] **Step 5: Run tests to verify no regressions**
@@ -569,31 +605,7 @@ git commit -m "feat(config-snapshot): add config snapshot CRUD, activate, DB mig
 - Modify: `src/core/server.rs` (new handlers, update state, update routes)
 - Modify: `src/bin/core.rs` (pass ConfigStorage to server)
 
-- [ ] **Step 1: Update `run_core_server` to accept ConfigStorage**
-
-Update `src/core/server.rs`:
-
-```rust
-use crate::core::config_storage::ConfigStorage;
-
-#[derive(Clone)]
-pub struct CoreState {
-    pub db: Arc<Mutex<CoreDb>>,
-    pub http: reqwest::Client,
-    pub storage: Arc<ConfigStorage>,
-}
-
-pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
-    let state = CoreState {
-        db: Arc::new(Mutex::new(CoreDb::open(db_path)?)),
-        http: reqwest::Client::new(),
-        storage: Arc::new(storage),
-    };
-    // ... existing setup ...
-}
-```
-
-- [ ] **Step 2: Update route table and replace stub**
+- [ ] **Step 1: Update route table and replace stub**
 
 Replace the old stub route with new endpoints:
 
@@ -617,7 +629,7 @@ pub fn router(state: CoreState) -> Router {
 
 Note: Route ordering matters for axum. Static paths like `/upload` must come before parameterized paths like `/{id}`. `/api/config-snapshots` (list) and `/api/config-snapshots/upload` must come before `/{id}` routes. Axum's router should handle this correctly with recent versions.
 
-- [ ] **Step 3: Implement handlers**
+- [ ] **Step 2: Implement handlers**
 
 Remove the old `config_snapshot` stub handler and add:
 
@@ -739,7 +751,7 @@ async fn download_config_snapshot(
 }
 ```
 
-- [ ] **Step 4: Add `create_zip_from_dir` helper to config_storage.rs**
+- [ ] **Step 3: Add `create_zip_from_dir` helper to config_storage.rs**
 
 ```rust
 pub fn create_zip_from_dir(dir: &Path) -> Result<Vec<u8>> {
@@ -782,7 +794,7 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 }
 ```
 
-- [ ] **Step 5: Update test in server.rs to include storage field**
+- [ ] **Step 4: Update test in server.rs to include storage field**
 
 The existing test creates `CoreState` and needs to include `storage`:
 
@@ -795,12 +807,12 @@ let state = CoreState {
 };
 ```
 
-- [ ] **Step 6: Run tests**
+- [ ] **Step 5: Run tests**
 
 Run: `cargo test --lib`
 Expected: all tests pass
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/core/server.rs src/bin/core.rs src/core/config_storage.rs
