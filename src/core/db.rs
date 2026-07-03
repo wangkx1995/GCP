@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use rusqlite::Connection;
 
-use crate::core_agent_api::{AgentRegisterRequest, ConfigSnapshotResponse, ResultRow, TaskResultReport, TaskStatus};
+use crate::core_agent_api::{AgentRegisterRequest, ConfigSnapshotMeta, ConfigSnapshotResponse, ResultRow, TaskResultReport, TaskStatus};
 
 pub struct CoreDb {
     conn: Connection,
@@ -34,8 +34,12 @@ impl CoreDb {
             CREATE TABLE IF NOT EXISTS config_snapshots (
                 config_snapshot_id TEXT PRIMARY KEY,
                 content_hash TEXT NOT NULL,
-                snapshot_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                version_label TEXT,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                file_count INTEGER NOT NULL DEFAULT 0,
+                snapshot_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                activated_at TEXT
             );
             CREATE TABLE IF NOT EXISTS collect_tasks (
                 task_id TEXT PRIMARY KEY,
@@ -74,6 +78,10 @@ impl CoreDb {
             CREATE INDEX IF NOT EXISTS idx_collect_result_day ON collect_result_cells(strategy_id, data_time, table_name);
             "#,
         )?;
+        let _ = self.conn.execute("ALTER TABLE config_snapshots ADD COLUMN version_label TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE config_snapshots ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE config_snapshots ADD COLUMN file_count INTEGER NOT NULL DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE config_snapshots ADD COLUMN activated_at TEXT", []);
         Ok(())
     }
 
@@ -115,6 +123,61 @@ impl CoreDb {
             rusqlite::params![snapshot.config_snapshot_id, snapshot.content_hash, serde_json::to_string(snapshot)?, now],
         )?;
         Ok(())
+    }
+
+    pub fn insert_config_snapshot_meta(&self, snapshot_id: &str, content_hash: &str, version_label: &str, file_count: usize) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, version_label, is_active, file_count, snapshot_json, created_at, activated_at) VALUES (?1, ?2, ?3, 0, ?4, '{}', ?5, NULL)",
+            rusqlite::params![snapshot_id, content_hash, version_label, file_count, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_config_snapshots(&self) -> Result<Vec<ConfigSnapshotMeta>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, created_at, activated_at FROM config_snapshots ORDER BY created_at DESC, rowid DESC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ConfigSnapshotMeta {
+                config_snapshot_id: row.get(0)?,
+                content_hash: row.get(1)?,
+                version_label: row.get::<_, Option<String>>(2)?,
+                is_active: row.get::<_, i32>(3)? != 0,
+                file_count: row.get::<_, i32>(4)? as usize,
+                created_at: row.get(5)?,
+                activated_at: row.get::<_, Option<String>>(6)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn get_config_snapshot(&self, snapshot_id: &str) -> Result<ConfigSnapshotMeta> {
+        self.conn.query_row(
+            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, created_at, activated_at FROM config_snapshots WHERE config_snapshot_id = ?1",
+            rusqlite::params![snapshot_id],
+            |row| {
+                Ok(ConfigSnapshotMeta {
+                    config_snapshot_id: row.get(0)?,
+                    content_hash: row.get(1)?,
+                    version_label: row.get::<_, Option<String>>(2)?,
+                    is_active: row.get::<_, i32>(3)? != 0,
+                    file_count: row.get::<_, i32>(4)? as usize,
+                    created_at: row.get(5)?,
+                    activated_at: row.get::<_, Option<String>>(6)?,
+                })
+            },
+        ).map_err(Into::into)
+    }
+
+    pub fn activate_config_snapshot(&self, snapshot_id: &str) -> Result<ConfigSnapshotMeta> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        self.conn.execute("UPDATE config_snapshots SET is_active = 0", [])?;
+        self.conn.execute(
+            "UPDATE config_snapshots SET is_active = 1, activated_at = ?2 WHERE config_snapshot_id = ?1",
+            rusqlite::params![snapshot_id, now],
+        )?;
+        self.get_config_snapshot(snapshot_id)
     }
 
     pub fn create_task(&self, task_id: &str, logical_task_key: &str, strategy_id: &str, config_snapshot_id: &str, scan_start_time: &str, collect_id: &str, assigned_agent_id: &str) -> Result<()> {
@@ -289,5 +352,31 @@ mod tests {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(stored_status, "SUCCEEDED");
+    }
+
+    #[test]
+    fn inserts_and_lists_config_snapshots() {
+        let db = db();
+        db.insert_config_snapshot_meta("v1", "sha256:aaa", "v1_label", 5).unwrap();
+        db.insert_config_snapshot_meta("v2", "sha256:bbb", "v2_label", 3).unwrap();
+
+        let list = db.list_config_snapshots().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].config_snapshot_id, "v2");
+    }
+
+    #[test]
+    fn activate_switches_snapshot_is_active() {
+        let db = db();
+        db.insert_config_snapshot_meta("v1", "sha256:aaa", "v1_label", 5).unwrap();
+        db.insert_config_snapshot_meta("v2", "sha256:bbb", "v2_label", 3).unwrap();
+
+        let meta = db.activate_config_snapshot("v1").unwrap();
+        assert!(meta.is_active);
+
+        let v1 = db.get_config_snapshot("v1").unwrap();
+        assert!(v1.is_active);
+        let v2 = db.get_config_snapshot("v2").unwrap();
+        assert!(!v2.is_active);
     }
 }

@@ -81,6 +81,17 @@ pub struct RuleFile {
     pub content: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigSnapshotMeta {
+    pub config_snapshot_id: String,
+    pub content_hash: String,
+    pub version_label: Option<String>,
+    pub is_active: bool,
+    pub file_count: usize,
+    pub created_at: String,
+    pub activated_at: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TaskDispatchRequest {
     pub task_id: String,
