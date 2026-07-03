@@ -1,5 +1,5 @@
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use tracing::info;
@@ -135,6 +135,45 @@ impl ConfigStorage {
         }
         Ok(())
     }
+}
+
+pub fn create_zip_from_dir(dir: &Path) -> Result<Vec<u8>> {
+    let mut buf = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(&mut buf);
+    let options = zip::write::FileOptions::<'_, ()>::default();
+
+    let entries = collect_files(dir, dir);
+    for (rel_path, content) in &entries {
+        let name = rel_path.to_string_lossy().replace('\\', "/");
+        if content.is_empty() && name.ends_with('/') {
+            zip.add_directory(&name, options).unwrap();
+        } else {
+            zip.start_file(&name, options).unwrap();
+            use std::io::Write;
+            zip.write_all(content).unwrap();
+        }
+    }
+    zip.finish()?;
+    Ok(buf.into_inner())
+}
+
+fn collect_files(base: &Path, dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut result = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let rel = path.strip_prefix(base).unwrap().to_path_buf();
+            if path.is_dir() {
+                result.push((rel.join(""), Vec::new()));
+                result.extend(collect_files(base, &path));
+            } else if path.is_file() {
+                if let Ok(content) = std::fs::read(&path) {
+                    result.push((rel, content));
+                }
+            }
+        }
+    }
+    result
 }
 
 #[cfg(test)]

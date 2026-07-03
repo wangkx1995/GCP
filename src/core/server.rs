@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
+    body::Body,
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -13,8 +14,8 @@ use tokio::sync::Mutex;
 use crate::core::config_storage::ConfigStorage;
 use crate::core::db::CoreDb;
 use crate::core_agent_api::{
-    AgentRegisterRequest, AgentRegisterResponse, TaskDispatchRequest, TaskDispatchResponse,
-    TaskResultReport,
+    AgentRegisterRequest, AgentRegisterResponse, ConfigSnapshotMeta, TaskDispatchRequest,
+    TaskDispatchResponse, TaskResultReport,
 };
 
 #[derive(Clone)]
@@ -28,7 +29,11 @@ pub fn router(state: CoreState) -> Router {
     Router::new()
         .route("/api/agents/register", post(register_agent))
         .route("/api/agents/:agent_id/heartbeat", post(heartbeat))
-        .route("/api/config-snapshots/:config_snapshot_id", get(config_snapshot))
+        .route("/api/config-snapshots/upload", post(upload_config_snapshot))
+        .route("/api/config-snapshots", get(list_config_snapshots))
+        .route("/api/config-snapshots/:id/activate", post(activate_config_snapshot))
+        .route("/api/config-snapshots/:id/download", get(download_config_snapshot))
+        .route("/api/config-snapshots/:id", get(get_config_snapshot_handler))
         .route("/api/tasks/:task_id/events", post(task_event))
         .route("/api/tasks/:task_id/result", post(task_result))
         .route("/api/tasks/dispatch", post(dispatch_task))
@@ -50,8 +55,116 @@ async fn heartbeat() -> Json<serde_json::Value> {
     Json(serde_json::json!({"accepted": true}))
 }
 
-async fn config_snapshot() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"error": "config snapshot endpoint is wired but storage fetch is not implemented in this task"}))
+async fn upload_config_snapshot(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if body.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty request body".to_string()));
+    }
+
+    let snapshot_id = format!("v_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+    let result = state.storage.validate_and_unpack(&body, &snapshot_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("storage error: {e}")))?;
+
+    if !result.valid {
+        return Err((StatusCode::BAD_REQUEST, serde_json::json!({
+            "valid": false,
+            "errors": result.errors,
+            "config_snapshot_id": snapshot_id,
+        }).to_string()));
+    }
+
+    state.db.lock().await.insert_config_snapshot_meta(&snapshot_id, &result.content_hash, &snapshot_id, result.file_count)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    tracing::info!("[core] uploaded config snapshot {snapshot_id} ({} files, hash={})", result.file_count, result.content_hash);
+    Ok(Json(serde_json::json!({
+        "valid": true,
+        "config_snapshot_id": snapshot_id,
+        "content_hash": result.content_hash,
+        "file_count": result.file_count,
+    })))
+}
+
+async fn list_config_snapshots(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+) -> Result<Json<Vec<ConfigSnapshotMeta>>, (StatusCode, String)> {
+    let list = state.db.lock().await.list_config_snapshots()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    Ok(Json(list))
+}
+
+async fn get_config_snapshot_handler(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<ConfigSnapshotMeta>, (StatusCode, String)> {
+    let meta = state.db.lock().await.get_config_snapshot(&id)
+        .map_err(|e| {
+            let msg = format!("{e:#}");
+            if msg.contains("QueryReturnedNoRows") {
+                (StatusCode::NOT_FOUND, format!("snapshot {id} not found"))
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+            }
+        })?;
+    Ok(Json(meta))
+}
+
+async fn activate_config_snapshot(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let _meta = state.db.lock().await.get_config_snapshot(&id)
+        .map_err(|_| (StatusCode::NOT_FOUND, format!("snapshot {id} not found")))?;
+
+    let target = state.storage.version_dir(&id);
+    if !target.exists() {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("version dir {} missing", target.display())));
+    }
+
+    let active = state.storage.active_link();
+    let temp = active.with_extension("tmp");
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(&temp);
+        std::os::unix::fs::symlink(&target, &temp).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("symlink error: {e}")))?;
+        std::fs::rename(&temp, &active).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("rename error: {e}")))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&active, target.to_string_lossy().as_bytes())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write error: {e}")))?;
+    }
+
+    let meta = state.db.lock().await.activate_config_snapshot(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    tracing::info!("[core] activated config snapshot {id}");
+
+    Ok(Json(serde_json::json!({
+        "config_snapshot_id": id,
+        "active": true,
+        "content_hash": meta.content_hash,
+        "activated_at": meta.activated_at,
+    })))
+}
+
+async fn download_config_snapshot(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let vdir = state.storage.version_dir(&id);
+    if !vdir.exists() {
+        return Err((StatusCode::NOT_FOUND, format!("snapshot {id} not found on disk")));
+    }
+    let zip_data = crate::core::config_storage::create_zip_from_dir(&vdir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("zip error: {e}")))?;
+    Ok(axum::response::Response::builder()
+        .header("content-type", "application/zip")
+        .header("content-disposition", format!("attachment; filename=\"{id}.zip\""))
+        .body(Body::from(zip_data))
+        .unwrap())
 }
 
 async fn task_event() -> Json<serde_json::Value> {
