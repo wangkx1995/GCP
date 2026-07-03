@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 
@@ -65,6 +66,28 @@ impl AgentStore {
         Ok(())
     }
 
+    async fn download_with_retry(&self, url: &str, http: &reqwest::Client) -> Result<Vec<u8>> {
+        let max_attempts = 2;
+        let mut last_err = None;
+        for attempt in 1..=max_attempts {
+            match tokio::time::timeout(Duration::from_secs(30), http.get(url).send()).await {
+                Ok(Ok(resp)) => {
+                    if resp.status().is_success() {
+                        let body = resp.bytes().await.map_err(|e| anyhow::anyhow!("read body: {e}"))?;
+                        return Ok(body.to_vec());
+                    }
+                    last_err = Some(anyhow::anyhow!("HTTP {}", resp.status()));
+                }
+                Ok(Err(e)) => last_err = Some(anyhow::anyhow!("{e}")),
+                Err(_) => last_err = Some(anyhow::anyhow!("timeout after 30s")),
+            }
+            if attempt < max_attempts {
+                tracing::warn!("[agent-store] download attempt {attempt} failed, retrying...");
+            }
+        }
+        Err(anyhow::anyhow!("download failed after {max_attempts} attempts: {}", last_err.unwrap()))
+    }
+
     pub async fn ensure_config_async(&self, snapshot_id: &str, http: &reqwest::Client) -> Result<PathBuf> {
         let config_root = self.root.join("config_snapshots").join(snapshot_id);
         let marker = config_root.join("source.toml");
@@ -75,17 +98,12 @@ impl AgentStore {
 
         // Download zip from Core
         let url = format!("{}/config-snapshots/{}/download", self.core_api_base, snapshot_id);
-        tracing::info!("[agent-store] downloading config {} from {}", snapshot_id, url);
-        let resp = http.get(&url).send().await
-            .map_err(|e| anyhow::anyhow!("download config {snapshot_id}: {e}"))?;
-        if !resp.status().is_success() {
-            anyhow::bail!("download config {snapshot_id}: HTTP {}", resp.status());
-        }
-        let zip_data = resp.bytes().await?;
+        let zip_data = self.download_with_retry(&url, http).await
+            .with_context(|| format!("download config {snapshot_id}"))?;
 
         // Unpack to config_root
         std::fs::create_dir_all(&config_root)?;
-        self.unpack_zip(zip_data.to_vec(), &config_root)
+        self.unpack_zip(zip_data, &config_root)
             .with_context(|| format!("unpack config {snapshot_id}"))?;
 
         tracing::info!("[agent-store] unpacked config {} to {}", snapshot_id, config_root.display());
@@ -109,6 +127,21 @@ impl AgentStore {
         Ok(task_dir)
     }
 
+    fn copy_dir_recursively(src: &Path, dst: &Path) -> Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let path = entry.path();
+            let dest_path = dst.join(entry.file_name());
+            if path.is_dir() {
+                Self::copy_dir_recursively(&path, &dest_path)?;
+            } else if path.is_file() {
+                std::fs::copy(&path, &dest_path)?;
+            }
+        }
+        Ok(())
+    }
+
     fn populate_config(&self, task_dir: &Path, snapshot_id: &str) -> Result<()> {
         let dest = task_dir.join("config");
         let src = if let Some(ref cfg) = self.config_dir {
@@ -119,30 +152,7 @@ impl AgentStore {
         if !src.exists() {
             return Ok(());
         }
-        for entry in std::fs::read_dir(&src)
-            .with_context(|| format!("read config dir {}", src.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            if path.file_name().map_or(true, |n| n == "rules") {
-                if path.is_dir() {
-                    for rule_entry in std::fs::read_dir(&path)
-                        .with_context(|| format!("read rules dir {}", path.display()))?
-                    {
-                        let rule_entry = rule_entry?;
-                        let rule_src = rule_entry.path();
-                        if rule_src.is_file() {
-                            let fname = rule_src.file_name().unwrap();
-                            std::fs::copy(&rule_src, dest.join("rules").join(fname))
-                                .with_context(|| format!("copy rule {}", rule_src.display()))?;
-                        }
-                    }
-                }
-            } else if path.is_file() {
-                std::fs::copy(&path, dest.join(path.file_name().unwrap()))
-                    .with_context(|| format!("copy config file {}", path.display()))?;
-            }
-        }
+        Self::copy_dir_recursively(&src, &dest)?;
         tracing::info!("[agent-store] config files ready at {}", dest.display());
         Ok(())
     }

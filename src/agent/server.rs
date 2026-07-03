@@ -29,11 +29,11 @@ async fn dispatch_task(axum::extract::State(state): axum::extract::State<AgentSt
         match state.store.ensure_config_async(&request.config_snapshot_id, &state.runner.http).await {
             Ok(path) => tracing::info!("[agent-server] config {} ready at {}", request.config_snapshot_id, path.display()),
             Err(e) => {
-                tracing::error!("[agent-server] failed to ensure config: {e:#}");
+                tracing::error!("[agent-server] failed to download config {}: {e:#}", request.config_snapshot_id);
                 return Json(TaskDispatchResponse {
                     task_id, accepted: false,
                     agent_task_state: TaskStatus::Failed,
-                    reason: Some(format!("config download failed: {e:#}")),
+                    reason: Some(format!("config download failed for {}: {e:#}", request.config_snapshot_id)),
                 });
             }
         }

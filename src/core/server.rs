@@ -220,6 +220,9 @@ async fn result_grid(axum::extract::State(state): axum::extract::State<CoreState
         (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
     })?;
     tracing::info!("[core] result_grid found {} rows", rows.len());
+    // TODO: derive expected_tables from config snapshot rules when available
+    // Currently derived from result rows, which means tables with no data
+    // won't appear in the grid.
     let expected_tables = rows.iter().map(|row| row.table_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
     Ok(Json(crate::core::grid::build_daily_grid(&query.day, query.interval_minutes.unwrap_or(15), &expected_tables, &rows)))
 }

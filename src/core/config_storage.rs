@@ -108,6 +108,11 @@ impl ConfigStorage {
             .with_context(|| format!("create version dir {}", version_dir.display()))?;
 
         for (name, content) in &entries {
+            // Path traversal check (mirrors Agent's unpack_zip)
+            let clean_name = name.replace('\\', "/");
+            if clean_name.contains("..") || clean_name.starts_with('/') {
+                anyhow::bail!("path traversal detected: {name}");
+            }
             let target = version_dir.join(name);
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent)

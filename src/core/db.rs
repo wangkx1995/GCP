@@ -108,6 +108,8 @@ impl CoreDb {
     }
 
     pub fn select_online_agent(&self) -> Result<(String, String, u16)> {
+        // TODO: prefer agent with fewest running tasks instead of latest heartbeat
+        // For v1, simple heartbeat-based selection is sufficient.
         let row = self.conn.query_row(
             "SELECT agent_id, host, port FROM agents WHERE status = 'ONLINE' ORDER BY last_heartbeat_at DESC LIMIT 1",
             [],
@@ -150,7 +152,7 @@ impl CoreDb {
 
     pub fn list_config_snapshots(&self) -> Result<Vec<ConfigSnapshotMeta>> {
         let mut stmt = self.conn.prepare(
-            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, created_at, activated_at FROM config_snapshots ORDER BY created_at DESC, rowid DESC"
+            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, created_at, activated_at FROM config_snapshots ORDER BY created_at DESC, config_snapshot_id DESC"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(ConfigSnapshotMeta {
