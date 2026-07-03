@@ -6,7 +6,7 @@ use axum::{extract::State, routing::post, Json, Router};
 
 use crate::agent::runner::AgentRunner;
 use crate::agent::store::AgentStore;
-use crate::core_agent_api::{ConfigUpdateRequest, TaskDispatchRequest, TaskDispatchResponse, TaskStatus};
+use crate::core_agent_api::{AgentCapabilities, AgentRegisterRequest, AgentRegisterResponse, ConfigUpdateRequest, TaskDispatchRequest, TaskDispatchResponse, TaskStatus};
 
 #[derive(Clone)]
 pub struct AgentState {
@@ -78,10 +78,42 @@ async fn update_config(
     Json(serde_json::json!({ "accepted": true }))
 }
 
-pub async fn run_agent_server(addr: SocketAddr, data_dir: PathBuf, core_api_base: String, agent_id: String, config_dir: Option<PathBuf>) -> Result<()> {
+pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf, core_api_base: String, agent_id: String, config_dir: Option<PathBuf>) -> Result<()> {
     let store = AgentStore::new(data_dir, config_dir, core_api_base.clone())?;
-    let state = AgentState { store, runner: AgentRunner::new(agent_id, core_api_base) };
+    let runner = AgentRunner::new(agent_id.clone(), core_api_base.clone());
+    let state = AgentState { store, runner: runner.clone() };
+
+    // Auto-register with Core
+    let register_url = format!("{}/agents/register", core_api_base.trim_end_matches("/api").trim_end_matches('/'));
+    let register_req = AgentRegisterRequest {
+        agent_id: Some(agent_id.clone()),
+        agent_name: agent_id.clone(),
+        host,
+        port: addr.port(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        capabilities: AgentCapabilities {
+            can_collect: true,
+            can_parse: true,
+            can_load: false,
+            supported_protocols: vec!["ftp".to_string(), "sftp".to_string()],
+        },
+    };
+    match runner.http.post(&register_url).json(&register_req).send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                let reg: AgentRegisterResponse = resp.json().await.unwrap_or_else(|_| AgentRegisterResponse {
+                    agent_id: "unknown".to_string(), heartbeat_interval_seconds: 10, task_report_interval_seconds: 10,
+                });
+                tracing::info!("[agent] registered with Core as agent_id={}", reg.agent_id);
+            } else {
+                tracing::warn!("[agent] Core registration returned {}", resp.status());
+            }
+        }
+        Err(e) => tracing::warn!("[agent] failed to register with Core (server may still start): {e}"),
+    }
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("[agent] listening on {addr}");
     axum::serve(listener, router(state)).await?;
     Ok(())
 }
