@@ -10,6 +10,7 @@ use axum::{
 };
 use tokio::sync::Mutex;
 
+use crate::core::config_storage::ConfigStorage;
 use crate::core::db::CoreDb;
 use crate::core_agent_api::{
     AgentRegisterRequest, AgentRegisterResponse, TaskDispatchRequest, TaskDispatchResponse,
@@ -20,6 +21,7 @@ use crate::core_agent_api::{
 pub struct CoreState {
     pub db: Arc<Mutex<CoreDb>>,
     pub http: reqwest::Client,
+    pub storage: Arc<ConfigStorage>,
 }
 
 pub fn router(state: CoreState) -> Router {
@@ -124,10 +126,11 @@ async fn dispatch_task(
     Ok(Json(agent_resp))
 }
 
-pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf) -> Result<()> {
+pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
     let state = CoreState {
         db: Arc::new(Mutex::new(CoreDb::open(db_path)?)),
         http: reqwest::Client::new(),
+        storage: Arc::new(storage),
     };
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router(state)).await?;
@@ -145,7 +148,12 @@ mod tests {
     #[tokio::test]
     async fn register_agent_endpoint_returns_agent_id() {
         let dir = tempdir().unwrap();
-        let state = CoreState { db: Arc::new(Mutex::new(CoreDb::open(dir.path().join("core.db")).unwrap())), http: reqwest::Client::new() };
+        let storage = ConfigStorage::new(dir.path().join("config_storage")).unwrap();
+        let state = CoreState {
+            db: Arc::new(Mutex::new(CoreDb::open(dir.path().join("core.db")).unwrap())),
+            http: reqwest::Client::new(),
+            storage: Arc::new(storage),
+        };
         let app = router(state);
         let body = serde_json::json!({
             "agent_id": null,

@@ -10,6 +10,8 @@ struct Cli {
     listen: SocketAddr,
     #[arg(long, default_value = "core.db")]
     db: PathBuf,
+    #[arg(long, default_value = "config_storage")]
+    config_storage: PathBuf,
 }
 
 #[tokio::main]
@@ -18,7 +20,8 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
         .init();
     let cli = Cli::parse();
-    tracing::info!("[core] starting listen={} db={}", cli.listen, cli.db.display());
-    let result = wy_gnb_pm_parser::core::server::run_core_server(cli.listen, cli.db).await;
+    let config_storage = wy_gnb_pm_parser::core::config_storage::ConfigStorage::new(cli.config_storage)?;
+    tracing::info!("[core] starting listen={} db={} config_storage={:?}", cli.listen, cli.db.display(), config_storage.versions_dir());
+    let result = wy_gnb_pm_parser::core::server::run_core_server(cli.listen, cli.db, config_storage).await;
     result
 }
