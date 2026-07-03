@@ -56,7 +56,7 @@ async fn heartbeat(
     axum::extract::State(state): axum::extract::State<CoreState>,
     axum::extract::Path(agent_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tracing::debug!("[core] heartbeat agent_id={agent_id}");
+    tracing::info!("[core] heartbeat agent_id={agent_id}");
     state.db.lock().await.update_agent_heartbeat(&agent_id).map_err(|e| {
         tracing::error!("[core] heartbeat DB error: {e:#}");
         (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
