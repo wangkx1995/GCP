@@ -126,6 +126,20 @@ impl CoreDb {
         let _ = sqlx::query("ALTER TABLE config_snapshots ADD COLUMN activated_at TEXT")
             .execute(&self.pool)
         .await;
+        let _ = sqlx::query("ALTER TABLE config_snapshots ADD COLUMN name TEXT")
+            .execute(&self.pool)
+        .await;
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS config_tables (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_name TEXT NOT NULL,
+                table_name TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -290,26 +304,38 @@ impl CoreDb {
         content_hash: &str,
         version_label: &str,
         file_count: usize,
+        name: &str,
+        table_names: &[String],
     ) -> Result<()> {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         sqlx::query(
-            "INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, version_label, is_active, file_count, snapshot_json, created_at, activated_at) VALUES (?, ?, ?, 0, ?, '{}', ?, NULL)",
+            "INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, version_label, is_active, file_count, name, snapshot_json, created_at, activated_at) VALUES (?, ?, ?, 0, ?, ?, '{}', ?, NULL)",
         )
         .bind(snapshot_id)
         .bind(content_hash)
         .bind(version_label)
         .bind(file_count as i64)
+        .bind(name)
         .bind(&now)
         .execute(&self.pool)
         .await?;
+        for table_name in table_names {
+            sqlx::query(
+                "INSERT INTO config_tables(config_name, table_name) VALUES (?, ?)",
+            )
+            .bind(name)
+            .bind(table_name)
+            .execute(&self.pool)
+            .await?;
+        }
         Ok(())
     }
 
     pub async fn list_config_snapshots(&self) -> Result<Vec<ConfigSnapshotMeta>> {
         let rows = sqlx::query(
-            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, created_at, activated_at FROM config_snapshots ORDER BY created_at DESC, config_snapshot_id DESC",
+            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, name, created_at, activated_at FROM config_snapshots ORDER BY created_at DESC, config_snapshot_id DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -321,8 +347,9 @@ impl CoreDb {
                 version_label: row.get(2),
                 is_active: row.get::<i32, _>(3) != 0,
                 file_count: row.get::<i64, _>(4) as usize,
-                created_at: row.get(5),
-                activated_at: row.get(6),
+                name: row.get(5),
+                created_at: row.get(6),
+                activated_at: row.get(7),
             })
             .collect();
         Ok(snapshots)
@@ -330,7 +357,7 @@ impl CoreDb {
 
     pub async fn get_config_snapshot(&self, snapshot_id: &str) -> Result<Option<ConfigSnapshotMeta>> {
         let row = sqlx::query(
-            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, created_at, activated_at FROM config_snapshots WHERE config_snapshot_id = ?",
+            "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, name, created_at, activated_at FROM config_snapshots WHERE config_snapshot_id = ?",
         )
         .bind(snapshot_id)
         .fetch_optional(&self.pool)
@@ -341,8 +368,9 @@ impl CoreDb {
             version_label: rw.get(2),
             is_active: rw.get::<i32, _>(3) != 0,
             file_count: rw.get::<i64, _>(4) as usize,
-            created_at: rw.get(5),
-            activated_at: rw.get(6),
+            name: rw.get(5),
+            created_at: rw.get(6),
+            activated_at: rw.get(7),
         }))
     }
 
@@ -636,10 +664,10 @@ mod tests {
     #[tokio::test]
     async fn inserts_and_lists_config_snapshots() {
         let db = db().await;
-        db.insert_config_snapshot_meta("v1", "sha256:aaa", "v1_label", 5)
+        db.insert_config_snapshot_meta("v1", "sha256:aaa", "v1_label", 5, "test-name", &["t1".to_string()])
             .await
             .unwrap();
-        db.insert_config_snapshot_meta("v2", "sha256:bbb", "v2_label", 3)
+        db.insert_config_snapshot_meta("v2", "sha256:bbb", "v2_label", 3, "test-name-2", &["t2".to_string()])
             .await
             .unwrap();
         let list = db.list_config_snapshots().await.unwrap();
@@ -663,12 +691,8 @@ mod tests {
     #[tokio::test]
     async fn activate_switches_snapshot_is_active() {
         let db = db().await;
-        db.insert_config_snapshot_meta("v1", "sha256:aaa", "v1_label", 5)
-            .await
-            .unwrap();
-        db.insert_config_snapshot_meta("v2", "sha256:bbb", "v2_label", 3)
-            .await
-            .unwrap();
+        db.insert_config_snapshot_meta("v1", "sha256:aaa", "v1_label", 5, "test", &[]).await.unwrap();
+        db.insert_config_snapshot_meta("v2", "sha256:bbb", "v2_label", 3, "test2", &[]).await.unwrap();
         let meta = db.activate_config_snapshot("v1").await.unwrap();
         assert!(meta.is_active);
         let v1 = db.get_config_snapshot("v1").await.unwrap().unwrap();

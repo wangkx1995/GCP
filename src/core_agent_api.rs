@@ -114,6 +114,7 @@ pub struct ConfigSnapshotMeta {
     pub version_label: Option<String>,
     pub is_active: bool,
     pub file_count: usize,
+    pub name: Option<String>,
     pub created_at: String,
     pub activated_at: Option<String>,
 }

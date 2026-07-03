@@ -121,12 +121,17 @@ async fn heartbeat(
 
 async fn upload_config_snapshot(
     axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     body: axum::body::Bytes,
 ) -> Response {
     if body.is_empty() {
         return err_response(StatusCode::BAD_REQUEST, "请求体为空").into_response();
     }
     let snapshot_id = format!("v_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+    let name = params
+        .get("name")
+        .map(|s| s.as_str())
+        .unwrap_or(&snapshot_id);
     let result = match state.storage.validate_and_unpack(&body, &snapshot_id) {
         Ok(r) => r,
         Err(e) => {
@@ -143,22 +148,24 @@ async fn upload_config_snapshot(
     }
     if let Err(e) = state
         .db
-        .insert_config_snapshot_meta(&snapshot_id, &result.content_hash, &snapshot_id, result.file_count)
+        .insert_config_snapshot_meta(&snapshot_id, &result.content_hash, &snapshot_id, result.file_count, name, &result.table_names)
         .await
     {
         return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}"))
             .into_response();
     }
     info!(
-        "[core] uploaded config snapshot {snapshot_id} ({} files, hash={})",
-        result.file_count, result.content_hash
+        "[core] uploaded config snapshot {snapshot_id} (name={name}, {} files, {} tables, hash={})",
+        result.file_count, result.table_names.len(), result.content_hash
     );
     ok_response(
         serde_json::json!({
             "valid": true,
             "config_snapshot_id": snapshot_id,
+            "name": name,
             "content_hash": result.content_hash,
             "file_count": result.file_count,
+            "table_names": result.table_names,
         }),
         "配置上传成功",
     )

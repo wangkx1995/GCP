@@ -13,6 +13,7 @@ pub struct ValidationResult {
     pub config_snapshot_id: String,
     pub content_hash: String,
     pub file_count: usize,
+    pub table_names: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +45,7 @@ impl ConfigStorage {
         let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
         let mut has_rules_dir = false;
         let mut total_entries: usize = 0;
+        let mut table_names: Vec<String> = Vec::new();
 
         let reader = std::io::Cursor::new(zip_data);
         let mut archive = zip::ZipArchive::new(reader)
@@ -51,17 +53,25 @@ impl ConfigStorage {
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
-            let name = file.name().trim_end_matches('/').to_string();
+            let entry_name = file.name().trim_end_matches('/').to_string();
             total_entries += 1;
             if file.is_dir() {
-                if name == "rules" || name.starts_with("rules/") {
+                if entry_name == "rules" || entry_name.starts_with("rules/") {
                     has_rules_dir = true;
                 }
                 continue;
             }
             let mut content = Vec::new();
             file.read_to_end(&mut content)?;
-            entries.push((name, content));
+            if entry_name.starts_with("rules/") && entry_name.ends_with(".json") {
+                let table = entry_name
+                    .trim_start_matches("rules/")
+                    .trim_end_matches(".json");
+                if !table.is_empty() && !table_names.contains(&table.to_string()) {
+                    table_names.push(table.to_string());
+                }
+            }
+            entries.push((entry_name, content));
         }
 
         let entry_names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
@@ -85,6 +95,7 @@ impl ConfigStorage {
                 config_snapshot_id: snapshot_id.to_string(),
                 content_hash: String::new(),
                 file_count: total_entries,
+                table_names: Vec::new(),
             });
         }
 
@@ -130,6 +141,7 @@ impl ConfigStorage {
             config_snapshot_id: snapshot_id.to_string(),
             content_hash: hash,
             file_count: total_entries,
+            table_names,
         })
     }
 
