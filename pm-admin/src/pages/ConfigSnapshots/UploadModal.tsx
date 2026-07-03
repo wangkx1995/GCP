@@ -30,9 +30,9 @@ export default function UploadModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal title="上传配置快照" open={open} footer={null} onCancel={onClose} width={600}>
+    <Modal title="上传配置快照" open={open} footer={null} onCancel={onClose} width={600} destroyOnClose>
       <Alert
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: 20, borderRadius: 6 }}
         type="info"
         message="上传 .zip 格式的配置文件包"
         description="必需文件：source.toml、mapping_dx.ini、load.toml、rules/ 目录"
@@ -43,12 +43,19 @@ export default function UploadModal({ open, onClose }: Props) {
         showUploadList={false}
         beforeUpload={handleUpload}
         disabled={mutation.isPending}
+        style={{ borderRadius: 8 }}
       >
         <p className="ant-upload-drag-icon"><InboxOutlined /></p>
         <p className="ant-upload-text">点击或拖拽 zip 文件到此区域</p>
         <p className="ant-upload-hint">仅支持 .zip 格式</p>
       </Dragger>
-      {mutation.isPending && <Alert style={{ marginTop: 16 }} type="warning" message="正在上传并校验..." />}
+      {mutation.isPending && (
+        <Alert
+          style={{ marginTop: 20, borderRadius: 6 }}
+          type="warning"
+          message="正在上传并校验，请稍候..."
+        />
+      )}
     </Modal>
   );
 }

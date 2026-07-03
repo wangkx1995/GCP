@@ -19,36 +19,58 @@ export default function ResultsPage() {
 
   return (
     <div>
-      <Card style={{ marginBottom: 16 }}>
-        <Space wrap>
-          <Select
-            value={strategyId}
-            onChange={setStrategyId}
-            options={STRATEGIES.map(s => ({ value: s, label: s }))}
-            style={{ width: 200 }}
-            placeholder="选择策略"
-          />
-          <DatePicker
-            value={dayjs(day)}
-            onChange={d => d && setDay(d.format('YYYY-MM-DD'))}
-            allowClear={false}
-          />
-          <Radio.Group
-            value={interval}
-            onChange={e => setInterval(e.target.value)}
-            optionType="button"
-            options={[
-              { value: 15, label: '15min' },
-              { value: 30, label: '30min' },
-              { value: 60, label: '60min' },
-            ]}
-          />
+      <div className="page-header">
+        <h2>结果网格</h2>
+        <p>按策略和日期查看各表采集状态</p>
+      </div>
+      <Card className="content-card" style={{ marginBottom: 20 }}>
+        <Space wrap size="middle">
+          <div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 500 }}>策略</div>
+            <Select
+              value={strategyId}
+              onChange={setStrategyId}
+              options={STRATEGIES.map(s => ({ value: s, label: s }))}
+              style={{ width: 200 }}
+              placeholder="选择策略"
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 500 }}>日期</div>
+            <DatePicker
+              value={dayjs(day)}
+              onChange={d => d && setDay(d.format('YYYY-MM-DD'))}
+              allowClear={false}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 500 }}>时间间隔</div>
+            <Radio.Group
+              value={interval}
+              onChange={e => setInterval(e.target.value)}
+              optionType="button"
+              options={[
+                { value: 15, label: '15min' },
+                { value: 30, label: '30min' },
+                { value: 60, label: '60min' },
+              ]}
+            />
+          </div>
         </Space>
       </Card>
 
-      {isError && <Alert type="error" message="加载失败" />}
+      {isError && (
+        <Alert
+          type="error"
+          message="加载失败"
+          description="无法获取网格数据，请检查策略和日期是否正确"
+          style={{ borderRadius: 6, marginBottom: 16 }}
+        />
+      )}
       {grid && <GridTable grid={grid} loading={isLoading} />}
-      {!grid && !isError && isLoading && <Spin />}
+      {!grid && !isError && isLoading && (
+        <div className="spin-container"><Spin size="large" /></div>
+      )}
     </div>
   );
 }

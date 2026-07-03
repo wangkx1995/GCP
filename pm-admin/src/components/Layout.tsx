@@ -22,9 +22,16 @@ export default function Layout() {
 
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
-      <Sider>
-        <div style={{ color: '#fff', padding: 16, fontWeight: 'bold', fontSize: 16 }}>
-          PM Admin
+      <Sider
+        width={220}
+        style={{
+          background: '#0f172a',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+        }}
+      >
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon">PM</div>
+          <span className="sidebar-logo-text">PM Admin</span>
         </div>
         <Menu
           theme="dark"
@@ -32,9 +39,14 @@ export default function Layout() {
           selectedKeys={[location.pathname]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
+          style={{
+            background: 'transparent',
+            borderInlineEnd: 'none',
+            paddingTop: 8,
+          }}
         />
       </Sider>
-      <Content style={{ padding: 24 }}>
+      <Content style={{ padding: 32, background: '#f1f5f9' }}>
         <Outlet />
       </Content>
     </AntLayout>
