@@ -20,18 +20,26 @@ pub fn router(state: AgentState) -> Router {
 
 async fn dispatch_task(axum::extract::State(state): axum::extract::State<AgentState>, Json(request): Json<TaskDispatchRequest>) -> Json<TaskDispatchResponse> {
     let task_id = request.task_id.clone();
+    tracing::info!("[agent-server] dispatch_task task_id={task_id} strategy_id={} scan_start_time={}", request.strategy_id, request.scan_start_time);
     match state.store.persist_task(&request) {
         Ok(task_dir) => {
+            tracing::info!("[agent-server] persisted task to {}", task_dir.display());
             let runner = state.runner.clone();
             let store = state.store.clone();
+            let tid = task_id.clone();
             tokio::spawn(async move {
                 if let Err(err) = runner.run_task(&store, request, task_dir).await {
-                    tracing::warn!("agent task failed: {err:#}");
+                    tracing::warn!("[agent-server] task {tid} failed: {err:#}");
+                } else {
+                    tracing::info!("[agent-server] task {tid} completed");
                 }
             });
             Json(TaskDispatchResponse { task_id, accepted: true, agent_task_state: TaskStatus::Accepted, reason: None })
         }
-        Err(err) => Json(TaskDispatchResponse { task_id, accepted: false, agent_task_state: TaskStatus::Failed, reason: Some(format!("{err:#}")) }),
+        Err(err) => {
+            tracing::error!("[agent-server] persist_task failed: {err:#}");
+            Json(TaskDispatchResponse { task_id, accepted: false, agent_task_state: TaskStatus::Failed, reason: Some(format!("{err:#}")) })
+        }
     }
 }
 

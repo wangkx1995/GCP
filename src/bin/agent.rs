@@ -18,6 +18,11 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .init();
     let cli = Cli::parse();
-    wy_gnb_pm_parser::agent::server::run_agent_server(cli.listen, cli.data_dir, cli.core_api_base, cli.agent_id).await
+    tracing::info!("[agent] starting agent_id={} listen={} data_dir={} core_api_base={}", cli.agent_id, cli.listen, cli.data_dir.display(), cli.core_api_base);
+    let result = wy_gnb_pm_parser::agent::server::run_agent_server(cli.listen, cli.data_dir, cli.core_api_base, cli.agent_id).await;
+    result
 }

@@ -128,6 +128,7 @@ impl CoreDb {
 
         let (strategy_id, config_snapshot_id) = match task_row {
             Ok((sid, cid, status)) => {
+                tracing::info!("[core-db] accept_task_result: existing task status={status} strategy={sid}");
                 match status.as_str() {
                     "SUCCEEDED" | "FAILED" | "TIMEOUT" | "CANCELLED" => {
                         anyhow::bail!("task {} is already in terminal state {}", report.task_id, status);
@@ -137,6 +138,7 @@ impl CoreDb {
                 (sid, cid)
             }
             Err(_) => {
+                tracing::info!("[core-db] accept_task_result: task not found, creating implicit record");
                 let sid = format!("unknown_{}", report.task_id);
                 let cid = "unknown".to_string();
                 self.conn.execute(
@@ -155,7 +157,9 @@ impl CoreDb {
             _ => "SUCCEEDED",
         };
 
+        tracing::info!("[core-db] inserting {} result cells for task {} (strategy={})", report.result_rows.len(), report.task_id, strategy_id);
         for result in &report.result_rows {
+            tracing::debug!("[core-db]   cell: table={} data_time={} rows={} success={}", result.table_name, result.data_time, result.row_count, result.success);
             self.conn.execute(
                 "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'SUCCEEDED', NULL, ?10, ?10)",
                 rusqlite::params![report.task_id, strategy_id, report.agent_id, config_snapshot_id, result.table_name, result.data_time, result.row_count, result.success, result.collect_time, now],
@@ -166,6 +170,7 @@ impl CoreDb {
             "UPDATE collect_tasks SET status = ?2, finished_at = ?3 WHERE task_id = ?1",
             rusqlite::params![report.task_id, terminal_status, now],
         )?;
+        tracing::info!("[core-db] accept_task_result done: status={terminal_status}");
         Ok(())
     }
 

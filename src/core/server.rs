@@ -30,7 +30,12 @@ pub fn router(state: CoreState) -> Router {
 }
 
 async fn register_agent(axum::extract::State(state): axum::extract::State<CoreState>, Json(request): Json<AgentRegisterRequest>) -> Result<Json<AgentRegisterResponse>, (StatusCode, String)> {
-    let agent_id = state.db.lock().await.register_agent(&request).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    tracing::info!("[core] register_agent name={} host={}:{}", request.agent_name, request.host, request.port);
+    let agent_id = state.db.lock().await.register_agent(&request).map_err(|e| {
+        tracing::error!("[core] register_agent DB error: {e:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+    })?;
+    tracing::info!("[core] agent registered: {agent_id}");
     Ok(Json(AgentRegisterResponse { agent_id, heartbeat_interval_seconds: 10, task_report_interval_seconds: 10 }))
 }
 
@@ -54,13 +59,23 @@ struct GridQuery {
 }
 
 async fn result_grid(axum::extract::State(state): axum::extract::State<CoreState>, axum::extract::Query(query): axum::extract::Query<GridQuery>) -> Result<Json<crate::core::grid::DailyGrid>, (StatusCode, String)> {
-    let rows = state.db.lock().await.result_rows_for_day(&query.strategy_id, &query.day).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    tracing::info!("[core] result_grid strategy_id={} day={} interval={:?}", query.strategy_id, query.day, query.interval_minutes);
+    let rows = state.db.lock().await.result_rows_for_day(&query.strategy_id, &query.day).map_err(|e| {
+        tracing::error!("[core] result_grid DB error: {e:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+    })?;
+    tracing::info!("[core] result_grid found {} rows", rows.len());
     let expected_tables = rows.iter().map(|row| row.table_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
     Ok(Json(crate::core::grid::build_daily_grid(&query.day, query.interval_minutes.unwrap_or(15), &expected_tables, &rows)))
 }
 
 async fn task_result(axum::extract::State(state): axum::extract::State<CoreState>, Json(report): Json<TaskResultReport>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    state.db.lock().await.accept_task_result(&report).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    tracing::info!("[core] task_result task_id={} agent_id={} status={:?} rows={}", report.task_id, report.agent_id, report.status, report.result_rows.len());
+    state.db.lock().await.accept_task_result(&report).map_err(|e| {
+        tracing::error!("[core] accept_task_result error: {e:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+    })?;
+    tracing::info!("[core] task_result accepted OK");
     Ok(Json(serde_json::json!({"accepted": true})))
 }
 
