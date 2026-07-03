@@ -130,7 +130,6 @@ impl CoreDb {
     }
 
     pub async fn register_agent(&self, request: &AgentRegisterRequest) -> Result<String> {
-        tracing::debug!("[db] INSERT/UPDATE agents: agent_name={}", request.agent_name);
         let agent_id = request
             .agent_id
             .clone()
@@ -139,6 +138,10 @@ impl CoreDb {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         let capabilities_json = serde_json::to_string(&request.capabilities)?;
+        tracing::debug!(
+            "[db] ==> INSERT INTO agents(agent_id,agent_name,host,port,version,capabilities_json,status,registered_at,last_heartbeat_at) VALUES(?,?,?,?,?,?,'ONLINE',?,?) ON CONFLICT(agent_id) DO UPDATE SET agent_name=excluded.agent_name,host=excluded.host,port=excluded.port,version=excluded.version,capabilities_json=excluded.capabilities_json,status='ONLINE',last_heartbeat_at=excluded.last_heartbeat_at"
+        );
+        tracing::debug!("[db] ==> Parameters: agent_id={}, agent_name={}, host={}, port={}, version={}", agent_id, request.agent_name, request.host, request.port, request.version);
         sqlx::query(
             r#"
             INSERT INTO agents(agent_id, agent_name, host, port, version, capabilities_json, status, registered_at, last_heartbeat_at)
@@ -170,6 +173,8 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        tracing::debug!("[db] ==> UPDATE agents SET status='ONLINE',last_heartbeat_at=? WHERE agent_id=?");
+        tracing::debug!("[db] ==> Parameters: last_heartbeat_at={}, agent_id={}", now, agent_id);
         sqlx::query(
             "UPDATE agents SET status = 'ONLINE', last_heartbeat_at = ? WHERE agent_id = ?",
         )
@@ -177,7 +182,6 @@ impl CoreDb {
         .bind(agent_id)
         .execute(&self.pool)
         .await?;
-        tracing::debug!("[db] heartbeat agent_id={agent_id}");
         Ok(())
     }
 
@@ -185,6 +189,8 @@ impl CoreDb {
         let cutoff = (chrono::Local::now() - chrono::Duration::seconds(max_age_seconds))
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        tracing::debug!("[db] ==> UPDATE agents SET status='OFFLINE' WHERE status='ONLINE' AND last_heartbeat_at<?");
+        tracing::debug!("[db] ==> Parameters: cutoff={}", cutoff);
         let result = sqlx::query(
             "UPDATE agents SET status = 'OFFLINE' WHERE status = 'ONLINE' AND last_heartbeat_at < ?",
         )
@@ -192,14 +198,11 @@ impl CoreDb {
         .execute(&self.pool)
         .await?;
         let n = result.rows_affected() as usize;
-        if n > 0 {
-            tracing::info!("[db] marked {n} stale agent(s) OFFLINE (cutoff={cutoff})");
-        }
         Ok(n)
     }
 
     pub async fn select_online_agent(&self) -> Result<(String, String, u16)> {
-        tracing::debug!("[db] SELECT online agent");
+        tracing::debug!("[db] ==> SELECT agent_id,host,port FROM agents WHERE status='ONLINE' ORDER BY last_heartbeat_at DESC LIMIT 1");
         let row = sqlx::query(
             "SELECT agent_id, host, port FROM agents WHERE status = 'ONLINE' ORDER BY last_heartbeat_at DESC LIMIT 1",
         )
@@ -209,7 +212,7 @@ impl CoreDb {
     }
 
     pub async fn list_all_agents(&self) -> Result<Vec<AgentInfo>> {
-        tracing::debug!("[db] SELECT all agents");
+        tracing::debug!("[db] ==> SELECT agent_id,agent_name,host,port,version,capabilities_json,status,registered_at,last_heartbeat_at FROM agents ORDER BY registered_at DESC");
         let rows = sqlx::query(
             "SELECT agent_id, agent_name, host, port, version, capabilities_json, status, registered_at, last_heartbeat_at FROM agents ORDER BY registered_at DESC",
         )
