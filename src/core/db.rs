@@ -133,6 +133,7 @@ impl CoreDb {
             r#"
             CREATE TABLE IF NOT EXISTS config_tables (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_snapshot_id TEXT NOT NULL,
                 config_name TEXT NOT NULL,
                 table_name TEXT NOT NULL
             )
@@ -323,8 +324,9 @@ impl CoreDb {
         .await?;
         for table_name in table_names {
             sqlx::query(
-                "INSERT INTO config_tables(config_name, table_name) VALUES (?, ?)",
+                "INSERT INTO config_tables(config_snapshot_id, config_name, table_name) VALUES (?, ?, ?)",
             )
+            .bind(snapshot_id)
             .bind(name)
             .bind(table_name)
             .execute(&self.pool)
@@ -469,8 +471,11 @@ impl CoreDb {
                 .bind("")
                 .bind(&report.agent_id)
                 .bind(&now)
-                .execute(&self.pool)
-                .await?;
+        .execute(&self.pool)
+        .await?;
+        let _ = sqlx::query("ALTER TABLE config_tables ADD COLUMN config_snapshot_id TEXT")
+            .execute(&self.pool)
+            .await;
                 (sid, cid)
             }
         };
