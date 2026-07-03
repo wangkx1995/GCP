@@ -92,7 +92,7 @@ pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf,
     });
 
     // Now register with Core (server is already running)
-    let register_url = format!("{}/agents/register", core_api_base.trim_end_matches("/api").trim_end_matches('/'));
+    let register_url = format!("{}/agents/register", core_api_base.trim_end_matches('/'));
     let register_req = AgentRegisterRequest {
         agent_id: Some(agent_id.clone()),
         agent_name: agent_id.clone(),
@@ -122,7 +122,7 @@ pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf,
 
     // Periodic heartbeat: POST /api/agents/{agent_id}/heartbeat every 60s
     let heartbeat_url = format!("{}/agents/{agent_id}/heartbeat",
-        core_api_base.trim_end_matches("/api").trim_end_matches('/'));
+        core_api_base.trim_end_matches('/'));
     let heartbeat_runner = runner.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
