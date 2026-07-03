@@ -38,6 +38,33 @@ impl AgentStore {
         anyhow::bail!("config {} not cached and async download not available in sync path; call ensure_config_async from async context", snapshot_id)
     }
 
+    pub fn unpack_zip(&self, zip_data: Vec<u8>, dest: &Path) -> Result<()> {
+        let reader = std::io::Cursor::new(&zip_data);
+        let mut archive = zip::ZipArchive::new(reader)
+            .map_err(|e| anyhow::anyhow!("invalid zip: {e}"))?;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let raw_name = file.name().trim_end_matches('/').to_string();
+            // Path traversal check
+            let clean_name = raw_name.replace('\\', "/");
+            if clean_name.contains("..") || clean_name.starts_with('/') {
+                anyhow::bail!("path traversal detected: {raw_name}");
+            }
+            if file.is_dir() {
+                std::fs::create_dir_all(dest.join(&clean_name))?;
+            } else {
+                let target = dest.join(&clean_name);
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let mut content = Vec::new();
+                file.read_to_end(&mut content)?;
+                std::fs::write(&target, &content)?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn ensure_config_async(&self, snapshot_id: &str, http: &reqwest::Client) -> Result<PathBuf> {
         let config_root = self.root.join("config_snapshots").join(snapshot_id);
         let marker = config_root.join("source.toml");
@@ -58,24 +85,8 @@ impl AgentStore {
 
         // Unpack to config_root
         std::fs::create_dir_all(&config_root)?;
-        let reader = std::io::Cursor::new(&zip_data);
-        let mut archive = zip::ZipArchive::new(reader)
-            .map_err(|e| anyhow::anyhow!("invalid zip for {snapshot_id}: {e}"))?;
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
-            let name = file.name().trim_end_matches('/').to_string();
-            if file.is_dir() {
-                std::fs::create_dir_all(config_root.join(&name))?;
-            } else {
-                let target = config_root.join(&name);
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut content = Vec::new();
-                file.read_to_end(&mut content)?;
-                std::fs::write(&target, &content)?;
-            }
-        }
+        self.unpack_zip(zip_data.to_vec(), &config_root)
+            .with_context(|| format!("unpack config {snapshot_id}"))?;
 
         tracing::info!("[agent-store] unpacked config {} to {}", snapshot_id, config_root.display());
         Ok(config_root)
@@ -170,6 +181,26 @@ mod tests {
         let result = store.ensure_config_sync("cfg_v1");
         assert!(result.is_ok());
         assert!(result.unwrap().join("source.toml").exists());
+    }
+
+    #[test]
+    fn rejects_path_traversal_in_zip() {
+        use std::io::Write;
+        let dir = tempdir().unwrap();
+        let store = AgentStore::new(dir.path().join("agent_data"), None, "http://core/api".to_string()).unwrap();
+
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(&mut buf);
+        let opts = zip::write::FileOptions::<()>::default();
+        zip.start_file("../evil.sh", opts).unwrap();
+        zip.write_all(b"rm -rf /").unwrap();
+        zip.finish().unwrap();
+
+        let config_root = dir.path().join("agent_data/config_snapshots/v_bad");
+        std::fs::create_dir_all(&config_root).unwrap();
+        let result = store.unpack_zip(buf.into_inner(), &config_root);
+        assert!(result.is_err());
+        assert!(!dir.path().join("evil.sh").exists());
     }
 
     #[test]
