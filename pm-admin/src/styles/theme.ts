@@ -14,6 +14,7 @@ export const theme: ThemeConfig = {
     colorTextSecondary: '#94A3B8',
     colorBorder: '#334155',
     colorBorderSecondary: '#1E293B',
+    controlItemBgHover: '#1E293B',
     borderRadius: 8,
     fontFamily: "'Fira Sans', -apple-system, BlinkMacSystemFont, sans-serif",
     fontSize: 14,
@@ -58,7 +59,11 @@ export const theme: ThemeConfig = {
       colorBgElevated: '#1A1E2F',
     },
     Select: {
-      optionSelectedBg: 'rgba(34, 197, 94, 0.12)',
+      optionSelectedBg: 'rgba(34, 197, 94, 0.15)',
+      optionSelectedColor: '#020617',
+    },
+    Cascader: {
+      optionSelectedBg: 'rgba(34, 197, 94, 0.15)',
     },
     DatePicker: {
       cellHoverBg: 'rgba(34, 197, 94, 0.08)',
