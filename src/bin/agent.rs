@@ -23,7 +23,10 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info".parse().unwrap()),
+        )
         .init();
     let cli = Cli::parse();
     tracing::info!("[agent] starting agent_id={} listen={} host={} data_dir={} core_api_base={} config_dir={:?}", cli.agent_id, cli.listen, cli.host, cli.data_dir.display(), cli.core_api_base, cli.config_dir);
