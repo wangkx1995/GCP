@@ -43,8 +43,8 @@ async fn dispatch_task(axum::extract::State(state): axum::extract::State<AgentSt
     }
 }
 
-pub async fn run_agent_server(addr: SocketAddr, data_dir: PathBuf, core_api_base: String, agent_id: String) -> Result<()> {
-    let state = AgentState { store: AgentStore::new(data_dir)?, runner: AgentRunner::new(agent_id, core_api_base) };
+pub async fn run_agent_server(addr: SocketAddr, data_dir: PathBuf, core_api_base: String, agent_id: String, config_dir: Option<PathBuf>) -> Result<()> {
+    let state = AgentState { store: AgentStore::new(data_dir, config_dir)?, runner: AgentRunner::new(agent_id, core_api_base) };
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router(state)).await?;
     Ok(())
@@ -61,7 +61,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_task_persists_before_accepting() {
         let dir = tempdir().unwrap();
-        let state = AgentState { store: AgentStore::new(dir.path().join("agent_data")).unwrap(), runner: AgentRunner::new("agent_1".to_string(), "http://127.0.0.1:9/api".to_string()) };
+        let state = AgentState { store: AgentStore::new(dir.path().join("agent_data"), None).unwrap(), runner: AgentRunner::new("agent_1".to_string(), "http://127.0.0.1:9/api".to_string()) };
         let app = router(state);
         let body = serde_json::json!({
             "task_id": "task_1",

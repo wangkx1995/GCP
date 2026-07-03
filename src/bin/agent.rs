@@ -14,6 +14,8 @@ struct Cli {
     core_api_base: String,
     #[arg(long, default_value = "agent_local")]
     agent_id: String,
+    #[arg(long)]
+    config_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -22,7 +24,7 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
         .init();
     let cli = Cli::parse();
-    tracing::info!("[agent] starting agent_id={} listen={} data_dir={} core_api_base={}", cli.agent_id, cli.listen, cli.data_dir.display(), cli.core_api_base);
-    let result = wy_gnb_pm_parser::agent::server::run_agent_server(cli.listen, cli.data_dir, cli.core_api_base, cli.agent_id).await;
+    tracing::info!("[agent] starting agent_id={} listen={} data_dir={} core_api_base={} config_dir={:?}", cli.agent_id, cli.listen, cli.data_dir.display(), cli.core_api_base, cli.config_dir);
+    let result = wy_gnb_pm_parser::agent::server::run_agent_server(cli.listen, cli.data_dir, cli.core_api_base, cli.agent_id, cli.config_dir).await;
     result
 }
