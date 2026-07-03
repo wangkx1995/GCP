@@ -111,8 +111,7 @@ pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf,
     let loop_runner = runner.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        // Tick once so first attempt is also after 60s
-        interval.tick().await;
+        // First tick() is immediate, so first attempt is instant; subsequent ticks every 60s
         let mut registered = false;
         loop {
             interval.tick().await;
