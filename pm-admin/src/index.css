@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 
 *,
 *::before,
@@ -15,19 +15,20 @@ html {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #1e293b;
-  background: #f1f5f9;
+  font-family: 'Fira Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #F8FAFC;
+  background: #020617;
 }
 
 code,
 .hash-value,
 .mono {
-  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  font-family: 'Fira Code', 'SF Mono', Monaco, monospace;
   font-size: 0.9em;
 }
 
-/* Sidebar logo area */
+/* ─── Sidebar ─── */
+
 .sidebar-logo {
   height: 64px;
   display: flex;
@@ -40,26 +41,27 @@ code,
 .sidebar-logo-icon {
   width: 28px;
   height: 28px;
-  background: linear-gradient(135deg, #0891b2, #06b6d4);
+  background: linear-gradient(135deg, #22C55E, #16A34A);
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  color: #fff;
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  color: #020617;
   font-weight: 700;
   flex-shrink: 0;
 }
 
 .sidebar-logo-text {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  color: #ffffff;
-  letter-spacing: -0.01em;
+  font-family: 'Fira Sans', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: #F8FAFC;
+  letter-spacing: 0.02em;
 }
 
-/* Custom menu item accent bar */
+/* Menu item accent bar */
 .ant-menu-item {
   border-radius: 0 !important;
   margin: 0 !important;
@@ -67,7 +69,6 @@ code,
   height: 44px !important;
   line-height: 44px !important;
   position: relative;
-  transition: none !important;
 }
 
 .ant-menu-item::after {
@@ -78,7 +79,7 @@ code,
   transform: translateY(-50%);
   width: 3px;
   height: 0;
-  background: #0891b2;
+  background: #22C55E;
   border-radius: 0 2px 2px 0;
   opacity: 0;
   transition: height 0.15s ease, opacity 0.15s ease;
@@ -89,47 +90,53 @@ code,
   opacity: 1;
 }
 
-/* Page header */
+/* ─── Page ─── */
+
 .page-header {
   margin-bottom: 24px;
 }
 
 .page-header h2 {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-weight: 700;
-  font-size: 20px;
-  color: #0f172a;
-  letter-spacing: -0.01em;
+  font-family: 'Fira Sans', sans-serif;
+  font-weight: 600;
+  font-size: 22px;
+  color: #F8FAFC;
   margin: 0;
 }
 
 .page-header p {
-  color: #64748b;
+  color: #64748B;
   font-size: 13px;
   margin-top: 4px;
 }
 
-/* Card refinements */
+/* ─── Card ─── */
+
 .content-card {
-  border: 1px solid #e2e8f0;
+  border: 1px solid #1E293B;
   border-radius: 10px;
-  box-shadow: none;
+  background: #0F172A;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-/* Table refinements */
+/* ─── Table ─── */
+
 .data-table .ant-table-thead > tr > th {
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
   font-size: 11px;
-  letter-spacing: 0.04em;
-  padding: 12px 16px;
+  letter-spacing: 0.06em;
+  padding: 14px 16px;
+  border-bottom: 1px solid #1E293B;
 }
 
 .data-table .ant-table-tbody > tr > td {
-  padding: 12px 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.6);
 }
 
-/* Status dot */
+/* ─── Status dot ─── */
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -139,7 +146,8 @@ code,
   vertical-align: middle;
 }
 
-/* Grid cell */
+/* ─── Grid cell ─── */
+
 .grid-cell {
   position: relative;
   height: 28px;
@@ -147,21 +155,56 @@ code,
   align-items: center;
   justify-content: center;
   border-radius: 4px;
+  font-family: 'Fira Code', monospace;
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
 }
 
 .grid-cell:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transform: scale(1.08);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
   z-index: 1;
 }
 
-/* Spin container */
+/* ─── Spin ─── */
+
 .spin-container {
   display: flex;
   justify-content: center;
   padding: 48px 0;
+}
+
+/* ─── Form ─── */
+
+.ant-form-item-label > label {
+  color: #94A3B8 !important;
+  font-weight: 500;
+}
+
+/* ─── Alert ─── */
+
+.ant-alert {
+  border: 1px solid transparent;
+}
+
+/* ─── Scrollbar ─── */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

@@ -21,11 +21,11 @@ export default function Layout() {
   const location = useLocation();
 
   return (
-    <AntLayout style={{ minHeight: '100vh' }}>
+    <AntLayout style={{ minHeight: '100vh', background: '#020617' }}>
       <Sider
         width={220}
         style={{
-          background: '#0f172a',
+          background: '#0F172A',
           borderRight: '1px solid rgba(255,255,255,0.06)',
         }}
       >
@@ -46,7 +46,7 @@ export default function Layout() {
           }}
         />
       </Sider>
-      <Content style={{ padding: 32, background: '#f1f5f9' }}>
+      <Content style={{ padding: 32, background: '#020617' }}>
         <Outlet />
       </Content>
     </AntLayout>
