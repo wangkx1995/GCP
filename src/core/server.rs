@@ -11,11 +11,15 @@ use axum::{
 use tokio::sync::Mutex;
 
 use crate::core::db::CoreDb;
-use crate::core_agent_api::{AgentRegisterRequest, AgentRegisterResponse, TaskResultReport};
+use crate::core_agent_api::{
+    AgentRegisterRequest, AgentRegisterResponse, TaskDispatchRequest, TaskDispatchResponse,
+    TaskResultReport,
+};
 
 #[derive(Clone)]
 pub struct CoreState {
     pub db: Arc<Mutex<CoreDb>>,
+    pub http: reqwest::Client,
 }
 
 pub fn router(state: CoreState) -> Router {
@@ -25,6 +29,7 @@ pub fn router(state: CoreState) -> Router {
         .route("/api/config-snapshots/:config_snapshot_id", get(config_snapshot))
         .route("/api/tasks/:task_id/events", post(task_event))
         .route("/api/tasks/:task_id/result", post(task_result))
+        .route("/api/tasks/dispatch", post(dispatch_task))
         .route("/api/results/grid", get(result_grid))
         .with_state(state)
 }
@@ -79,8 +84,51 @@ async fn task_result(axum::extract::State(state): axum::extract::State<CoreState
     Ok(Json(serde_json::json!({"accepted": true})))
 }
 
+async fn dispatch_task(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    Json(request): Json<TaskDispatchRequest>,
+) -> Result<Json<TaskDispatchResponse>, (StatusCode, String)> {
+    let task_id = request.task_id.clone();
+    tracing::info!("[core] dispatch_task task_id={task_id} strategy_id={}", request.strategy_id);
+
+    let (agent_id, agent_host, agent_port) = state.db.lock().await.select_online_agent().map_err(|e| {
+        tracing::error!("[core] no online agent: {e:#}");
+        (StatusCode::SERVICE_UNAVAILABLE, format!("no online agent: {e}"))
+    })?;
+    tracing::info!("[core] selected agent {agent_id} at {agent_host}:{agent_port}");
+
+    state.db.lock().await.create_task(
+        &task_id, &request.logical_task_key, &request.strategy_id,
+        &request.config_snapshot_id, &request.scan_start_time,
+        &request.collect_id, &agent_id,
+    ).map_err(|e| {
+        tracing::error!("[core] create_task DB error: {e:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+    })?;
+
+    let agent_url = format!("http://{agent_host}:{agent_port}/api/tasks");
+    tracing::info!("[core] forwarding task to Agent: {agent_url}");
+    let resp = state.http.post(&agent_url).json(&request).send().await.map_err(|e| {
+        tracing::error!("[core] forward to Agent failed: {e:#}");
+        (StatusCode::BAD_GATEWAY, format!("Agent unreachable: {e}"))
+    })?;
+    let agent_resp: TaskDispatchResponse = resp.json().await.map_err(|e| {
+        tracing::error!("[core] Agent response parse failed: {e:#}");
+        (StatusCode::BAD_GATEWAY, format!("Agent response error: {e}"))
+    })?;
+
+    if !agent_resp.accepted {
+        tracing::warn!("[core] Agent rejected task {task_id}: {:?}", agent_resp.reason);
+    }
+    tracing::info!("[core] dispatch_task done: accepted={}", agent_resp.accepted);
+    Ok(Json(agent_resp))
+}
+
 pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf) -> Result<()> {
-    let state = CoreState { db: Arc::new(Mutex::new(CoreDb::open(db_path)?)) };
+    let state = CoreState {
+        db: Arc::new(Mutex::new(CoreDb::open(db_path)?)),
+        http: reqwest::Client::new(),
+    };
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router(state)).await?;
     Ok(())
@@ -97,7 +145,7 @@ mod tests {
     #[tokio::test]
     async fn register_agent_endpoint_returns_agent_id() {
         let dir = tempdir().unwrap();
-        let state = CoreState { db: Arc::new(Mutex::new(CoreDb::open(dir.path().join("core.db")).unwrap())) };
+        let state = CoreState { db: Arc::new(Mutex::new(CoreDb::open(dir.path().join("core.db")).unwrap())), http: reqwest::Client::new() };
         let app = router(state);
         let body = serde_json::json!({
             "agent_id": null,

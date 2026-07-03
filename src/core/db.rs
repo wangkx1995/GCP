@@ -99,6 +99,15 @@ impl CoreDb {
         Ok(agent_id)
     }
 
+    pub fn select_online_agent(&self) -> Result<(String, String, u16)> {
+        let row = self.conn.query_row(
+            "SELECT agent_id, host, port FROM agents WHERE status = 'ONLINE' ORDER BY last_heartbeat_at DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        Ok(row)
+    }
+
     pub fn insert_config_snapshot(&self, snapshot: &ConfigSnapshotResponse) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         self.conn.execute(
