@@ -10,7 +10,8 @@ export function getSnapshot(id: string): Promise<ConfigSnapshotMeta | null> {
 }
 
 export async function uploadSnapshot(file: File): Promise<UploadResponse> {
-  const res = await http.post('/config-snapshots/upload', await file.arrayBuffer(), {
+  const name = file.name.replace(/\.\w+$/, '');
+  const res = await http.post(`/config-snapshots/upload?name=${encodeURIComponent(name)}`, await file.arrayBuffer(), {
     headers: { 'Content-Type': 'application/octet-stream' },
   });
   return res.data;

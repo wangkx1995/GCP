@@ -4,6 +4,7 @@ export interface ConfigSnapshotMeta {
   version_label: string | null;
   is_active: boolean;
   file_count: number;
+  name: string | null;
   created_at: string;
   activated_at: string | null;
 }
@@ -11,8 +12,10 @@ export interface ConfigSnapshotMeta {
 export interface UploadSuccessResponse {
   valid: true;
   config_snapshot_id: string;
+  name: string;
   content_hash: string;
   file_count: number;
+  table_names: string[];
 }
 
 export interface UploadErrorResponse {
