@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::{
@@ -141,6 +142,40 @@ async fn activate_config_snapshot(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     tracing::info!("[core] activated config snapshot {id}");
+
+    // Notify online agents
+    let agents = match state.db.lock().await.list_online_agents() {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::warn!("[core] failed to list online agents: {e}");
+            Vec::new()
+        }
+    };
+    let content_hash = meta.content_hash.clone();
+    let snapshot_id = id.clone();
+    for agent in &agents {
+        let http = state.http.clone();
+        let agent_id = agent.agent_id.clone();
+        let url = format!("http://{}:{}/api/configs/update", agent.host, agent.port);
+        let sid = snapshot_id.clone();
+        let ch = content_hash.clone();
+        let body = serde_json::json!({
+            "snapshot_id": &sid,
+            "content_hash": &ch,
+        });
+        tokio::spawn(async move {
+            match http.post(&url).json(&body).timeout(Duration::from_secs(5)).send().await {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        tracing::info!("[core] notified agent {agent_id} of config {sid}");
+                    } else {
+                        tracing::warn!("[core] agent {agent_id} rejected config update: {}", resp.status());
+                    }
+                }
+                Err(e) => tracing::warn!("[core] failed to notify agent {agent_id}: {e}"),
+            }
+        });
+    }
 
     Ok(Json(serde_json::json!({
         "config_snapshot_id": id,

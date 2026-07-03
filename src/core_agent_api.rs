@@ -82,6 +82,13 @@ pub struct RuleFile {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OnlineAgent {
+    pub agent_id: String,
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigSnapshotMeta {
     pub config_snapshot_id: String,
     pub content_hash: String,

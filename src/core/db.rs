@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use rusqlite::Connection;
 
-use crate::core_agent_api::{AgentRegisterRequest, ConfigSnapshotMeta, ConfigSnapshotResponse, ResultRow, TaskResultReport, TaskStatus};
+use crate::core_agent_api::{AgentRegisterRequest, ConfigSnapshotMeta, ConfigSnapshotResponse, OnlineAgent, ResultRow, TaskResultReport, TaskStatus};
 
 pub struct CoreDb {
     conn: Connection,
@@ -114,6 +114,20 @@ impl CoreDb {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
         Ok(row)
+    }
+
+    pub fn list_online_agents(&self) -> Result<Vec<OnlineAgent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT agent_id, host, port FROM agents WHERE status = 'ONLINE'"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(OnlineAgent {
+                agent_id: row.get(0)?,
+                host: row.get(1)?,
+                port: row.get(2)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
     }
 
     pub fn insert_config_snapshot(&self, snapshot: &ConfigSnapshotResponse) -> Result<()> {
@@ -363,6 +377,20 @@ mod tests {
         let list = db.list_config_snapshots().unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].config_snapshot_id, "v2");
+    }
+
+    #[test]
+    fn lists_online_agents() {
+        let db = db();
+        let mut req = agent_request();
+        req.agent_id = Some("agent_a".into());
+        db.register_agent(&req).unwrap();
+
+        let agents = db.list_online_agents().unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].agent_id, "agent_a");
+        assert_eq!(agents[0].host, "127.0.0.1");
+        assert_eq!(agents[0].port, 18081);
     }
 
     #[test]
