@@ -21,6 +21,21 @@ pub fn router(state: AgentState) -> Router {
 async fn dispatch_task(axum::extract::State(state): axum::extract::State<AgentState>, Json(request): Json<TaskDispatchRequest>) -> Json<TaskDispatchResponse> {
     let task_id = request.task_id.clone();
     tracing::info!("[agent-server] dispatch_task task_id={task_id} strategy_id={} scan_start_time={}", request.strategy_id, request.scan_start_time);
+
+    if !state.store.has_config_dir() {
+        match state.store.ensure_config_async(&request.config_snapshot_id, &state.runner.http).await {
+            Ok(path) => tracing::info!("[agent-server] config {} ready at {}", request.config_snapshot_id, path.display()),
+            Err(e) => {
+                tracing::error!("[agent-server] failed to ensure config: {e:#}");
+                return Json(TaskDispatchResponse {
+                    task_id, accepted: false,
+                    agent_task_state: TaskStatus::Failed,
+                    reason: Some(format!("config download failed: {e:#}")),
+                });
+            }
+        }
+    }
+
     match state.store.persist_task(&request) {
         Ok(task_dir) => {
             tracing::info!("[agent-server] persisted task to {}", task_dir.display());
@@ -44,7 +59,8 @@ async fn dispatch_task(axum::extract::State(state): axum::extract::State<AgentSt
 }
 
 pub async fn run_agent_server(addr: SocketAddr, data_dir: PathBuf, core_api_base: String, agent_id: String, config_dir: Option<PathBuf>) -> Result<()> {
-    let state = AgentState { store: AgentStore::new(data_dir, config_dir)?, runner: AgentRunner::new(agent_id, core_api_base) };
+    let store = AgentStore::new(data_dir, config_dir, core_api_base.clone())?;
+    let state = AgentState { store, runner: AgentRunner::new(agent_id, core_api_base) };
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router(state)).await?;
     Ok(())
@@ -61,7 +77,15 @@ mod tests {
     #[tokio::test]
     async fn dispatch_task_persists_before_accepting() {
         let dir = tempdir().unwrap();
-        let state = AgentState { store: AgentStore::new(dir.path().join("agent_data"), None).unwrap(), runner: AgentRunner::new("agent_1".to_string(), "http://127.0.0.1:9/api".to_string()) };
+        // Create a minimal config dir so the handler skips HTTP download
+        let cfg_dir = dir.path().join("my_config");
+        std::fs::create_dir_all(cfg_dir.join("rules")).unwrap();
+        std::fs::write(cfg_dir.join("source.toml"), b"[source]").unwrap();
+
+        let state = AgentState {
+            store: AgentStore::new(dir.path().join("agent_data"), Some(cfg_dir), "http://127.0.0.1:18080/api".to_string()).unwrap(),
+            runner: AgentRunner::new("agent_1".to_string(), "http://127.0.0.1:18080/api".to_string()),
+        };
         let app = router(state);
         let body = serde_json::json!({
             "task_id": "task_1",
