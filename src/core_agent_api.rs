@@ -89,6 +89,12 @@ pub struct OnlineAgent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigUpdateRequest {
+    pub snapshot_id: String,
+    pub content_hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigSnapshotMeta {
     pub config_snapshot_id: String,
     pub content_hash: String,
