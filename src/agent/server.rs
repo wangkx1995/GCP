@@ -83,11 +83,19 @@ pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf,
     let runner = AgentRunner::new(agent_id.clone(), core_api_base.clone());
     let state = AgentState { store, runner: runner.clone() };
 
-    // Auto-register with Core
+    // Start HTTP server first, then register
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("[agent] listening on {addr}");
+    let serve_handle = tokio::spawn(async move {
+        axum::serve(listener, router(state)).await
+            .expect("axum serve failed");
+    });
+
+    // Now register with Core (server is already running)
     let register_url = format!("{}/agents/register", core_api_base.trim_end_matches("/api").trim_end_matches('/'));
     let register_req = AgentRegisterRequest {
         agent_id: Some(agent_id.clone()),
-        agent_name: agent_id.clone(),
+        agent_name: agent_id,
         host,
         port: addr.port(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -109,12 +117,10 @@ pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf,
                 tracing::warn!("[agent] Core registration returned {}", resp.status());
             }
         }
-        Err(e) => tracing::warn!("[agent] failed to register with Core (server may still start): {e}"),
+        Err(e) => tracing::warn!("[agent] failed to register with Core: {e} (server is running, will retry on next heartbeat)"),
     }
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!("[agent] listening on {addr}");
-    axum::serve(listener, router(state)).await?;
+    serve_handle.await.ok();
     Ok(())
 }
 
