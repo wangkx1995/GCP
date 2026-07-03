@@ -52,8 +52,16 @@ async fn register_agent(axum::extract::State(state): axum::extract::State<CoreSt
     Ok(Json(AgentRegisterResponse { agent_id, heartbeat_interval_seconds: 10, task_report_interval_seconds: 10 }))
 }
 
-async fn heartbeat() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"accepted": true}))
+async fn heartbeat(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Path(agent_id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tracing::debug!("[core] heartbeat agent_id={agent_id}");
+    state.db.lock().await.update_agent_heartbeat(&agent_id).map_err(|e| {
+        tracing::error!("[core] heartbeat DB error: {e:#}");
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+    })?;
+    Ok(Json(serde_json::json!({"accepted": true})))
 }
 
 async fn upload_config_snapshot(

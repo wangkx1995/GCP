@@ -107,6 +107,15 @@ impl CoreDb {
         Ok(agent_id)
     }
 
+    pub fn update_agent_heartbeat(&self, agent_id: &str) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        self.conn.execute(
+            "UPDATE agents SET status = 'ONLINE', last_heartbeat_at = ?2 WHERE agent_id = ?1",
+            rusqlite::params![agent_id, now],
+        )?;
+        Ok(())
+    }
+
     pub fn select_online_agent(&self) -> Result<(String, String, u16)> {
         // TODO: prefer agent with fewest running tasks instead of latest heartbeat
         // For v1, simple heartbeat-based selection is sufficient.

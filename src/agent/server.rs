@@ -6,7 +6,7 @@ use axum::{extract::State, routing::post, Json, Router};
 
 use crate::agent::runner::AgentRunner;
 use crate::agent::store::AgentStore;
-use crate::core_agent_api::{AgentCapabilities, AgentRegisterRequest, AgentRegisterResponse, ConfigUpdateRequest, TaskDispatchRequest, TaskDispatchResponse, TaskStatus};
+use crate::core_agent_api::{AgentCapabilities, AgentHeartbeatRequest, AgentRegisterRequest, AgentRegisterResponse, AgentStatus, ConfigUpdateRequest, TaskDispatchRequest, TaskDispatchResponse, TaskStatus};
 
 #[derive(Clone)]
 pub struct AgentState {
@@ -95,7 +95,7 @@ pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf,
     let register_url = format!("{}/agents/register", core_api_base.trim_end_matches("/api").trim_end_matches('/'));
     let register_req = AgentRegisterRequest {
         agent_id: Some(agent_id.clone()),
-        agent_name: agent_id,
+        agent_name: agent_id.clone(),
         host,
         port: addr.port(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -119,6 +119,32 @@ pub async fn run_agent_server(addr: SocketAddr, host: String, data_dir: PathBuf,
         }
         Err(e) => tracing::warn!("[agent] failed to register with Core: {e} (server is running, will retry on next heartbeat)"),
     }
+
+    // Periodic heartbeat: POST /api/agents/{agent_id}/heartbeat every 60s
+    let heartbeat_url = format!("{}/agents/{agent_id}/heartbeat",
+        core_api_base.trim_end_matches("/api").trim_end_matches('/'));
+    let heartbeat_runner = runner.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        // First heartbeat after 60s, not immediately
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            let heartbeat_payload = AgentHeartbeatRequest {
+                status: AgentStatus::Online,
+                running_task_ids: vec![],
+                disk_free_bytes: None,
+            };
+            match heartbeat_runner.http.post(&heartbeat_url).json(&heartbeat_payload).send().await {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        tracing::warn!("[agent] heartbeat returned {}", resp.status());
+                    }
+                }
+                Err(e) => tracing::warn!("[agent] heartbeat failed: {e}"),
+            }
+        }
+    });
 
     serve_handle.await.ok();
     Ok(())
