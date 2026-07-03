@@ -112,6 +112,20 @@ export interface GridQuery {
   interval_minutes?: number;
 }
 
+export type AgentStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+
+export interface AgentInfo {
+  agent_id: string;
+  agent_name: string;
+  host: string;
+  port: number;
+  version: string;
+  capabilities: AgentCapabilities;
+  status: AgentStatus;
+  registered_at: string;
+  last_heartbeat_at: string | null;
+}
+
 export interface ConfigUpdateRequest {
   snapshot_id: string;
   content_hash: string;

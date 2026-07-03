@@ -12,4 +12,8 @@ rules/
 logs/
 pm-admin/node_modules/
 pm-admin/dist/
+core.db
+test/core.db
+test/agent_data/config_snapshots/
+test/config_storage/
 

@@ -89,6 +89,19 @@ pub struct OnlineAgent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentInfo {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub host: String,
+    pub port: u16,
+    pub version: String,
+    pub capabilities: AgentCapabilities,
+    pub status: AgentStatus,
+    pub registered_at: String,
+    pub last_heartbeat_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigUpdateRequest {
     pub snapshot_id: String,
     pub content_hash: String,

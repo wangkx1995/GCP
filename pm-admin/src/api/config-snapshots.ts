@@ -5,8 +5,8 @@ export function listSnapshots() {
   return http.get<ConfigSnapshotMeta[]>('/config-snapshots').then(r => r.data);
 }
 
-export function getSnapshot(id: string) {
-  return http.get<ConfigSnapshotMeta>(`/config-snapshots/${id}`).then(r => r.data);
+export function getSnapshot(id: string): Promise<ConfigSnapshotMeta | null> {
+  return http.get<ConfigSnapshotMeta | null>(`/config-snapshots/${id}`).then(r => r.data);
 }
 
 export async function uploadSnapshot(file: File): Promise<UploadResponse> {

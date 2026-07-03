@@ -17,11 +17,22 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("info".parse().unwrap())
+                .add_directive("sqlx=info".parse().unwrap()),
+        )
         .init();
     let cli = Cli::parse();
-    let config_storage = wy_gnb_pm_parser::core::config_storage::ConfigStorage::new(cli.config_storage)?;
-    tracing::info!("[core] starting listen={} db={} config_storage={:?}", cli.listen, cli.db.display(), config_storage.versions_dir());
-    let result = wy_gnb_pm_parser::core::server::run_core_server(cli.listen, cli.db, config_storage).await;
+    let config_storage =
+        wy_gnb_pm_parser::core::config_storage::ConfigStorage::new(cli.config_storage)?;
+    tracing::info!(
+        "[core] starting listen={} db={} config_storage={:?}",
+        cli.listen,
+        cli.db.display(),
+        config_storage.versions_dir()
+    );
+    let result =
+        wy_gnb_pm_parser::core::server::run_core_server(cli.listen, cli.db, config_storage).await;
     result
 }

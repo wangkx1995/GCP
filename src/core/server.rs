@@ -7,27 +7,60 @@ use anyhow::Result;
 use axum::{
     body::Body,
     http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use tokio::sync::Mutex;
+use serde::Serialize;
+use tracing::info;
 
 use crate::core::config_storage::ConfigStorage;
 use crate::core::db::CoreDb;
 use crate::core_agent_api::{
-    AgentRegisterRequest, AgentRegisterResponse, ConfigSnapshotMeta, TaskDispatchRequest,
+    AgentRegisterRequest, AgentRegisterResponse, TaskDispatchRequest,
     TaskDispatchResponse, TaskResultReport,
 };
 
+#[derive(Serialize)]
+pub struct ApiResponse<T: Serialize> {
+    pub data: Option<T>,
+    pub status: u16,
+    pub message: String,
+}
+
+impl<T: Serialize> IntoResponse for ApiResponse<T> {
+    fn into_response(self) -> Response {
+        let code = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        (code, Json(&self)).into_response()
+    }
+}
+
+pub fn ok_response<T: Serialize>(data: T, message: impl Into<String>) -> ApiResponse<T> {
+    ApiResponse {
+        data: Some(data),
+        status: 200,
+        message: message.into(),
+    }
+}
+
+pub fn err_response(status: StatusCode, message: impl Into<String>) -> ApiResponse<()> {
+    ApiResponse {
+        data: None,
+        status: status.as_u16(),
+        message: message.into(),
+    }
+}
+
 #[derive(Clone)]
 pub struct CoreState {
-    pub db: Arc<Mutex<CoreDb>>,
+    pub db: CoreDb,
     pub http: reqwest::Client,
     pub storage: Arc<ConfigStorage>,
 }
 
 pub fn router(state: CoreState) -> Router {
     Router::new()
+        .route("/api/agents", get(list_agents))
         .route("/api/agents/register", post(register_agent))
         .route("/api/agents/:agent_id/heartbeat", post(heartbeat))
         .route("/api/config-snapshots/upload", post(upload_config_snapshot))
@@ -42,94 +75,133 @@ pub fn router(state: CoreState) -> Router {
         .with_state(state)
 }
 
-async fn register_agent(axum::extract::State(state): axum::extract::State<CoreState>, Json(request): Json<AgentRegisterRequest>) -> Result<Json<AgentRegisterResponse>, (StatusCode, String)> {
-    tracing::info!("[core] register_agent name={} host={}:{}", request.agent_name, request.host, request.port);
-    let agent_id = state.db.lock().await.register_agent(&request).map_err(|e| {
-        tracing::error!("[core] register_agent DB error: {e:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-    })?;
-    tracing::info!("[core] agent registered: {agent_id}");
-    Ok(Json(AgentRegisterResponse { agent_id, heartbeat_interval_seconds: 10, task_report_interval_seconds: 10 }))
+async fn list_agents(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+) -> Response {
+    match state.db.list_all_agents().await {
+        Ok(agents) => ok_response(agents, "获取 Agent 列表成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
+}
+
+async fn register_agent(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    Json(request): Json<AgentRegisterRequest>,
+) -> Response {
+    info!("[core] register_agent name={} host={}:{}", request.agent_name, request.host, request.port);
+    match state.db.register_agent(&request).await {
+        Ok(agent_id) => {
+            info!("[core] agent registered: {agent_id}");
+            ok_response(
+                AgentRegisterResponse {
+                    agent_id,
+                    heartbeat_interval_seconds: 10,
+                    task_report_interval_seconds: 10,
+                },
+                "Agent 注册成功",
+            )
+            .into_response()
+        }
+        Err(e) => {
+            err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response()
+        }
+    }
 }
 
 async fn heartbeat(
     axum::extract::State(state): axum::extract::State<CoreState>,
     axum::extract::Path(agent_id): axum::extract::Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tracing::info!("[core] heartbeat agent_id={agent_id}");
-    state.db.lock().await.update_agent_heartbeat(&agent_id).map_err(|e| {
-        tracing::error!("[core] heartbeat DB error: {e:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-    })?;
-    Ok(Json(serde_json::json!({"accepted": true})))
+) -> Response {
+    info!("[core] heartbeat agent_id={agent_id}");
+    match state.db.update_agent_heartbeat(&agent_id).await {
+        Ok(_) => ok_response(serde_json::json!({"accepted": true}), "心跳上报成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
 }
 
 async fn upload_config_snapshot(
     axum::extract::State(state): axum::extract::State<CoreState>,
     body: axum::body::Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Response {
     if body.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "empty request body".to_string()));
+        return err_response(StatusCode::BAD_REQUEST, "请求体为空").into_response();
     }
-
     let snapshot_id = format!("v_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"));
-    let result = state.storage.validate_and_unpack(&body, &snapshot_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("storage error: {e}")))?;
-
+    let result = match state.storage.validate_and_unpack(&body, &snapshot_id) {
+        Ok(r) => r,
+        Err(e) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("存储错误: {e}"))
+                .into_response()
+        }
+    };
     if !result.valid {
-        return Err((StatusCode::BAD_REQUEST, serde_json::json!({
-            "valid": false,
-            "errors": result.errors,
-            "config_snapshot_id": snapshot_id,
-        }).to_string()));
+        return err_response(
+            StatusCode::BAD_REQUEST,
+            format!("配置校验失败: {}", result.errors.join("; ")),
+        )
+        .into_response();
     }
-
-    state.db.lock().await.insert_config_snapshot_meta(&snapshot_id, &result.content_hash, &snapshot_id, result.file_count)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-
-    tracing::info!("[core] uploaded config snapshot {snapshot_id} ({} files, hash={})", result.file_count, result.content_hash);
-    Ok(Json(serde_json::json!({
-        "valid": true,
-        "config_snapshot_id": snapshot_id,
-        "content_hash": result.content_hash,
-        "file_count": result.file_count,
-    })))
+    if let Err(e) = state
+        .db
+        .insert_config_snapshot_meta(&snapshot_id, &result.content_hash, &snapshot_id, result.file_count)
+        .await
+    {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}"))
+            .into_response();
+    }
+    info!(
+        "[core] uploaded config snapshot {snapshot_id} ({} files, hash={})",
+        result.file_count, result.content_hash
+    );
+    ok_response(
+        serde_json::json!({
+            "valid": true,
+            "config_snapshot_id": snapshot_id,
+            "content_hash": result.content_hash,
+            "file_count": result.file_count,
+        }),
+        "配置上传成功",
+    )
+    .into_response()
 }
 
 async fn list_config_snapshots(
     axum::extract::State(state): axum::extract::State<CoreState>,
-) -> Result<Json<Vec<ConfigSnapshotMeta>>, (StatusCode, String)> {
-    let list = state.db.lock().await.list_config_snapshots()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-    Ok(Json(list))
+) -> Response {
+    match state.db.list_config_snapshots().await {
+        Ok(list) => ok_response(list, "获取配置列表成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
 }
 
 async fn get_config_snapshot_handler(
     axum::extract::State(state): axum::extract::State<CoreState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<ConfigSnapshotMeta>, (StatusCode, String)> {
-    let meta = state.db.lock().await.get_config_snapshot(&id)
-        .map_err(|e| {
-            let msg = format!("{e:#}");
-            if msg.contains("QueryReturnedNoRows") {
-                (StatusCode::NOT_FOUND, format!("snapshot {id} not found"))
-            } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-            }
-        })?;
-    Ok(Json(meta))
+) -> Response {
+    match state.db.get_config_snapshot(&id).await {
+        Ok(Some(meta)) => ok_response(meta, "获取配置详情成功").into_response(),
+        Ok(None) => ok_response(serde_json::Value::Null, format!("配置 {id} 不存在")).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
 }
 
 async fn activate_config_snapshot(
     axum::extract::State(state): axum::extract::State<CoreState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let _meta = state.db.lock().await.get_config_snapshot(&id)
-        .map_err(|_| (StatusCode::NOT_FOUND, format!("snapshot {id} not found")))?;
+) -> Response {
+    let _meta = match state.db.get_config_snapshot(&id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("配置 {id} 不存在")).into_response(),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    };
 
     let target = state.storage.version_dir(&id);
     if !target.exists() {
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("version dir {} missing", target.display())));
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("版本目录 {} 不存在", target.display()),
+        )
+        .into_response();
     }
 
     let active = state.storage.active_link();
@@ -137,25 +209,39 @@ async fn activate_config_snapshot(
     #[cfg(unix)]
     {
         let _ = std::fs::remove_file(&temp);
-        std::os::unix::fs::symlink(&target, &temp).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("symlink error: {e}")))?;
-        std::fs::rename(&temp, &active).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("rename error: {e}")))?;
+        if let Err(e) = std::os::unix::fs::symlink(&target, &temp) {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("符号链接错误: {e}"))
+                .into_response();
+        }
+        if let Err(e) = std::fs::rename(&temp, &active) {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("重命名错误: {e}"))
+                .into_response();
+        }
     }
     #[cfg(not(unix))]
     {
-        std::fs::write(&active, target.to_string_lossy().as_bytes())
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write error: {e}")))?;
+        if let Err(e) = std::fs::write(&active, target.to_string_lossy().as_bytes()) {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("写入错误: {e}"))
+                .into_response();
+        }
     }
 
-    let meta = state.db.lock().await.activate_config_snapshot(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let meta = match state.db.activate_config_snapshot(&id).await {
+        Ok(m) => m,
+        Err(e) => {
+            return err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB 错误: {e}"),
+            )
+            .into_response()
+        }
+    };
+    info!("[core] activated config snapshot {id}");
 
-    tracing::info!("[core] activated config snapshot {id}");
-
-    // Notify online agents
-    let agents = match state.db.lock().await.list_online_agents() {
+    let agents = match state.db.list_online_agents().await {
         Ok(a) => a,
         Err(e) => {
-            tracing::warn!("[core] failed to list online agents: {e}");
+            info!("[core] failed to list online agents: {e}");
             Vec::new()
         }
     };
@@ -175,28 +261,32 @@ async fn activate_config_snapshot(
             match http.post(&url).json(&body).timeout(Duration::from_secs(5)).send().await {
                 Ok(resp) => {
                     if resp.status().is_success() {
-                        tracing::info!("[core] notified agent {agent_id} of config {sid}");
+                        info!("[core] notified agent {agent_id} of config {sid}");
                     } else {
-                        tracing::warn!("[core] agent {agent_id} rejected config update: {}", resp.status());
+                        info!("[core] agent {agent_id} rejected config update: {}", resp.status());
                     }
                 }
-                Err(e) => tracing::warn!("[core] failed to notify agent {agent_id}: {e}"),
+                Err(e) => info!("[core] failed to notify agent {agent_id}: {e}"),
             }
         });
     }
 
-    Ok(Json(serde_json::json!({
-        "config_snapshot_id": id,
-        "active": true,
-        "content_hash": meta.content_hash,
-        "activated_at": meta.activated_at,
-    })))
+    ok_response(
+        serde_json::json!({
+            "config_snapshot_id": id,
+            "active": true,
+            "content_hash": meta.content_hash,
+            "activated_at": meta.activated_at,
+        }),
+        "配置已激活",
+    )
+    .into_response()
 }
 
 async fn download_config_snapshot(
     axum::extract::State(state): axum::extract::State<CoreState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<axum::response::Response, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     let vdir = state.storage.version_dir(&id);
     if !vdir.exists() {
         return Err((StatusCode::NOT_FOUND, format!("snapshot {id} not found on disk")));
@@ -221,76 +311,149 @@ struct GridQuery {
     interval_minutes: Option<u32>,
 }
 
-async fn result_grid(axum::extract::State(state): axum::extract::State<CoreState>, axum::extract::Query(query): axum::extract::Query<GridQuery>) -> Result<Json<crate::core::grid::DailyGrid>, (StatusCode, String)> {
-    tracing::info!("[core] result_grid strategy_id={} day={} interval={:?}", query.strategy_id, query.day, query.interval_minutes);
-    let rows = state.db.lock().await.result_rows_for_day(&query.strategy_id, &query.day).map_err(|e| {
-        tracing::error!("[core] result_grid DB error: {e:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-    })?;
-    tracing::info!("[core] result_grid found {} rows", rows.len());
-    // TODO: derive expected_tables from config snapshot rules when available
-    // Currently derived from result rows, which means tables with no data
-    // won't appear in the grid.
-    let expected_tables = rows.iter().map(|row| row.table_name.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-    Ok(Json(crate::core::grid::build_daily_grid(&query.day, query.interval_minutes.unwrap_or(15), &expected_tables, &rows)))
+async fn result_grid(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Query(query): axum::extract::Query<GridQuery>,
+) -> Response {
+    info!(
+        "[core] result_grid strategy_id={} day={} interval={:?}",
+        query.strategy_id, query.day, query.interval_minutes
+    );
+    match state.db.result_rows_for_day(&query.strategy_id, &query.day).await {
+        Ok(rows) => {
+            info!("[core] result_grid found {} rows", rows.len());
+            let expected_tables = rows
+                .iter()
+                .map(|row| row.table_name.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let grid = crate::core::grid::build_daily_grid(
+                &query.day,
+                query.interval_minutes.unwrap_or(15),
+                &expected_tables,
+                &rows,
+            );
+            ok_response(grid, "获取结果成功").into_response()
+        }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
 }
 
-async fn task_result(axum::extract::State(state): axum::extract::State<CoreState>, Json(report): Json<TaskResultReport>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tracing::info!("[core] task_result task_id={} agent_id={} status={:?} rows={}", report.task_id, report.agent_id, report.status, report.result_rows.len());
-    state.db.lock().await.accept_task_result(&report).map_err(|e| {
-        tracing::error!("[core] accept_task_result error: {e:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-    })?;
-    tracing::info!("[core] task_result accepted OK");
-    Ok(Json(serde_json::json!({"accepted": true})))
+async fn task_result(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    Json(report): Json<TaskResultReport>,
+) -> Response {
+    info!(
+        "[core] task_result task_id={} agent_id={} status={:?} rows={}",
+        report.task_id,
+        report.agent_id,
+        report.status,
+        report.result_rows.len()
+    );
+    match state.db.accept_task_result(&report).await {
+        Ok(_) => {
+            info!("[core] task_result accepted OK");
+            ok_response(serde_json::json!({"accepted": true}), "结果已接收").into_response()
+        }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
 }
 
 async fn dispatch_task(
     axum::extract::State(state): axum::extract::State<CoreState>,
     Json(request): Json<TaskDispatchRequest>,
-) -> Result<Json<TaskDispatchResponse>, (StatusCode, String)> {
+) -> Response {
     let task_id = request.task_id.clone();
-    tracing::info!("[core] dispatch_task task_id={task_id} strategy_id={}", request.strategy_id);
+    info!(
+        "[core] dispatch_task task_id={task_id} strategy_id={}",
+        request.strategy_id
+    );
 
-    let (agent_id, agent_host, agent_port) = state.db.lock().await.select_online_agent().map_err(|e| {
-        tracing::error!("[core] no online agent: {e:#}");
-        (StatusCode::SERVICE_UNAVAILABLE, format!("no online agent: {e}"))
-    })?;
-    tracing::info!("[core] selected agent {agent_id} at {agent_host}:{agent_port}");
+    let (agent_id, agent_host, agent_port) = match state.db.select_online_agent().await {
+        Ok(x) => x,
+        Err(e) => {
+            return err_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("没有可用的 Agent: {e}"),
+            )
+            .into_response()
+        }
+    };
+    info!("[core] selected agent {agent_id} at {agent_host}:{agent_port}");
 
-    state.db.lock().await.create_task(
-        &task_id, &request.logical_task_key, &request.strategy_id,
-        &request.config_snapshot_id, &request.scan_start_time,
-        &request.collect_id, &agent_id,
-    ).map_err(|e| {
-        tracing::error!("[core] create_task DB error: {e:#}");
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-    })?;
+    if let Err(e) = state
+        .db
+        .create_task(
+            &task_id,
+            &request.logical_task_key,
+            &request.strategy_id,
+            &request.config_snapshot_id,
+            &request.scan_start_time,
+            &request.collect_id,
+            &agent_id,
+        )
+        .await
+    {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}"))
+            .into_response();
+    }
 
     let agent_url = format!("http://{agent_host}:{agent_port}/api/tasks");
-    tracing::info!("[core] forwarding task to Agent: {agent_url}");
-    let resp = state.http.post(&agent_url).json(&request).send().await.map_err(|e| {
-        tracing::error!("[core] forward to Agent failed: {e:#}");
-        (StatusCode::BAD_GATEWAY, format!("Agent unreachable: {e}"))
-    })?;
-    let agent_resp: TaskDispatchResponse = resp.json().await.map_err(|e| {
-        tracing::error!("[core] Agent response parse failed: {e:#}");
-        (StatusCode::BAD_GATEWAY, format!("Agent response error: {e}"))
-    })?;
+    info!("[core] forwarding task to Agent: {agent_url}");
+    let agent_resp = match state.http.post(&agent_url).json(&request).send().await {
+        Ok(resp) => match resp.json::<TaskDispatchResponse>().await {
+            Ok(r) => r,
+            Err(e) => {
+                return err_response(
+                    StatusCode::BAD_GATEWAY,
+                    format!("Agent 响应解析错误: {e}"),
+                )
+                .into_response()
+            }
+        },
+        Err(e) => {
+            return err_response(
+                StatusCode::BAD_GATEWAY,
+                format!("Agent 不可达: {e}"),
+            )
+            .into_response()
+        }
+    };
 
     if !agent_resp.accepted {
-        tracing::warn!("[core] Agent rejected task {task_id}: {:?}", agent_resp.reason);
+        info!("[core] Agent rejected task {task_id}: {:?}", agent_resp.reason);
     }
-    tracing::info!("[core] dispatch_task done: accepted={}", agent_resp.accepted);
-    Ok(Json(agent_resp))
+    info!("[core] dispatch_task done: accepted={}", agent_resp.accepted);
+    ok_response(agent_resp, "任务分发成功").into_response()
 }
 
 pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
     let state = CoreState {
-        db: Arc::new(Mutex::new(CoreDb::open(db_path)?)),
+        db: CoreDb::open(db_path).await?,
         http: reqwest::Client::new(),
         storage: Arc::new(storage),
     };
+
+    // Background task: mark agents offline if no heartbeat for 180s
+    let cleanup_db = state.db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        // Start after first 60s
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            match cleanup_db.mark_stale_agents_offline(180).await {
+                Ok(n) => {
+                    if n > 0 {
+                        tracing::info!("[core] marked {n} stale agent(s) offline");
+                    }
+                }
+                Err(e) => tracing::error!("[core] cleanup stale agents failed: {e}"),
+            }
+        }
+    });
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router(state)).await?;
     Ok(())
@@ -301,15 +464,15 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use tower::ServiceExt;
     use tempfile::tempdir;
+    use tower::ServiceExt;
 
     #[tokio::test]
     async fn register_agent_endpoint_returns_agent_id() {
         let dir = tempdir().unwrap();
         let storage = ConfigStorage::new(dir.path().join("config_storage")).unwrap();
         let state = CoreState {
-            db: Arc::new(Mutex::new(CoreDb::open(dir.path().join("core.db")).unwrap())),
+            db: CoreDb::open(dir.path().join("core.db")).await.unwrap(),
             http: reqwest::Client::new(),
             storage: Arc::new(storage),
         };
@@ -322,7 +485,22 @@ mod tests {
             "version": "1.0.0",
             "capabilities": {"can_collect": true, "can_parse": true, "can_load": false, "supported_protocols": ["ftp"]}
         });
-        let response = app.oneshot(Request::builder().method("POST").uri("/api/agents/register").header("content-type", "application/json").body(Body::from(body.to_string())).unwrap()).await.unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/agents/register")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Should return 200 with ApiResponse wrapper containing data.agent_id
         assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["status"], 200);
+        assert!(json["data"]["agent_id"].as_str().unwrap().starts_with("agent_"));
     }
 }
