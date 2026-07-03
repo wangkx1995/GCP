@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 *,
 *::before,
@@ -15,15 +15,15 @@ html {
 }
 
 body {
-  font-family: 'Fira Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #F8FAFC;
-  background: #020617;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #0F172A;
+  background: #F1F5F9;
 }
 
 code,
 .hash-value,
 .mono {
-  font-family: 'Fira Code', 'SF Mono', Monaco, monospace;
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
   font-size: 0.9em;
 }
 
@@ -34,7 +34,7 @@ code,
   display: flex;
   align-items: center;
   padding: 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid #F1F5F9;
   gap: 10px;
 }
 
@@ -46,19 +46,18 @@ code,
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Fira Code', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
-  color: #020617;
+  color: #FFFFFF;
   font-weight: 700;
   flex-shrink: 0;
 }
 
 .sidebar-logo-text {
-  font-family: 'Fira Sans', sans-serif;
   font-weight: 600;
   font-size: 15px;
-  color: #F8FAFC;
-  letter-spacing: 0.02em;
+  color: #0F172A;
+  letter-spacing: -0.01em;
 }
 
 /* Menu item accent bar */
@@ -97,11 +96,11 @@ code,
 }
 
 .page-header h2 {
-  font-family: 'Fira Sans', sans-serif;
   font-weight: 600;
   font-size: 22px;
-  color: #F8FAFC;
+  color: #0F172A;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .page-header p {
@@ -113,10 +112,10 @@ code,
 /* ─── Card ─── */
 
 .content-card {
-  border: 1px solid #1E293B;
+  border: 1px solid #E2E8F0;
   border-radius: 10px;
-  background: #0F172A;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 /* ─── Table ─── */
@@ -127,12 +126,12 @@ code,
   font-size: 11px;
   letter-spacing: 0.06em;
   padding: 14px 16px;
-  border-bottom: 1px solid #1E293B;
+  border-bottom: 1px solid #F1F5F9;
 }
 
 .data-table .ant-table-tbody > tr > td {
   padding: 14px 16px;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+  border-bottom: 1px solid #F1F5F9;
 }
 
 /* ─── Status dot ─── */
@@ -155,7 +154,7 @@ code,
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  font-family: 'Fira Code', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -164,7 +163,7 @@ code,
 
 .grid-cell:hover {
   transform: scale(1.08);
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 1;
 }
 
@@ -179,7 +178,7 @@ code,
 /* ─── Form ─── */
 
 .ant-form-item-label > label {
-  color: #94A3B8 !important;
+  color: #64748B !important;
   font-weight: 500;
 }
 
@@ -201,10 +200,10 @@ code,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #CBD5E1;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #94A3B8;
 }

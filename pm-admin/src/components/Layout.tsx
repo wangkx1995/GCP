@@ -21,12 +21,13 @@ export default function Layout() {
   const location = useLocation();
 
   return (
-    <AntLayout style={{ minHeight: '100vh', background: '#020617' }}>
+    <AntLayout style={{ minHeight: '100vh', background: '#F1F5F9' }}>
       <Sider
         width={220}
+        theme="light"
         style={{
-          background: '#0F172A',
-          borderRight: '1px solid rgba(255,255,255,0.06)',
+          background: '#FFFFFF',
+          borderRight: '1px solid #E2E8F0',
         }}
       >
         <div className="sidebar-logo">
@@ -34,7 +35,7 @@ export default function Layout() {
           <span className="sidebar-logo-text">PM Admin</span>
         </div>
         <Menu
-          theme="dark"
+          theme="light"
           mode="inline"
           selectedKeys={[location.pathname]}
           items={menuItems}
@@ -46,7 +47,7 @@ export default function Layout() {
           }}
         />
       </Sider>
-      <Content style={{ padding: 32, background: '#020617' }}>
+      <Content style={{ padding: 32, background: '#F1F5F9' }}>
         <Outlet />
       </Content>
     </AntLayout>
