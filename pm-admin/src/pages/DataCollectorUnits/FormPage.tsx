@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Form, Input, InputNumber, Select, Button, message, Divider, Collapse } from 'antd';
+import { Card, Form, Input, InputNumber, Select, Button, message, Divider, Collapse, Spin } from 'antd';
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import {
   useDataCollectorUnits,
@@ -9,7 +9,6 @@ import {
   useConfigNames,
   useTablesForConfig,
 } from '../../api/hooks';
-import { nextUnitId } from '../../api/data-collector-units';
 import type { DataCollectorUnitSaveRequest } from '../../types/api';
 
 function tryParseJson(val: string, fallback: string[]) {
@@ -44,15 +43,23 @@ export default function DataCollectorUnitFormPage() {
 
   const selectedUnit = editId ? units?.find(u => u.id === editId) : null;
 
+  const [idLoading, setIdLoading] = useState(false);
+
   const idInitRef = useRef(false);
 
   if (isNew && !idInitRef.current) {
     idInitRef.current = true;
-    nextUnitId().then(result => {
-      form.setFieldsValue({ id: result.id, collector_interval: 900, data_interval_seconds: 900 });
-    }).catch(err => {
-      message.error('获取ID失败: ' + err.message);
-    });
+    setIdLoading(true);
+    fetch('/api/data-collector-units/next-id', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        const id = data?.data?.id;
+        if (id) {
+          form.setFieldsValue({ id, collector_interval: 900, data_interval_seconds: 900 });
+        }
+      })
+      .catch(() => message.error('获取ID失败'))
+      .finally(() => setIdLoading(false));
   }
 
   useEffect(() => {
@@ -119,7 +126,7 @@ return (
       }}>
         <div>
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
-          <h2 style={{ display: 'inline' }}>{isNew || !editId || isNaN(editId) ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`}</h2>
+          <h2 style={{ display: 'inline' }}>{idLoading ? '加载中...' : (isNew || !editId || isNaN(editId) ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`)}</h2>
         </div>
         <div>
           <Button onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }}>取消</Button>
@@ -128,7 +135,8 @@ return (
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        <Card className="content-card">
+        <Spin spinning={idLoading} tip="正在获取ID...">
+          <Card className="content-card">
           <Form form={form} layout="vertical" initialValues={{ collector_interval: 900, data_interval_seconds: 900 }}>
             <Form.Item name="id" hidden><InputNumber /></Form.Item>
 
@@ -197,6 +205,7 @@ return (
             />
           </Form>
         </Card>
+        </Spin>
       </div>
     </div>
   );
