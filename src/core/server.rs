@@ -8,7 +8,7 @@ use axum::{
     body::Body,
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::Serialize;
@@ -17,8 +17,9 @@ use tracing::info;
 use crate::core::config_storage::ConfigStorage;
 use crate::core::db::CoreDb;
 use crate::core_agent_api::{
-    AgentRegisterRequest, AgentRegisterResponse, TaskDispatchRequest,
-    TaskDispatchResponse, TaskResultReport,
+    AgentRegisterRequest, AgentRegisterResponse, ConfigNamesResponse,
+    DataCollectorUnitSaveRequest, NextIdResponse,
+    TablesResponse, TaskDispatchRequest, TaskDispatchResponse, TaskResultReport,
 };
 
 #[derive(Serialize)]
@@ -72,6 +73,12 @@ pub fn router(state: CoreState) -> Router {
         .route("/api/tasks/:task_id/result", post(task_result))
         .route("/api/tasks/dispatch", post(dispatch_task))
         .route("/api/results/grid", get(result_grid))
+        .route("/api/data-collector-units/next-id", post(next_unit_id))
+        .route("/api/data-collector-units", get(list_data_collector_units))
+        .route("/api/data-collector-units/:id", put(upsert_data_collector_unit))
+        .route("/api/data-collector-units/:id", delete(delete_data_collector_unit_handler))
+        .route("/api/data-collector-units/config-names", get(search_config_names))
+        .route("/api/data-collector-units/tables", get(tables_for_config_handler))
         .with_state(state)
 }
 
@@ -433,6 +440,83 @@ async fn dispatch_task(
     }
     info!("[core] dispatch_task done: accepted={}", agent_resp.accepted);
     ok_response(agent_resp, "任务分发成功").into_response()
+}
+
+async fn next_unit_id(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+) -> Response {
+    match state.db.next_unit_id().await {
+        Ok(id) => ok_response(NextIdResponse { id }, "获取 ID 成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
+}
+
+async fn list_data_collector_units(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+) -> Response {
+    match state.db.list_data_collector_units().await {
+        Ok(list) => ok_response(list, "获取采集单元列表成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
+}
+
+async fn upsert_data_collector_unit(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    Json(data): Json<DataCollectorUnitSaveRequest>,
+) -> Response {
+    match state.db.upsert_data_collector_unit(id, &data).await {
+        Ok(_) => ok_response(serde_json::json!({"id": id}), "保存成功").into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") || msg.contains("invalid") {
+                err_response(StatusCode::BAD_REQUEST, msg).into_response()
+            } else {
+                err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response()
+            }
+        }
+    }
+}
+
+async fn delete_data_collector_unit_handler(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Response {
+    match state.db.delete_data_collector_unit(id).await {
+        Ok(true) => ok_response(serde_json::json!({"deleted": true}), "删除成功").into_response(),
+        Ok(false) => err_response(StatusCode::NOT_FOUND, format!("采集单元 {id} 不存在")).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct SearchQuery {
+    search: Option<String>,
+}
+
+async fn search_config_names(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Query(query): axum::extract::Query<SearchQuery>,
+) -> Response {
+    match state.db.search_active_config_names(query.search.as_deref()).await {
+        Ok(names) => ok_response(ConfigNamesResponse { config_names: names }, "获取配置名称列表成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ConfigNameQuery {
+    config_name: String,
+}
+
+async fn tables_for_config_handler(
+    axum::extract::State(state): axum::extract::State<CoreState>,
+    axum::extract::Query(query): axum::extract::Query<ConfigNameQuery>,
+) -> Response {
+    match state.db.tables_for_config(&query.config_name).await {
+        Ok(tables) => ok_response(TablesResponse { tables }, "获取表名列表成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
 }
 
 pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
