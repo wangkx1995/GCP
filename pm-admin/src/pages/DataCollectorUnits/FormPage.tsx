@@ -20,7 +20,7 @@ export default function DataCollectorUnitFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = id === 'new';
-  const editId = isNew ? null : Number(id);
+  const editId = isNew ? null : (id ? Number(id) : null);
 
   const { data: units } = useDataCollectorUnits();
   const { data: agents } = useAgents();
@@ -117,7 +117,7 @@ return (
       }}>
         <div>
           <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
-          <h2 style={{ display: 'inline' }}>{isNew ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`}</h2>
+          <h2 style={{ display: 'inline' }}>{isNew || !editId || isNaN(editId) ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`}</h2>
         </div>
         <div>
           <Button onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }}>取消</Button>

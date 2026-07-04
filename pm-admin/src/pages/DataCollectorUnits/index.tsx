@@ -47,7 +47,7 @@ export default function DataCollectorUnitsPage() {
   return (
     <div>
       <div className="page-header">
-        <h2>采集单元配置</h2>
+        <h2>采集单元管理</h2>
         <p>管理采集单元，绑定适配器、采集机、数据源和调度配置</p>
       </div>
 
