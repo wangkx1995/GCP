@@ -28,7 +28,7 @@ export default function AgentConfigPage() {
 
   const selectedUnit = units?.find(u => u.id === selectedId);
 
-  const [configSearch, setConfigSearch] = useState<string>();
+  const [configSearch, setConfigSearch] = useState<string>('');
   const { data: configNamesData } = useConfigNames(configSearch);
   const configNames = configNamesData?.config_names ?? [];
 
@@ -60,41 +60,49 @@ export default function AgentConfigPage() {
   }, [nextIdMutation, form]);
 
   const handleSave = useCallback(async () => {
-    const values = await form.validateFields();
-    const id = values.id;
-    const saveData: DataCollectorUnitSaveRequest = {
-      unit_name: values.unit_name,
-      config_name: values.config_name,
-      table_names: JSON.stringify(values.table_names || []),
-      agent_ids: JSON.stringify(values.agent_ids || []),
-      data_interval_seconds: values.data_interval_seconds,
-      collector_interval: values.collector_interval,
-      task_timeout_seconds: values.task_timeout_seconds,
-      source_type: values.source_type,
-      file_encoding: values.file_encoding,
-      remote_pattern: values.remote_pattern,
-      host: values.host,
-      port: values.port,
-      username: values.username,
-      password: values.password,
-      connect_retry: values.connect_retry,
-      download_retry: values.download_retry,
-      download_parallel: values.download_parallel,
-      retry_interval_secs: values.retry_interval_secs,
-      connect_timeout_secs: values.connect_timeout_secs,
-      read_timeout_secs: values.read_timeout_secs,
-      cache_retention_days: values.cache_retention_days,
-    };
-    await saveMutation.mutateAsync({ id, data: saveData });
-    message.success('保存成功');
-    setEditing(false);
+    try {
+      const values = await form.validateFields();
+      const id = values.id;
+      const saveData: DataCollectorUnitSaveRequest = {
+        unit_name: values.unit_name,
+        config_name: values.config_name,
+        table_names: JSON.stringify(values.table_names || []),
+        agent_ids: JSON.stringify(values.agent_ids || []),
+        data_interval_seconds: values.data_interval_seconds,
+        collector_interval: values.collector_interval,
+        task_timeout_seconds: values.task_timeout_seconds,
+        source_type: values.source_type,
+        file_encoding: values.file_encoding,
+        remote_pattern: values.remote_pattern,
+        host: values.host,
+        port: values.port,
+        username: values.username,
+        password: values.password,
+        connect_retry: values.connect_retry,
+        download_retry: values.download_retry,
+        download_parallel: values.download_parallel,
+        retry_interval_secs: values.retry_interval_secs,
+        connect_timeout_secs: values.connect_timeout_secs,
+        read_timeout_secs: values.read_timeout_secs,
+        cache_retention_days: values.cache_retention_days,
+      };
+      await saveMutation.mutateAsync({ id, data: saveData });
+      message.success('保存成功');
+      setEditing(false);
+    } catch (e: unknown) {
+      if (e instanceof Error) message.error(e.message);
+    }
   }, [form, saveMutation]);
 
   const handleDelete = useCallback(async (id: number) => {
-    await deleteMutation.mutateAsync(id);
-    message.success('删除成功');
-    if (selectedId === id) {
-      setSelectedId(null);
+    try {
+      await deleteMutation.mutateAsync(id);
+      message.success('删除成功');
+      if (selectedId === id) {
+        setSelectedId(null);
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error) message.error(e.message);
     }
   }, [deleteMutation, selectedId]);
 
@@ -173,7 +181,7 @@ export default function AgentConfigPage() {
               disabled={!editing && !!selectedUnit}
               initialValues={{ collector_interval: 900, data_interval_seconds: 900 }}
             >
-              <Form.Item name="id" hidden><Input /></Form.Item>
+              <Form.Item name="id" hidden><InputNumber /></Form.Item>
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item name="unit_name" label="单元名称" rules={[{ required: true }]}>
