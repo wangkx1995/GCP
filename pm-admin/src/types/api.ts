@@ -202,3 +202,50 @@ export interface ConfigNamesResponse {
 export interface TablesResponse {
   tables: string[];
 }
+
+export interface CollectionStrategy {
+  id: number;
+  collector_name: string;
+  collector_id: number;
+  table_name: string;
+  status: string;
+  cron_expression: string;
+  collect_interval: number;
+  data_interval: number;
+  data_start_time: string | null;
+  data_end_time: string | null;
+  execute_time: string | null;
+  agent_ids: string[];
+  strategy_type: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CollectionStrategyCreateRequest {
+  collector_id: number;
+  collector_name: string;
+  table_names: string[];
+  cron_expression?: string;
+  collect_interval: number;
+  data_interval: number;
+  data_start_time?: string;
+  data_end_time?: string;
+  execute_time?: string;
+  agent_ids: string;
+  strategy_type: string;
+}
+
+export interface CollectionStrategyUpdateRequest {
+  cron_expression?: string;
+  collect_interval?: number;
+  data_interval?: number;
+  data_start_time?: string;
+  data_end_time?: string;
+  execute_time?: string;
+  agent_ids?: string;
+  status?: string;
+}
+
+export interface BatchStatusRequest {
+  ids: number[];
+}

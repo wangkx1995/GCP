@@ -127,4 +127,57 @@ export function useTablesForConfig(configName: string | undefined) {
   });
 }
 
+import { strategyApi } from './strategies';
+import type {
+  CollectionStrategyCreateRequest,
+  CollectionStrategyUpdateRequest,
+} from '../types/api';
+
+export const useStrategies = (params?: { collector_name?: string; type?: string; status?: string }) =>
+  useQuery({
+    queryKey: ['strategies', params],
+    queryFn: () => strategyApi.list(params),
+    refetchInterval: 30_000,
+  });
+
+export const useStrategy = (id: number | null) =>
+  useQuery({
+    queryKey: ['strategy', id],
+    queryFn: () => strategyApi.get(id!),
+    enabled: id !== null,
+  });
+
+export const useCreateStrategies = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CollectionStrategyCreateRequest) => strategyApi.create(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['strategies'] }); },
+  });
+};
+
+export const useUpdateStrategy = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: CollectionStrategyUpdateRequest }) =>
+      strategyApi.update(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['strategies'] }); },
+  });
+};
+
+export const useBatchSuspend = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => strategyApi.batchSuspend(ids),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['strategies'] }); },
+  });
+};
+
+export const useBatchActivate = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => strategyApi.batchActivate(ids),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['strategies'] }); },
+  });
+};
+
 
