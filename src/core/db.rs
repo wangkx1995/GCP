@@ -176,6 +176,23 @@ impl CoreDb {
         )
         .execute(&self.pool)
         .await?;
+        // ── Auto-dispatch columns ──
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN load_type TEXT NOT NULL DEFAULT 'clickhouse'")
+            .execute(&self.pool).await.ok();
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN output_delimiter TEXT NOT NULL DEFAULT '|'")
+            .execute(&self.pool).await.ok();
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN db_host TEXT NOT NULL DEFAULT ''")
+            .execute(&self.pool).await.ok();
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN db_port INTEGER NOT NULL DEFAULT 9000")
+            .execute(&self.pool).await.ok();
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN db_user TEXT NOT NULL DEFAULT ''")
+            .execute(&self.pool).await.ok();
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN db_password TEXT NOT NULL DEFAULT ''")
+            .execute(&self.pool).await.ok();
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN db_database TEXT NOT NULL DEFAULT ''")
+            .execute(&self.pool).await.ok();
+        sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN db_table_name_case TEXT NOT NULL DEFAULT 'lower'")
+            .execute(&self.pool).await.ok();
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS collection_strategy (
@@ -830,6 +847,8 @@ impl CoreDb {
              source_type, file_encoding, remote_pattern, host, port, username, password, \
              connect_retry, download_retry, download_parallel, retry_interval_secs, \
              connect_timeout_secs, read_timeout_secs, cache_retention_days, \
+             load_type, output_delimiter, db_host, db_port, db_user, db_password, \
+             db_database, db_table_name_case, \
              created_at, updated_at \
              FROM data_collector_unit ORDER BY id DESC",
         )
@@ -840,6 +859,16 @@ impl CoreDb {
             r
         }).collect();
         Ok(rows)
+    }
+
+    pub async fn get_unit_by_id(&self, id: i64) -> Result<Option<DataCollectorUnitRow>> {
+        let row = sqlx::query_as::<_, DataCollectorUnitRow>(
+            "SELECT id, unit_name, config_name, config_version, table_names, agent_ids, data_interval_seconds, collector_interval, task_timeout_seconds, source_type, file_encoding, remote_pattern, host, port, username, password, connect_retry, download_retry, download_parallel, retry_interval_secs, connect_timeout_secs, read_timeout_secs, cache_retention_days, load_type, output_delimiter, db_host, db_port, db_user, db_password, db_database, db_table_name_case, created_at, updated_at FROM data_collector_unit WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     pub async fn upsert_data_collector_unit(
@@ -916,8 +945,10 @@ impl CoreDb {
                 source_type, file_encoding, remote_pattern, host, port, username, password,
                 connect_retry, download_retry, download_parallel, retry_interval_secs,
                 connect_timeout_secs, read_timeout_secs, cache_retention_days,
+                load_type, output_delimiter, db_host, db_port, db_user, db_password,
+                db_database, db_table_name_case,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(id)
@@ -943,6 +974,14 @@ impl CoreDb {
         .bind(data.connect_timeout_secs.unwrap_or(30))
         .bind(data.read_timeout_secs.unwrap_or(300))
         .bind(data.cache_retention_days.unwrap_or(7))
+        .bind(data.load_type.as_deref().unwrap_or("clickhouse"))
+        .bind(data.output_delimiter.as_deref().unwrap_or("|"))
+        .bind(data.db_host.as_deref().unwrap_or(""))
+        .bind(data.db_port.unwrap_or(9000))
+        .bind(data.db_user.as_deref().unwrap_or(""))
+        .bind(data.db_password.as_deref().unwrap_or(""))
+        .bind(data.db_database.as_deref().unwrap_or(""))
+        .bind(data.db_table_name_case.as_deref().unwrap_or("lower"))
         .bind(&created_at)
         .bind(&now)
         .execute(&self.pool)
@@ -1176,6 +1215,14 @@ mod tests {
             connect_timeout_secs: Some(30),
             read_timeout_secs: Some(300),
             cache_retention_days: Some(7),
+            load_type: None,
+            output_delimiter: None,
+            db_host: None,
+            db_port: None,
+            db_user: None,
+            db_password: None,
+            db_database: None,
+            db_table_name_case: None,
         };
         let result = db.upsert_data_collector_unit(1, &save).await;
         assert!(result.is_err());
@@ -1266,6 +1313,14 @@ mod tests {
             connect_timeout_secs: Some(30),
             read_timeout_secs: Some(300),
             cache_retention_days: Some(7),
+            load_type: None,
+            output_delimiter: None,
+            db_host: None,
+            db_port: None,
+            db_user: None,
+            db_password: None,
+            db_database: None,
+            db_table_name_case: None,
         };
         db.upsert_data_collector_unit(1, &save).await.unwrap();
 

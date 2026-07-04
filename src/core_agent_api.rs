@@ -144,6 +144,14 @@ pub struct DataCollectorUnitRow {
     pub connect_timeout_secs: i64,
     pub read_timeout_secs: i64,
     pub cache_retention_days: i64,
+    pub load_type: String,
+    pub output_delimiter: String,
+    pub db_host: String,
+    pub db_port: i64,
+    pub db_user: String,
+    pub db_password: String,
+    pub db_database: String,
+    pub db_table_name_case: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -171,6 +179,14 @@ pub struct DataCollectorUnitSaveRequest {
     pub connect_timeout_secs: Option<i64>,
     pub read_timeout_secs: Option<i64>,
     pub cache_retention_days: Option<i64>,
+    pub load_type: Option<String>,
+    pub output_delimiter: Option<String>,
+    pub db_host: Option<String>,
+    pub db_port: Option<i64>,
+    pub db_user: Option<String>,
+    pub db_password: Option<String>,
+    pub db_database: Option<String>,
+    pub db_table_name_case: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -271,6 +287,27 @@ pub struct TaskDispatchRequest {
     pub output_delimiter: String,
     pub timeout_seconds: u64,
     pub callback_base_url: String,
+    // Source connection (was source.toml)
+    pub source_type: String,
+    pub remote_pattern: String,
+    pub source_host: String,
+    pub source_port: u16,
+    pub source_username: String,
+    pub source_password: String,
+    pub source_connect_retry: u64,
+    pub source_download_retry: u64,
+    pub source_download_parallel: u64,
+    pub source_retry_interval_secs: u64,
+    pub source_connect_timeout_secs: u64,
+    pub source_read_timeout_secs: u64,
+    pub source_cache_retention_days: u64,
+    // DB connection (was load.toml)
+    pub db_host: String,
+    pub db_port: u16,
+    pub db_user: String,
+    pub db_password: String,
+    pub db_database: String,
+    pub db_table_name_case: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

@@ -63,6 +63,7 @@ pub struct CoreState {
     pub db: CoreDb,
     pub http: reqwest::Client,
     pub storage: Arc<ConfigStorage>,
+    pub callback_base_url: String,
 }
 
 pub fn router(state: CoreState) -> Router {
@@ -620,10 +621,12 @@ async fn batch_activate(
 }
 
 pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
+    let callback_base_url = format!("http://{addr}/api");
     let state = CoreState {
         db: CoreDb::open(db_path).await?,
         http: reqwest::Client::new(),
         storage: Arc::new(storage),
+        callback_base_url,
     };
 
     // Background task: mark agents offline if no heartbeat for 180s
@@ -666,6 +669,7 @@ mod tests {
             db: CoreDb::open(dir.path().join("core.db")).await.unwrap(),
             http: reqwest::Client::new(),
             storage: Arc::new(storage),
+            callback_base_url: "http://127.0.0.1:8080/api".to_string(),
         };
         let app = router(state);
         let body = serde_json::json!({

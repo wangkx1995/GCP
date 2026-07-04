@@ -182,7 +182,26 @@ mod tests {
             "encoding": "UTF-8",
             "output_delimiter": "|",
             "timeout_seconds": 1800,
-            "callback_base_url": "http://127.0.0.1:18080/api"
+            "callback_base_url": "http://127.0.0.1:18080/api",
+            "source_type": "sftp",
+            "remote_pattern": "/path",
+            "source_host": "host",
+            "source_port": 22,
+            "source_username": "user",
+            "source_password": "pass",
+            "source_connect_retry": 3,
+            "source_download_retry": 3,
+            "source_download_parallel": 4,
+            "source_retry_interval_secs": 30,
+            "source_connect_timeout_secs": 30,
+            "source_read_timeout_secs": 300,
+            "source_cache_retention_days": 7,
+            "db_host": "",
+            "db_port": 9000,
+            "db_user": "",
+            "db_password": "",
+            "db_database": "",
+            "db_table_name_case": "lower"
         });
         let response = app.oneshot(Request::builder().method("POST").uri("/api/tasks").header("content-type", "application/json").body(Body::from(body.to_string())).unwrap()).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
