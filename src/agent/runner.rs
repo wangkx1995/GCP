@@ -6,7 +6,7 @@ use remote_file_source::config::{ConnectionConfig, SourceConfig, SourceKind, Sou
 use crate::agent::result_csv::read_result_rows;
 use crate::agent::store::AgentStore;
 use crate::core_agent_api::{TaskDispatchRequest, TaskResultReport, TaskStatus};
-use crate::load_config::{ClickHouseConfig, LoadConfig, PostgresConfig};
+use crate::load_config::LoadConfig;
 use crate::parse_job::{run_parse_job, ParseJobOptions};
 use crate::LoadType;
 
@@ -63,46 +63,19 @@ impl AgentRunner {
             },
         };
 
-        let load_config = match load_type {
-            LoadType::Clickhouse => LoadConfig {
-                clickhouse: ClickHouseConfig {
-                    client: "clickhouse-client".to_string(),
-                    host: task.db_host.clone(),
-                    port: task.db_port,
-                    user: task.db_user.clone(),
-                    password: task.db_password.clone(),
-                    database: task.db_database.clone(),
-                    table_name_case: task.db_table_name_case.clone(),
-                },
-                postgresql: PostgresConfig {
-                    client: "psql".to_string(),
-                    host: String::new(),
-                    port: 5432,
-                    user: String::new(),
-                    password: String::new(),
-                    database: String::new(),
-                },
-            },
-            LoadType::Postgresql => LoadConfig {
-                clickhouse: ClickHouseConfig {
-                    client: "clickhouse-client".to_string(),
-                    host: String::new(),
-                    port: 9000,
-                    user: String::new(),
-                    password: String::new(),
-                    database: String::new(),
-                    table_name_case: "lower".to_string(),
-                },
-                postgresql: PostgresConfig {
-                    client: "psql".to_string(),
-                    host: task.db_host.clone(),
-                    port: task.db_port,
-                    user: task.db_user.clone(),
-                    password: task.db_password.clone(),
-                    database: task.db_database.clone(),
-                },
-            },
+        let load_type_str = match load_type {
+            LoadType::Clickhouse => "clickhouse",
+            LoadType::Postgresql => "postgresql",
         };
+        let load_config = LoadConfig::new(
+            load_type_str,
+            &task.db_host,
+            task.db_port,
+            &task.db_user,
+            &task.db_password,
+            &task.db_database,
+            &task.db_table_name_case,
+        );
 
         let opts = ParseJobOptions {
             input: None,
