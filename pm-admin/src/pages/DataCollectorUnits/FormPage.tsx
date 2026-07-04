@@ -51,26 +51,13 @@ export default function DataCollectorUnitFormPage() {
   if (isNew && !idInitRef.current) {
     idInitRef.current = true;
     setIdLoading(true);
-    fetch('/api/data-collector-units/next-id', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    })
-      .then(r => {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
+    fetch('/api/data-collector-units/next-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then(r => r.json())
       .then(data => {
-        console.log('nextUnitId response:', data);
         const id = data?.data?.id;
-        if (id) {
-          form.setFieldsValue({ id, collector_interval: 900, data_interval_seconds: 900 });
-        }
+        if (id) form.setFieldsValue({ id });
       })
-      .catch(err => {
-        console.error('nextUnitId error:', err);
-        message.error('获取ID失败: ' + err.message);
-      })
+      .catch(() => message.error('获取ID失败'))
       .finally(() => setIdLoading(false));
   }
 
@@ -149,7 +136,20 @@ return (
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <Spin spinning={idLoading} tip="正在获取ID...">
           <Card className="content-card">
-          <Form form={form} layout="vertical" initialValues={{ collector_interval: 900, data_interval_seconds: 900 }}>
+          <Form form={form} layout="vertical" initialValues={{
+            collector_interval: 900,
+            data_interval_seconds: 900,
+            connect_retry: 3,
+            download_retry: 3,
+            download_parallel: 1,
+            retry_interval_secs: 30,
+            connect_timeout_secs: 30,
+            read_timeout_secs: 300,
+            cache_retention_days: 7,
+            file_encoding: 'UTF-8',
+            source_type: 'sftp',
+            port: 22,
+          }}>
             <Form.Item name="id" hidden><InputNumber /></Form.Item>
 
             <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>基本信息</Divider>
