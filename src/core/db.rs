@@ -512,17 +512,18 @@ impl CoreDb {
             .to_string();
 
         let task_row = sqlx::query(
-            "SELECT strategy_id, config_snapshot_id, status FROM collect_tasks WHERE task_id = ?",
+            "SELECT strategy_id, config_snapshot_id, status, scan_start_time FROM collect_tasks WHERE task_id = ?",
         )
         .bind(&report.task_id)
         .fetch_optional(&self.pool)
         .await?;
 
-        let (strategy_id, config_snapshot_id) = match task_row {
+        let (strategy_id, config_snapshot_id, scan_start_time) = match task_row {
             Some(row) => {
                 let sid: String = row.get(0);
                 let cid: String = row.get(1);
                 let status: String = row.get(2);
+                let sst: String = row.get(3);
                 tracing::info!(
                     "[core-db] accept_task_result: existing task status={status} strategy={sid}"
                 );
@@ -536,7 +537,7 @@ impl CoreDb {
                     }
                     _ => {}
                 }
-                (sid, cid)
+                (sid, cid, Some(sst))
             }
             None => {
                 tracing::info!(
@@ -560,7 +561,7 @@ impl CoreDb {
         let _ = sqlx::query("ALTER TABLE config_tables ADD COLUMN config_snapshot_id TEXT")
             .execute(&self.pool)
             .await;
-                (sid, cid)
+                (sid, cid, None)
             }
         };
 
@@ -602,6 +603,40 @@ impl CoreDb {
             .bind(&now)
             .execute(&self.pool)
             .await?;
+        }
+
+        // 如果任务是失败/超时/取消状态但没有结果行，创建一条合成失败记录
+        if report.result_rows.is_empty() {
+            let sid_int: i64 = strategy_id.parse().unwrap_or(0);
+            let table_name: Option<String> = sqlx::query_scalar(
+                "SELECT table_name FROM collection_strategy WHERE id = ?",
+            )
+            .bind(sid_int)
+            .fetch_optional(&self.pool)
+            .await?;
+            if let Some(tn) = table_name {
+                let data_time = scan_start_time.unwrap_or_else(|| now.clone());
+                tracing::info!(
+                    "[core-db] inserting synthetic failure cell for table={} strategy={}",
+                    tn,
+                    strategy_id
+                );
+                sqlx::query(
+                    "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, 'FAILED', ?, ?, ?)",
+                )
+                .bind(&report.task_id)
+                .bind(&strategy_id)
+                .bind(&report.agent_id)
+                .bind(&config_snapshot_id)
+                .bind(&tn)
+                .bind(&data_time)
+                .bind(&now)
+                .bind(&terminal_status)
+                .bind(&now)
+                .bind(&now)
+                .execute(&self.pool)
+                .await?;
+            }
         }
 
         sqlx::query(
