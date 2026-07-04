@@ -21,6 +21,8 @@ export default function DataCollectorUnitFormPage() {
   const isNew = id === 'create';
   const editId = isNew ? null : (id ? Number(id) : null);
 
+  console.log('FormPage: id=', id, 'isNew=', isNew, 'editId=', editId);
+
   const { data: units } = useDataCollectorUnits();
   const { data: agents } = useAgents();
   const saveMutation = useSaveDataCollectorUnit();
@@ -50,15 +52,26 @@ export default function DataCollectorUnitFormPage() {
   if (isNew && !idInitRef.current) {
     idInitRef.current = true;
     setIdLoading(true);
-    fetch('/api/data-collector-units/next-id', { method: 'POST' })
-      .then(r => r.json())
+    fetch('/api/data-collector-units/next-id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(data => {
+        console.log('nextUnitId response:', data);
         const id = data?.data?.id;
         if (id) {
           form.setFieldsValue({ id, collector_interval: 900, data_interval_seconds: 900 });
         }
       })
-      .catch(() => message.error('获取ID失败'))
+      .catch(err => {
+        console.error('nextUnitId error:', err);
+        message.error('获取ID失败: ' + err.message);
+      })
       .finally(() => setIdLoading(false));
   }
 
