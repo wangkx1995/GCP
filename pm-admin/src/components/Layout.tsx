@@ -25,13 +25,17 @@ export default function Layout() {
   const location = useLocation();
 
   return (
-    <AntLayout style={{ minHeight: '100vh', background: '#F1F5F9' }}>
+    <AntLayout style={{ height: '100vh', overflow: 'hidden', background: '#F1F5F9' }}>
       <Sider
         width={220}
         theme="light"
         style={{
           background: '#FFFFFF',
           borderRight: '1px solid #E2E8F0',
+          height: '100vh',
+          position: 'sticky',
+          top: 0,
+          left: 0,
         }}
       >
         <div className="sidebar-logo">
@@ -51,7 +55,7 @@ export default function Layout() {
           }}
         />
       </Sider>
-      <Content style={{ padding: 32, background: '#F1F5F9' }}>
+      <Content style={{ padding: 32, background: '#F1F5F9', height: '100vh', overflowY: 'auto' }}>
         <Outlet />
       </Content>
     </AntLayout>
