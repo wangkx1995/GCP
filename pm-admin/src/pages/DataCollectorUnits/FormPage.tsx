@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useMemo, useState } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Form, Input, InputNumber, Select, Button, message, Divider, Collapse } from 'antd';
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
@@ -44,13 +44,16 @@ export default function DataCollectorUnitFormPage() {
 
   const selectedUnit = editId ? units?.find(u => u.id === editId) : null;
 
-  useEffect(() => {
-    if (isNew) {
-      nextUnitId().then(result => {
-        form.setFieldsValue({ id: result.id, collector_interval: 900, data_interval_seconds: 900 });
-      });
-    }
-  }, [isNew, form]);
+  const idInitRef = useRef(false);
+
+  if (isNew && !idInitRef.current) {
+    idInitRef.current = true;
+    nextUnitId().then(result => {
+      form.setFieldsValue({ id: result.id, collector_interval: 900, data_interval_seconds: 900 });
+    }).catch(err => {
+      message.error('获取ID失败: ' + err.message);
+    });
+  }
 
   useEffect(() => {
     if (selectedUnit) {
