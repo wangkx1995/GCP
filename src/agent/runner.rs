@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use remote_file_source::config::{ConnectionConfig, SourceConfig, SourceKind, SourceSection};
 
 use crate::agent::result_csv::read_result_rows;
@@ -29,12 +29,23 @@ impl AgentRunner {
 
         let config_dir = task_dir.join("config");
         let output_dir = task_dir.join("output");
+        let result = self.run_parse_and_report(store, task, task_dir, config_dir, output_dir).await;
+
+        if let Err(e) = &result {
+            tracing::error!("[agent] run_task failed: {e:#}");
+        }
+
+        result
+    }
+
+    async fn run_parse_and_report(&self, store: &AgentStore, task: TaskDispatchRequest, task_dir: PathBuf, config_dir: PathBuf, output_dir: PathBuf) -> Result<()> {
         let load_type = match task.load_type.to_ascii_lowercase().as_str() {
             "clickhouse" => LoadType::Clickhouse,
             "postgresql" => LoadType::Postgresql,
             other => {
                 tracing::error!("[agent] unsupported load_type {other}");
                 store.update_task_state(&task.task_id, TaskStatus::Failed)?;
+                report_to_core(&self.http, &self.core_api_base, &task.task_id, &self.agent_id, TaskStatus::Failed, Vec::new()).await;
                 bail!("unsupported load_type {other}")
             }
         };
@@ -94,42 +105,44 @@ impl AgentRunner {
         };
         tracing::info!("[agent] run_parse_job input={:?} config={:?} output={:?}", opts.input, opts.config_dir, opts.output_dir);
 
-        let parse_result = run_parse_job(opts);
+        let (report_status, result_rows) = match run_parse_job(opts) {
+            Ok(_summary) => {
+                tracing::info!("[agent] parse_job completed OK");
+                store.update_task_state(&task.task_id, TaskStatus::Succeeded)?;
+                tracing::info!("[agent] state -> SUCCEEDED");
 
-        if let Err(e) = parse_result {
-            tracing::error!("[agent] parse_job failed: {e:#}");
-            store.update_task_state(&task.task_id, TaskStatus::Failed)?;
-            return Err(e).context("parse_job failed");
-        }
-        tracing::info!("[agent] parse_job completed OK");
+                let rows = read_result_rows(&output_dir).unwrap_or_else(|e| {
+                    tracing::error!("[agent] read result.csv failed: {e:#}");
+                    Vec::new()
+                });
+                tracing::info!("[agent] result.csv rows: {}", rows.len());
 
-        store.update_task_state(&task.task_id, TaskStatus::Succeeded)?;
-        tracing::info!("[agent] state -> SUCCEEDED");
-
-        let rows = read_result_rows(&output_dir).map_err(|e| {
-            tracing::error!("[agent] read result.csv failed: {e:#}");
-            e
-        }).context("read result.csv")?;
-        tracing::info!("[agent] result.csv rows: {}", rows.len());
-
-        let report = TaskResultReport {
-            task_id: task.task_id.clone(),
-            agent_id: self.agent_id.clone(),
-            status: TaskStatus::Succeeded,
-            result_rows: rows,
+                (TaskStatus::Succeeded, rows)
+            }
+            Err(e) => {
+                tracing::error!("[agent] parse_job failed: {e:#}");
+                store.update_task_state(&task.task_id, TaskStatus::Failed)?;
+                tracing::info!("[agent] state -> FAILED");
+                (TaskStatus::Failed, Vec::new())
+            }
         };
-        let url = format!("{}/tasks/{}/result", self.core_api_base, task.task_id);
-        tracing::info!("[agent] posting result to Core: {url}");
-        let resp = self.http.post(&url).json(&report).send().await.map_err(|e| {
-            tracing::error!("[agent] HTTP request to Core failed: {e:#}");
-            e
-        }).context("reporting result to Core")?;
-        resp.error_for_status().map_err(|e| {
-            tracing::error!("[agent] Core returned error: {e:#}");
-            e
-        }).context("Core rejected result")?;
-        tracing::info!("[agent] result reported to Core OK");
+
+        report_to_core(&self.http, &self.core_api_base, &task.task_id, &self.agent_id, report_status, result_rows).await;
 
         Ok(())
+    }
+}
+
+async fn report_to_core(http: &reqwest::Client, core_api_base: &str, task_id: &str, agent_id: &str, status: TaskStatus, result_rows: Vec<crate::core_agent_api::ResultRow>) {
+    let report = TaskResultReport {
+        task_id: task_id.to_string(),
+        agent_id: agent_id.to_string(),
+        status,
+        result_rows,
+    };
+    let url = format!("{core_api_base}/tasks/{task_id}/result");
+    tracing::info!("[agent] posting result to Core: {url}");
+    if let Err(e) = http.post(&url).json(&report).send().await {
+        tracing::error!("[agent] HTTP request to Core failed: {e:#}");
     }
 }
