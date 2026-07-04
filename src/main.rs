@@ -78,15 +78,20 @@ fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+    let source_config = match &cli.source_config {
+        Some(path) => Some(remote_file_source::config::load_source_config(path)?),
+        None => None,
+    };
+    let load_config = wy_gnb_pm_parser::load_config::load_config(&cli.load_config)?;
     let summary = run_parse_job(ParseJobOptions {
         input: cli.input,
-        source_config: cli.source_config,
+        source_config,
         scan_start_time: cli.scan_start_time,
         config_dir: cli.config_dir,
         output_dir: cli.output_dir,
         collect_id: cli.collect_id,
         load_type: cli.load_type,
-        load_config: cli.load_config,
+        load_config,
         output_delimiter: cli.output_delimiter,
         encoding: cli.encoding,
         recursive: cli.recursive,

@@ -17,13 +17,13 @@ use crate::LoadType;
 #[derive(Clone, Debug)]
 pub struct ParseJobOptions {
     pub input: Option<PathBuf>,
-    pub source_config: Option<PathBuf>,
+    pub source_config: Option<remote_file_source::config::SourceConfig>,
     pub scan_start_time: Option<String>,
     pub config_dir: PathBuf,
     pub output_dir: PathBuf,
     pub collect_id: String,
     pub load_type: LoadType,
-    pub load_config: PathBuf,
+    pub load_config: LoadConfig,
     pub output_delimiter: String,
     pub encoding: String,
     pub recursive: bool,
@@ -47,8 +47,7 @@ pub fn parse_delimiter(value: &str) -> Result<u8> {
 pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
     let mapping_path = options.config_dir.join("mapping_dx.ini");
     let output_delimiter = parse_delimiter(&options.output_delimiter)?;
-    let load_config = crate::load_config::load_config(&options.load_config)
-        .with_context(|| format!("failed to parse {}", options.load_config.display()))?;
+    let load_config = &options.load_config;
     let mapping = crate::config::parse_mapping_config(&mapping_path)
         .with_context(|| format!("failed to parse {}", mapping_path.display()))?;
     let ctx = ContextData {
@@ -65,10 +64,7 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
     crate::tpd::validate_streaming_rules(&rules)?;
     let dest_tables_by_source = dest_tables_by_source_table(&rules);
 
-    let source_config = match &options.source_config {
-        Some(path) => Some(remote_file_source::config::load_source_config(path)?),
-        None => None,
-    };
+    let source_config = options.source_config;
     let routed_inputs = remote_file_source::resolve_routed_files_with_router(
         remote_file_source::ResolveOptions {
             local_input: options.input,

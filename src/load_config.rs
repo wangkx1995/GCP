@@ -4,13 +4,13 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct LoadConfig {
     pub clickhouse: ClickHouseConfig,
     pub postgresql: PostgresConfig,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ClickHouseConfig {
     #[serde(default = "default_clickhouse_client")]
     pub client: String,
@@ -28,7 +28,7 @@ pub struct ClickHouseConfig {
     pub table_name_case: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct PostgresConfig {
     #[serde(default = "default_psql_client")]
     pub client: String,

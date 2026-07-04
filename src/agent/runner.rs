@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
+use remote_file_source::config::{ConnectionConfig, SourceConfig, SourceKind, SourceSection};
 
 use crate::agent::result_csv::read_result_rows;
 use crate::agent::store::AgentStore;
 use crate::core_agent_api::{TaskDispatchRequest, TaskResultReport, TaskStatus};
+use crate::load_config::{ClickHouseConfig, LoadConfig, PostgresConfig};
 use crate::parse_job::{run_parse_job, ParseJobOptions};
 use crate::LoadType;
 
@@ -37,19 +39,80 @@ impl AgentRunner {
             }
         };
 
-        let source_toml = config_dir.join("source.toml");
-        let use_remote = source_toml.exists();
-        tracing::info!("[agent] source mode: {} (source.toml exists={})", if use_remote { "remote" } else { "local" }, use_remote);
+        let source_config = SourceConfig {
+            source: SourceSection {
+                kind: match task.source_type.to_ascii_lowercase().as_str() {
+                    "ftp" => SourceKind::Ftp,
+                    _ => SourceKind::Sftp,
+                },
+                download_dir: task_dir.join("downloads"),
+                remote_pattern: task.remote_pattern.clone(),
+                cache_retention_days: task.source_cache_retention_days,
+                connect_retry: task.source_connect_retry as usize,
+                download_retry: task.source_download_retry as usize,
+                download_parallel: task.source_download_parallel as usize,
+                retry_interval_secs: task.source_retry_interval_secs,
+                connect_timeout_secs: task.source_connect_timeout_secs,
+                read_timeout_secs: task.source_read_timeout_secs,
+                connection: ConnectionConfig {
+                    host: task.source_host.clone(),
+                    port: task.source_port,
+                    username: task.source_username.clone(),
+                    password: task.source_password.clone(),
+                },
+            },
+        };
+
+        let load_config = match load_type {
+            LoadType::Clickhouse => LoadConfig {
+                clickhouse: ClickHouseConfig {
+                    client: "clickhouse-client".to_string(),
+                    host: task.db_host.clone(),
+                    port: task.db_port,
+                    user: task.db_user.clone(),
+                    password: task.db_password.clone(),
+                    database: task.db_database.clone(),
+                    table_name_case: task.db_table_name_case.clone(),
+                },
+                postgresql: PostgresConfig {
+                    client: "psql".to_string(),
+                    host: String::new(),
+                    port: 5432,
+                    user: String::new(),
+                    password: String::new(),
+                    database: String::new(),
+                },
+            },
+            LoadType::Postgresql => LoadConfig {
+                clickhouse: ClickHouseConfig {
+                    client: "clickhouse-client".to_string(),
+                    host: String::new(),
+                    port: 9000,
+                    user: String::new(),
+                    password: String::new(),
+                    database: String::new(),
+                    table_name_case: "lower".to_string(),
+                },
+                postgresql: PostgresConfig {
+                    client: "psql".to_string(),
+                    host: task.db_host.clone(),
+                    port: task.db_port,
+                    user: task.db_user.clone(),
+                    password: task.db_password.clone(),
+                    database: task.db_database.clone(),
+                },
+            },
+        };
 
         let opts = ParseJobOptions {
-            input: if use_remote { None } else { Some(task_dir.join("downloads")) },
-            source_config: if use_remote { Some(source_toml) } else { None },
-            scan_start_time: if use_remote { Some(task.scan_start_time.clone()) } else { None },
+            input: None,
+            source_config: Some(source_config),
+            scan_start_time: Some(task.scan_start_time.clone()),
             config_dir: config_dir.clone(),
             output_dir: output_dir.clone(),
             collect_id: task.collect_id.clone(),
             load_type,
-            load_config: config_dir.join("load.toml"),
+            load_config,
             output_delimiter: task.output_delimiter.clone(),
             encoding: task.encoding.clone(),
             recursive: false,
