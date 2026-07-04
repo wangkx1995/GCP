@@ -7,6 +7,9 @@ import {
   BarChartOutlined,
   SendOutlined,
   SettingOutlined,
+  InfoCircleOutlined,
+  ThunderboltOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 
 const { Sider, Content } = AntLayout;
@@ -15,7 +18,14 @@ const menuItems = [
   { key: '/config-snapshots', icon: <FileZipOutlined />, label: '采集适配器管理' },
   { key: '/agents', icon: <DesktopOutlined />, label: '采集机管理' },
   { key: '/data-collector-units', icon: <SettingOutlined />, label: '采集单元管理' },
-  { key: '/strategy-dispatch', icon: <SendOutlined />, label: '采集策略下发' },
+  {
+    key: '/strategy-dispatch', icon: <SendOutlined />, label: '采集策略管理',
+    children: [
+      { key: '/strategy-dispatch/info', icon: <InfoCircleOutlined />, label: '采集策略信息' },
+      { key: '/strategy-dispatch/immediate', icon: <ThunderboltOutlined />, label: '及时采集策略' },
+      { key: '/strategy-dispatch/periodic', icon: <SyncOutlined />, label: '周期性采集策略' },
+    ],
+  },
   { key: '/tasks', icon: <AppstoreOutlined />, label: '任务列表' },
   { key: '/results/grid', icon: <BarChartOutlined />, label: '结果网格' },
 ];
@@ -24,14 +34,37 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const selectedKey = (() => {
+    for (const item of menuItems) {
+      if (item.children) {
+        for (const child of item.children) {
+          if (location.pathname === child.key) return child.key;
+        }
+      }
+      if (location.pathname === item.key || location.pathname.startsWith(item.key + '/')) return item.key;
+    }
+    return location.pathname;
+  })();
+
+  const openKeys = (() => {
+    for (const item of menuItems) {
+      if (item.children) {
+        for (const child of item.children) {
+          if (location.pathname === child.key) return [item.key];
+        }
+      }
+    }
+    return [];
+  })();
+
   return (
-    <AntLayout style={{ height: '100vh', overflow: 'hidden', background: '#F1F5F9' }}>
+    <AntLayout style={{ height: '100vh', overflow: 'hidden', background: 'var(--color-bg-layout)' }}>
       <Sider
         width={220}
         theme="light"
         style={{
-          background: '#FFFFFF',
-          borderRight: '1px solid #E2E8F0',
+          background: 'var(--color-bg-container)',
+          borderRight: '1px solid var(--color-border)',
           height: '100vh',
           position: 'sticky',
           top: 0,
@@ -45,7 +78,8 @@ export default function Layout() {
         <Menu
           theme="light"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[selectedKey]}
+          defaultOpenKeys={openKeys}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
           style={{
@@ -55,7 +89,7 @@ export default function Layout() {
           }}
         />
       </Sider>
-      <Content style={{ padding: 32, background: '#F1F5F9', height: '100vh', overflowY: 'auto' }}>
+      <Content style={{ padding: 32, background: 'var(--color-bg-layout)', height: '100vh', overflowY: 'auto' }}>
         <Outlet />
       </Content>
     </AntLayout>

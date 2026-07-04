@@ -8,7 +8,9 @@ import ConfigSnapshotsPage from './pages/ConfigSnapshots';
 import AgentsPage from './pages/Agents';
 import ResultsPage from './pages/Results';
 import TasksPage from './pages/Tasks';
-import StrategyDispatchPage from './pages/StrategyDispatch';
+import StrategyInfoPage from './pages/StrategyDispatch/StrategyInfo';
+import ImmediateStrategyPage from './pages/StrategyDispatch/ImmediateStrategy';
+import PeriodicStrategyPage from './pages/StrategyDispatch/PeriodicStrategy';
 import DataCollectorUnitsPage from './pages/DataCollectorUnits';
 import DataCollectorUnitFormPage from './pages/DataCollectorUnits/FormPage';
 
@@ -32,7 +34,10 @@ export default function App() {
               <Route path="/data-collector-units/create" element={<DataCollectorUnitFormPage />} />
               <Route path="/data-collector-units/:id/edit" element={<DataCollectorUnitFormPage />} />
               <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/strategy-dispatch" element={<StrategyDispatchPage />} />
+              <Route path="/strategy-dispatch" element={<Navigate to="/strategy-dispatch/info" />} />
+              <Route path="/strategy-dispatch/info" element={<StrategyInfoPage />} />
+              <Route path="/strategy-dispatch/immediate" element={<ImmediateStrategyPage />} />
+              <Route path="/strategy-dispatch/periodic" element={<PeriodicStrategyPage />} />
               <Route path="/results/grid" element={<ResultsPage />} />
             </Route>
           </Routes>

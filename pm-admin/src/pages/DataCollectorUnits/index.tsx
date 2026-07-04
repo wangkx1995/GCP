@@ -1,25 +1,25 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Card, Button, message, Popconfirm } from 'antd';
+import { Table, Card, Button, message, Popconfirm, Empty } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useDataCollectorUnits, useDeleteDataCollectorUnit } from '../../api/hooks';
 import type { DataCollectorUnit } from '../../types/api';
-
-function tryParseJson(val: string, fallback: string[]) {
-  try { return JSON.parse(val); } catch { return fallback; }
-}
 
 export default function DataCollectorUnitsPage() {
   const navigate = useNavigate();
   const { data: units, isLoading } = useDataCollectorUnits();
   const deleteMutation = useDeleteDataCollectorUnit();
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const handleDelete = useCallback(async (id: number) => {
+    setDeletingId(id);
     try {
       await deleteMutation.mutateAsync(id);
       message.success('删除成功');
     } catch (e: unknown) {
       if (e instanceof Error) message.error(e.message);
+    } finally {
+      setDeletingId(null);
     }
   }, [deleteMutation]);
 
@@ -28,16 +28,16 @@ export default function DataCollectorUnitsPage() {
     { title: '单元名称', dataIndex: 'unit_name', key: 'unit_name' },
     { title: '适配器名称', dataIndex: 'config_name', key: 'config_name' },
     { title: '适配器版本', dataIndex: 'config_version', key: 'config_version' },
-    { title: '采集表', key: 'tables', render: (_: unknown, r: DataCollectorUnit) => tryParseJson(r.table_names, []).join(', ') },
-    { title: '采集机数', key: 'agent_count', render: (_: unknown, r: DataCollectorUnit) => tryParseJson(r.agent_ids, []).length },
+    { title: '可采集表', key: 'tables', render: (_: unknown, r: DataCollectorUnit) => r.table_names.join(', ') },
+    { title: '采集机', key: 'agents', render: (_: unknown, r: DataCollectorUnit) => r.agent_ids.join(', ') },
     { title: '数据源', dataIndex: 'source_type', key: 'source_type' },
     {
       title: '操作', key: 'action', width: 120,
       render: (_: unknown, record: DataCollectorUnit) => (
         <span onClick={e => e.stopPropagation()}>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/data-collector-units/${record.id}/edit`)} />
+          <Button type="link" size="small" icon={<EditOutlined />} aria-label="编辑" onClick={() => navigate(`/data-collector-units/${record.id}/edit`)} />
           <Popconfirm title="确认删除?" onConfirm={() => handleDelete(record.id)}>
-            <Button danger type="link" size="small" icon={<DeleteOutlined />} loading={deleteMutation.isPending} />
+            <Button danger type="link" size="small" icon={<DeleteOutlined />} aria-label="删除" loading={deletingId === record.id} />
           </Popconfirm>
         </span>
       ),
@@ -69,6 +69,7 @@ export default function DataCollectorUnitsPage() {
           loading={isLoading}
           pagination={false}
           size="small"
+          locale={{ emptyText: <Empty description="暂无采集单元，点击右上角新建" /> }}
           scroll={{ x: 'max-content' }}
           onRow={(record) => ({
             onClick: () => navigate(`/data-collector-units/${record.id}/edit`),

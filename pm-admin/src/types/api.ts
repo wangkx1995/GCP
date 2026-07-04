@@ -139,8 +139,8 @@ export interface DataCollectorUnit {
   unit_name: string;
   config_name: string;
   config_version: string;
-  table_names: string;
-  agent_ids: string;
+  table_names: string[];
+  agent_ids: string[];
   data_interval_seconds: number;
   collector_interval: number;
   task_timeout_seconds: number;

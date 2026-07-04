@@ -1,5 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
+:root {
+  --color-bg-layout: #F1F5F9;
+  --color-bg-container: #FFFFFF;
+  --color-bg-elevated: #FFFFFF;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #64748B;
+  --color-border: #E2E8F0;
+  --color-border-light: #F1F5F9;
+  --color-surface-hover: #FAFAFA;
+}
+
 *,
 *::before,
 *::after {

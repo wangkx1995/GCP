@@ -11,10 +11,6 @@ import {
 } from '../../api/hooks';
 import type { DataCollectorUnitSaveRequest } from '../../types/api';
 
-function tryParseJson(val: string, fallback: string[]) {
-  try { return JSON.parse(val); } catch { return fallback; }
-}
-
 export default function DataCollectorUnitFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -63,9 +59,7 @@ export default function DataCollectorUnitFormPage() {
 
   useEffect(() => {
     if (selectedUnit) {
-      const tableNames: string[] = tryParseJson(selectedUnit.table_names, []);
-      const agentIdList: string[] = tryParseJson(selectedUnit.agent_ids, []);
-      form.setFieldsValue({ ...selectedUnit, table_names: tableNames, agent_ids: agentIdList });
+      form.setFieldsValue({ ...selectedUnit, password: undefined });
     }
   }, [selectedUnit, form]);
 
@@ -121,10 +115,10 @@ return (
         position: 'sticky',
         top: 0,
         zIndex: 10,
-        background: '#F1F5F9',
+        background: 'var(--color-bg-layout)',
       }}>
         <div>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
+          <Button type="text" icon={<ArrowLeftOutlined />} aria-label="返回" onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
           <h2 style={{ display: 'inline' }}>{idLoading ? '加载中...' : (isNew || !editId || isNaN(editId) ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`)}</h2>
         </div>
         <div>
@@ -141,11 +135,12 @@ return (
             data_interval_seconds: 900,
             connect_retry: 3,
             download_retry: 3,
-            download_parallel: 1,
+            download_parallel: 5,
             retry_interval_secs: 30,
             connect_timeout_secs: 30,
             read_timeout_secs: 300,
             cache_retention_days: 7,
+            task_timeout_seconds: 3600,
             file_encoding: 'UTF-8',
             source_type: 'sftp',
             port: 22,
@@ -154,7 +149,7 @@ return (
 
             <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>基本信息</Divider>
             <div style={{ display: 'flex', gap: 16 }}>
-              <div style={{ flex: 1 }}><Form.Item name="unit_name" label="单元名称" rules={[{ required: true }]}><Input placeholder="例如：机房A-北向指标" /></Form.Item></div>
+              <div style={{ flex: 1 }}><Form.Item name="unit_name" label="单元名称" rules={[{ required: true }]}><Input disabled={!isNew} placeholder="例如：机房A-北向指标" /></Form.Item></div>
               <div style={{ flex: 1 }}><Form.Item name="config_name" label="适配器名称" rules={[{ required: true }]}>
                 <Select showSearch onSearch={setConfigSearch} onChange={handleConfigNameChange} filterOption={false} placeholder="搜索并选择适配器" options={configNames.map(n => ({ label: n.name, value: n.name }))} />
               </Form.Item></div>
@@ -162,13 +157,13 @@ return (
             </div>
 
             <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>采集配置</Divider>
-            <Form.Item name="table_names" label="采集表" rules={[{ required: true }]}>
+            <Form.Item name="table_names" label="可采集表" rules={[{ required: true }]}>
               <Select mode="multiple" placeholder="选择要采集的表" options={availableTables.map(t => ({ label: t, value: t }))} />
             </Form.Item>
             <Form.Item name="agent_ids" label="采集机" rules={[{ required: true }]}>
               <Select mode="multiple" placeholder="选择采集机" options={(agents ?? []).map(a => ({ label: `${a.agent_name} (${a.agent_id})`, value: a.agent_id }))} />
             </Form.Item>
-            <Form.Item name="remote_pattern" label="远程文件路径">
+            <Form.Item name="remote_pattern" label="远程文件路径" rules={[{ required: true }]}>
               <Input placeholder="/data/pm/{scan_start_time}_*.csv.gz" />
             </Form.Item>
             <div style={{ display: 'flex', gap: 16 }}>
@@ -181,13 +176,13 @@ return (
             <Form.Item name="source_type" label="类型">
               <Select options={[{ label: 'SFTP', value: 'sftp' }, { label: 'FTP', value: 'ftp' }]} />
             </Form.Item>
-            <Form.Item name="host" label="主机地址">
+            <Form.Item name="host" label="主机地址" rules={[{ required: true }]}>
               <Input placeholder="192.168.1.100" />
             </Form.Item>
             <div style={{ display: 'flex', gap: 16 }}>
               <div style={{ width: 120 }}><Form.Item name="port" label="端口"><InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="22" /></Form.Item></div>
-              <div style={{ flex: 1 }}><Form.Item name="username" label="用户名"><Input placeholder="collector" /></Form.Item></div>
-              <div style={{ flex: 1 }}><Form.Item name="password" label="密码"><Input.Password placeholder="留空则保持原密码" /></Form.Item></div>
+              <div style={{ flex: 1 }}><Form.Item name="username" label="用户名" rules={[{ required: true }]}><Input placeholder="collector" /></Form.Item></div>
+              <div style={{ flex: 1 }}><Form.Item name="password" label="密码" rules={isNew ? [{ required: true }] : []}><Input.Password placeholder={isNew ? '请输入密码' : '留空则保持原密码'} /></Form.Item></div>
             </div>
             <Form.Item name="file_encoding" label="文件编码">
               <Input placeholder="UTF-8" />
@@ -197,7 +192,7 @@ return (
             <Collapse ghost size="small" defaultActiveKey={[]}
               items={[{
                 key: 'advanced', label: '展开高级设置',
-                style: { background: '#FAFAFA', borderRadius: 6 },
+                style: { background: 'var(--color-surface-hover)', borderRadius: 6 },
                 children: (
                   <>
                     <div style={{ display: 'flex', gap: 16 }}>
