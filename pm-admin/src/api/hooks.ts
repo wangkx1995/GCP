@@ -72,10 +72,7 @@ import {
   searchConfigNames,
   getTablesForConfig,
 } from './data-collector-units';
-import type {
-  DataCollectorUnitSaveRequest,
-  ConfigNameItem,
-} from '../types/api';
+import type { DataCollectorUnitSaveRequest } from '../types/api';
 
 export function useDataCollectorUnits() {
   return useQuery({
