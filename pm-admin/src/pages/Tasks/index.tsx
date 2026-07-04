@@ -33,7 +33,7 @@ export default function TasksPage() {
       });
       setResult(res);
       if (res.accepted) {
-        message.success('任务已分发至 Agent');
+        message.success('任务已分发至采集机');
       } else {
         message.warning(`任务被拒绝: ${res.reason ?? '未知原因'}`);
       }
@@ -51,7 +51,7 @@ export default function TasksPage() {
     <div>
       <div className="page-header">
         <h2>任务分发</h2>
-        <p>向在线 Agent 分发采集任务</p>
+        <p>向在线采集机分发采集任务</p>
       </div>
 
       {result && (
@@ -114,7 +114,7 @@ export default function TasksPage() {
             </Form.Item>
             <Form.Item name="config_snapshot_id" label="配置版本" rules={[{ required: true }]} style={{ flex: 1 }}>
               <Select
-                placeholder="选择配置快照"
+                placeholder="选择采集适配器"
                 showSearch
                 optionFilterProp="label"
                 options={snapshots?.map(s => ({
@@ -125,7 +125,7 @@ export default function TasksPage() {
                   <>
                     {menu}
                     {(!snapshots || snapshots.length === 0) && (
-                      <div style={{ padding: 8, color: '#94a3b8', fontSize: 12, textAlign: 'center' }}>暂无快照</div>
+                      <div style={{ padding: 8, color: '#94a3b8', fontSize: 12, textAlign: 'center' }}>暂无适配器</div>
                     )}
                   </>
                 )}

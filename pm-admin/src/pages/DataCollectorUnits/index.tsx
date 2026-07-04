@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Card, Button, Form, Input, InputNumber, Select, message, Popconfirm,
-  Space, Row, Col,
+  Row, Col, Divider,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
 import {
@@ -15,7 +15,11 @@ import {
 } from '../../api/hooks';
 import type { DataCollectorUnit, DataCollectorUnitSaveRequest } from '../../types/api';
 
-export default function AgentConfigPage() {
+function tryParseJson(val: string, fallback: string[]) {
+  try { return JSON.parse(val); } catch { return fallback; }
+}
+
+export default function DataCollectorUnitsPage() {
   const { data: units, isLoading } = useDataCollectorUnits();
   const { data: agents } = useAgents();
   const nextIdMutation = useNextUnitId();
@@ -32,6 +36,12 @@ export default function AgentConfigPage() {
   const { data: configNamesData } = useConfigNames(configSearch);
   const configNames = configNamesData?.config_names ?? [];
 
+  const nameToVersion = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of configNames) map[item.name] = item.version;
+    return map;
+  }, [configNames]);
+
   const watchedConfigName = Form.useWatch('config_name', form);
   const { data: tablesData } = useTablesForConfig(watchedConfigName);
   const availableTables = tablesData?.tables ?? [];
@@ -46,9 +56,11 @@ export default function AgentConfigPage() {
     }
   }, [selectedUnit, editing, form]);
 
-  function tryParseJson(val: string, fallback: string[]) {
-    try { return JSON.parse(val); } catch { return fallback; }
-  }
+  const handleConfigNameChange = useCallback((value: string) => {
+    if (nameToVersion[value]) {
+      form.setFieldsValue({ config_version: nameToVersion[value] });
+    }
+  }, [form, nameToVersion]);
 
   const handleNew = useCallback(async () => {
     const result = await nextIdMutation.mutateAsync();
@@ -112,19 +124,17 @@ export default function AgentConfigPage() {
     { title: '适配器名称', dataIndex: 'config_name', key: 'config_name' },
     { title: '适配器版本', dataIndex: 'config_version', key: 'config_version' },
     { title: '采集表', dataIndex: 'table_names', key: 'table_names', render: (v: string) => {
-      try { return JSON.parse(v).join(', '); } catch { return v; }
+      try { return tryParseJson(v, []).join(', '); } catch { return v; }
     }},
     { title: '采集机', dataIndex: 'agent_ids', key: 'agent_ids', render: (v: string) => {
-      try { return JSON.parse(v).join(', '); } catch { return v; }
+      try { return tryParseJson(v, []).join(', '); } catch { return v; }
     }},
     { title: '数据周期(秒)', dataIndex: 'data_interval_seconds', key: 'data_interval_seconds' },
     { title: '采集周期(秒)', dataIndex: 'collector_interval', key: 'collector_interval' },
     { title: '数据源', dataIndex: 'source_type', key: 'source_type' },
-    { title: '主机', dataIndex: 'host', key: 'host' },
-    { title: '端口', dataIndex: 'port', key: 'port' },
-    { title: '用户名', dataIndex: 'username', key: 'username' },
-    { title: '远程路径', dataIndex: 'remote_pattern', key: 'remote_pattern' },
-    { title: '编码', dataIndex: 'file_encoding', key: 'file_encoding' },
+    { title: '采集机数', key: 'agent_count', render: (_: unknown, r: DataCollectorUnit) => {
+      try { return tryParseJson(r.agent_ids, []).length; } catch { return 0; }
+    }},
     {
       title: '操作', key: 'action', width: 80,
       render: (_: unknown, record: DataCollectorUnit) => (
@@ -143,7 +153,7 @@ export default function AgentConfigPage() {
       </div>
 
       <Row gutter={16}>
-        <Col span={24} lg={10}>
+        <Col span={24} lg={8}>
           <Card
             title="采集单元列表"
             className="content-card"
@@ -170,9 +180,9 @@ export default function AgentConfigPage() {
             />
           </Card>
         </Col>
-        <Col span={24} lg={14}>
+        <Col span={24} lg={16}>
           <Card
-            title={selectedId ? `编辑采集单元 #${selectedId}` : '选择或新建采集单元'}
+            title={selectedId ? `采集单元 #${selectedId}` : '选择或新建采集单元'}
             className="content-card"
           >
             <Form
@@ -180,155 +190,156 @@ export default function AgentConfigPage() {
               layout="vertical"
               disabled={!editing && !!selectedUnit}
               initialValues={{ collector_interval: 900, data_interval_seconds: 900 }}
+              style={{ maxWidth: 960 }}
             >
               <Form.Item name="id" hidden><InputNumber /></Form.Item>
+
+              <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>基本信息</Divider>
               <Row gutter={16}>
-                <Col span={12}>
+                <Col span={8}>
                   <Form.Item name="unit_name" label="单元名称" rules={[{ required: true }]}>
-                    <Input />
+                    <Input placeholder="例如：机房A-北向指标" />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col span={8}>
                   <Form.Item name="config_name" label="适配器名称" rules={[{ required: true }]}>
                     <Select
                       showSearch
                       onSearch={setConfigSearch}
+                      onChange={handleConfigNameChange}
                       filterOption={false}
-                      options={configNames.map(n => ({ label: `${n.name} (${n.version})`, value: n.name }))}
+                      placeholder="搜索并选择适配器"
+                      options={configNames.map(n => ({ label: n.name, value: n.name }))}
                     />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="config_version" label="适配器版本">
+                    <Input disabled />
                   </Form.Item>
                 </Col>
               </Row>
+
+              <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>采集配置</Divider>
               <Row gutter={16}>
-                <Col span={12}>
+                <Col span={8}>
                   <Form.Item name="table_names" label="采集表" rules={[{ required: true }]}>
-                    <Select
-                      mode="multiple"
-                      options={availableTables.map(t => ({ label: t, value: t }))}
-                    />
+                    <Select mode="multiple" placeholder="选择要采集的表" options={availableTables.map(t => ({ label: t, value: t }))} />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col span={8}>
                   <Form.Item name="agent_ids" label="采集机" rules={[{ required: true }]}>
-                    <Select
-                      mode="multiple"
-                      options={(agents ?? []).map(a => ({ label: `${a.agent_name} (${a.agent_id})`, value: a.agent_id }))}
-                    />
+                    <Select mode="multiple" placeholder="选择采集机" options={(agents ?? []).map(a => ({ label: `${a.agent_name} (${a.agent_id})`, value: a.agent_id }))} />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="remote_pattern" label="远程文件路径">
+                    <Input placeholder="/data/pm/{scan_start_time}_*.csv.gz" />
                   </Form.Item>
                 </Col>
               </Row>
               <Row gutter={16}>
                 <Col span={8}>
                   <Form.Item name="data_interval_seconds" label="数据周期(秒)">
-                    <InputNumber style={{ width: '100%' }} min={60} />
+                    <InputNumber style={{ width: '100%' }} min={60} placeholder="900" />
                   </Form.Item>
                 </Col>
                 <Col span={8}>
                   <Form.Item name="collector_interval" label="采集周期(秒)">
-                    <InputNumber style={{ width: '100%' }} min={60} />
+                    <InputNumber style={{ width: '100%' }} min={60} placeholder="900" />
                   </Form.Item>
                 </Col>
                 <Col span={8}>
                   <Form.Item name="task_timeout_seconds" label="任务超时(秒)">
-                    <InputNumber style={{ width: '100%' }} min={60} />
+                    <InputNumber style={{ width: '100%' }} min={60} placeholder="3600" />
                   </Form.Item>
                 </Col>
               </Row>
+
+              <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>数据源</Divider>
               <Row gutter={16}>
-                <Col span={8}>
-                  <Form.Item name="source_type" label="数据源类型">
-                    <Select options={[
-                      { label: 'SFTP', value: 'sftp' },
-                      { label: 'FTP', value: 'ftp' },
-                    ]} />
+                <Col span={6}>
+                  <Form.Item name="source_type" label="类型">
+                    <Select options={[{ label: 'SFTP', value: 'sftp' }, { label: 'FTP', value: 'ftp' }]} />
                   </Form.Item>
                 </Col>
-                <Col span={8}>
-                  <Form.Item name="file_encoding" label="文件编码">
-                    <Input />
-                  </Form.Item>
-                </Col>
-                <Col span={8}>
-                  <Form.Item name="remote_pattern" label="远程文件路径">
-                    <Input />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Row gutter={16}>
-                <Col span={8}>
+                <Col span={6}>
                   <Form.Item name="host" label="主机地址">
-                    <Input />
+                    <Input placeholder="192.168.1.100" />
                   </Form.Item>
                 </Col>
                 <Col span={4}>
                   <Form.Item name="port" label="端口">
-                    <InputNumber style={{ width: '100%' }} min={1} max={65535} />
+                    <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="22" />
                   </Form.Item>
                 </Col>
-                <Col span={6}>
+                <Col span={4}>
                   <Form.Item name="username" label="用户名">
-                    <Input />
+                    <Input placeholder="collector" />
                   </Form.Item>
                 </Col>
-                <Col span={6}>
+                <Col span={4}>
                   <Form.Item name="password" label="密码">
-                    <Input.Password />
+                    <Input.Password placeholder="留空则保持原密码" />
                   </Form.Item>
                 </Col>
               </Row>
               <Row gutter={16}>
+                <Col span={8}>
+                  <Form.Item name="file_encoding" label="文件编码">
+                    <Input placeholder="UTF-8" />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>高级设置</Divider>
+              <Row gutter={16}>
                 <Col span={6}>
                   <Form.Item name="connect_retry" label="连接重试">
-                    <InputNumber style={{ width: '100%' }} min={0} />
+                    <InputNumber style={{ width: '100%' }} min={0} placeholder="3" />
                   </Form.Item>
                 </Col>
                 <Col span={6}>
                   <Form.Item name="download_retry" label="下载重试">
-                    <InputNumber style={{ width: '100%' }} min={0} />
+                    <InputNumber style={{ width: '100%' }} min={0} placeholder="3" />
                   </Form.Item>
                 </Col>
                 <Col span={6}>
                   <Form.Item name="download_parallel" label="并行下载数">
-                    <InputNumber style={{ width: '100%' }} min={1} />
+                    <InputNumber style={{ width: '100%' }} min={1} placeholder="4" />
                   </Form.Item>
                 </Col>
                 <Col span={6}>
                   <Form.Item name="retry_interval_secs" label="重试间隔(秒)">
-                    <InputNumber style={{ width: '100%' }} min={5} />
+                    <InputNumber style={{ width: '100%' }} min={5} placeholder="30" />
                   </Form.Item>
                 </Col>
               </Row>
               <Row gutter={16}>
                 <Col span={8}>
                   <Form.Item name="connect_timeout_secs" label="连接超时(秒)">
-                    <InputNumber style={{ width: '100%' }} min={5} />
+                    <InputNumber style={{ width: '100%' }} min={5} placeholder="30" />
                   </Form.Item>
                 </Col>
                 <Col span={8}>
                   <Form.Item name="read_timeout_secs" label="读取超时(秒)">
-                    <InputNumber style={{ width: '100%' }} min={10} />
+                    <InputNumber style={{ width: '100%' }} min={10} placeholder="300" />
                   </Form.Item>
                 </Col>
                 <Col span={8}>
                   <Form.Item name="cache_retention_days" label="缓存保留(天)">
-                    <InputNumber style={{ width: '100%' }} min={1} />
+                    <InputNumber style={{ width: '100%' }} min={1} placeholder="7" />
                   </Form.Item>
                 </Col>
               </Row>
-              <Space>
+
+              <div style={{ marginTop: 24 }}>
                 {!editing && selectedUnit ? (
                   <Button type="primary" onClick={() => setEditing(true)}>编辑</Button>
                 ) : (
-                  <Button
-                    type="primary"
-                    icon={<SaveOutlined />}
-                    onClick={handleSave}
-                    loading={saveMutation.isPending}
-                  >
-                    保存
-                  </Button>
+                  <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>保存</Button>
                 )}
-              </Space>
+              </div>
             </Form>
           </Card>
         </Col>

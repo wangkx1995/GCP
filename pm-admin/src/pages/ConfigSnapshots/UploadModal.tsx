@@ -30,7 +30,7 @@ export default function UploadModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal title="上传配置快照" open={open} footer={null} onCancel={onClose} width={600} destroyOnClose>
+    <Modal title="上传采集适配器" open={open} footer={null} onCancel={onClose} width={600} destroyOnClose>
       <Alert
         style={{ marginBottom: 20, borderRadius: 6 }}
         type="info"

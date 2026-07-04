@@ -14,11 +14,11 @@ export default function ConfigSnapshotsPage() {
   const handleActivate = (id: string) => {
     Modal.confirm({
       title: '确认激活',
-      content: `确定激活配置快照 ${id}？\n激活后所有在线 Agent 将自动下载新配置。`,
+      content: `确定激活采集适配器 ${id}？\n激活后所有在线采集机将自动下载新配置。`,
       onOk: async () => {
         try {
           await activateMutation.mutateAsync(id);
-          message.success('激活成功，已通知在线 Agent');
+          message.success('激活成功，已通知在线采集机');
         } catch {
           message.error('激活失败');
         }
@@ -28,6 +28,12 @@ export default function ConfigSnapshotsPage() {
 
   const columns = [
     {
+      title: '文件名',
+      dataIndex: 'name',
+      key: 'name',
+      render: (v: string | null) => v ?? <span style={{ color: '#94a3b8' }}>-</span>,
+    },
+    {
       title: '快照 ID',
       dataIndex: 'config_snapshot_id',
       key: 'id',
@@ -35,31 +41,8 @@ export default function ConfigSnapshotsPage() {
       render: (v: string) => <span className="mono">{v}</span>,
     },
     {
-      title: '文件数',
-      dataIndex: 'file_count',
-      key: 'files',
-      width: 80,
-      align: 'center' as const,
-    },
-    {
-      title: 'Content Hash',
-      dataIndex: 'content_hash',
-      key: 'hash',
-      ellipsis: true,
-      width: 220,
-      render: (v: string) => <span className="mono" style={{ color: '#64748b', fontSize: 12 }}>{v}</span>,
-    },
-    {
-      title: '版本标签',
-      dataIndex: 'version_label',
-      key: 'version',
-      width: 120,
-      render: (v: string | null) => v ?? <span style={{ color: '#94a3b8' }}>-</span>,
-    },
-    {
       title: '状态',
       key: 'active',
-      width: 80,
       align: 'center' as const,
       render: (_: unknown, record: ConfigSnapshotMeta) =>
         record.is_active ? (
@@ -73,19 +56,16 @@ export default function ConfigSnapshotsPage() {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created',
-      width: 180,
     },
     {
       title: '激活时间',
       dataIndex: 'activated_at',
       key: 'activated',
-      width: 180,
       render: (v: string | null) => v ?? <span style={{ color: '#94a3b8' }}>-</span>,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 200,
       render: (_: unknown, record: ConfigSnapshotMeta) => (
         <Space>
           <Button
@@ -115,7 +95,7 @@ export default function ConfigSnapshotsPage() {
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h2>配置快照</h2>
+          <h2>采集适配器管理</h2>
           <p>管理配置文件版本，上传 zip 包并激活生效</p>
         </div>
         <Button type="primary" icon={<UploadOutlined />} onClick={() => setUploadOpen(true)} size="large">

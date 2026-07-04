@@ -13,7 +13,7 @@ const statusConfig: Record<AgentStatus, { color: string; label: string }> = {
 
 const columns = [
   {
-    title: 'Agent',
+    title: '采集机',
     dataIndex: 'agent_name',
     key: 'agent_name',
     render: (_: string, record: AgentInfo) => (
@@ -94,12 +94,13 @@ export default function AgentsPage() {
   return (
     <div>
       <div className="page-header">
-        <h2>Agent 管理</h2>
-        <p>已注册的采集 Agent（自动注册，无需手动添加）</p>
+        <h2>采集机管理</h2>
+        <p>已注册的采集机（自动注册，无需手动添加）</p>
       </div>
 
       <Card className="content-card" styles={{ body: { padding: 0 } }}>
         <Table<AgentInfo>
+          className="data-table"
           rowKey="agent_id"
           dataSource={agents}
           columns={columns}

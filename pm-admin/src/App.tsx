@@ -8,6 +8,8 @@ import ConfigSnapshotsPage from './pages/ConfigSnapshots';
 import AgentsPage from './pages/Agents';
 import ResultsPage from './pages/Results';
 import TasksPage from './pages/Tasks';
+import StrategyDispatchPage from './pages/StrategyDispatch';
+import DataCollectorUnitsPage from './pages/DataCollectorUnits';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,7 +27,9 @@ export default function App() {
               <Route path="/" element={<Navigate to="/config-snapshots" />} />
               <Route path="/config-snapshots" element={<ConfigSnapshotsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
+              <Route path="/data-collector-units" element={<DataCollectorUnitsPage />} />
               <Route path="/tasks" element={<TasksPage />} />
+              <Route path="/strategy-dispatch" element={<StrategyDispatchPage />} />
               <Route path="/results/grid" element={<ResultsPage />} />
             </Route>
           </Routes>

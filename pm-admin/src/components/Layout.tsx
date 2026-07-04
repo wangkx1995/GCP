@@ -5,13 +5,17 @@ import {
   DesktopOutlined,
   AppstoreOutlined,
   BarChartOutlined,
+  SendOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 
 const { Sider, Content } = AntLayout;
 
 const menuItems = [
-  { key: '/config-snapshots', icon: <FileZipOutlined />, label: '配置快照' },
-  { key: '/agents', icon: <DesktopOutlined />, label: 'Agent 管理' },
+  { key: '/config-snapshots', icon: <FileZipOutlined />, label: '采集适配器管理' },
+  { key: '/agents', icon: <DesktopOutlined />, label: '采集机管理' },
+  { key: '/data-collector-units', icon: <SettingOutlined />, label: '采集单元配置' },
+  { key: '/strategy-dispatch', icon: <SendOutlined />, label: '采集策略下发' },
   { key: '/tasks', icon: <AppstoreOutlined />, label: '任务列表' },
   { key: '/results/grid', icon: <BarChartOutlined />, label: '结果网格' },
 ];

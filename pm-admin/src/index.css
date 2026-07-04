@@ -127,11 +127,13 @@ code,
   letter-spacing: 0.06em;
   padding: 14px 16px;
   border-bottom: 1px solid #F1F5F9;
+  text-align: center;
 }
 
 .data-table .ant-table-tbody > tr > td {
   padding: 14px 16px;
   border-bottom: 1px solid #F1F5F9;
+  text-align: center;
 }
 
 /* ─── Status dot ─── */
