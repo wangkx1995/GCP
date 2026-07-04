@@ -10,6 +10,7 @@ import ResultsPage from './pages/Results';
 import TasksPage from './pages/Tasks';
 import StrategyDispatchPage from './pages/StrategyDispatch';
 import DataCollectorUnitsPage from './pages/DataCollectorUnits';
+import DataCollectorUnitFormPage from './pages/DataCollectorUnits/FormPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,6 +29,8 @@ export default function App() {
               <Route path="/config-snapshots" element={<ConfigSnapshotsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/data-collector-units" element={<DataCollectorUnitsPage />} />
+              <Route path="/data-collector-units/new" element={<DataCollectorUnitFormPage />} />
+              <Route path="/data-collector-units/:id" element={<DataCollectorUnitFormPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/strategy-dispatch" element={<StrategyDispatchPage />} />
               <Route path="/results/grid" element={<ResultsPage />} />
