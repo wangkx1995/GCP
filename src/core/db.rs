@@ -1236,4 +1236,86 @@ mod tests {
         let tables = db.tables_for_config("cfg-b").await.unwrap();
         assert!(tables.is_empty());
     }
+
+    #[tokio::test]
+    async fn collection_strategy_crud() {
+        let db = db().await;
+
+        db.insert_config_snapshot_meta("v_strat", "sha256:strat", "v_strat", 1, "cfg-strat", &["t1".to_string(), "t2".to_string()]).await.unwrap();
+        db.activate_config_snapshot("v_strat").await.unwrap();
+
+        let save = DataCollectorUnitSaveRequest {
+            unit_name: "strat-unit".to_string(),
+            config_name: "cfg-strat".to_string(),
+            table_names: "[\"t1\",\"t2\"]".to_string(),
+            agent_ids: "[]".to_string(),
+            data_interval_seconds: Some(900),
+            collector_interval: Some(900),
+            task_timeout_seconds: Some(3600),
+            source_type: Some("sftp".to_string()),
+            file_encoding: Some("UTF-8".to_string()),
+            remote_pattern: Some("/path".to_string()),
+            host: Some("host".to_string()),
+            port: Some(22),
+            username: Some("u".to_string()),
+            password: Some("p".to_string()),
+            connect_retry: Some(3),
+            download_retry: Some(3),
+            download_parallel: Some(1),
+            retry_interval_secs: Some(30),
+            connect_timeout_secs: Some(30),
+            read_timeout_secs: Some(300),
+            cache_retention_days: Some(7),
+        };
+        db.upsert_data_collector_unit(1, &save).await.unwrap();
+
+        let req = CollectionStrategyCreateRequest {
+            collector_id: 1,
+            collector_name: "strat-unit".to_string(),
+            table_names: vec!["t1".to_string(), "t2".to_string()],
+            cron_expression: Some("0 0 * * *".to_string()),
+            collect_interval: 900,
+            data_interval: 900,
+            data_start_time: None,
+            data_end_time: None,
+            execute_time: None,
+            agent_ids: "[]".to_string(),
+            strategy_type: "periodic".to_string(),
+        };
+        let rows = db.create_strategies(&req).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].table_name, "t1");
+        assert_eq!(rows[0].status, "可用");
+
+        let list = db.list_strategies(None, None, None).await.unwrap();
+        assert_eq!(list.len(), 2);
+
+        let row = db.get_strategy(rows[0].id).await.unwrap().unwrap();
+        assert_eq!(row.table_name, "t1");
+
+        let update = CollectionStrategyUpdateRequest {
+            cron_expression: Some("0 */2 * * *".to_string()),
+            collect_interval: None,
+            data_interval: None,
+            data_start_time: None,
+            data_end_time: None,
+            execute_time: None,
+            agent_ids: None,
+            status: Some("挂起".to_string()),
+        };
+        let ok = db.update_strategy(rows[0].id, &update).await.unwrap();
+        assert!(ok);
+        let updated = db.get_strategy(rows[0].id).await.unwrap().unwrap();
+        assert_eq!(updated.status, "挂起");
+        assert_eq!(updated.cron_expression, "0 */2 * * *");
+
+        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        db.batch_suspend(&ids).await.unwrap();
+        assert_eq!(db.get_strategy(rows[0].id).await.unwrap().unwrap().status, "挂起");
+        assert_eq!(db.get_strategy(rows[1].id).await.unwrap().unwrap().status, "挂起");
+
+        db.batch_activate(&ids).await.unwrap();
+        assert_eq!(db.get_strategy(rows[0].id).await.unwrap().unwrap().status, "可用");
+        assert_eq!(db.get_strategy(rows[1].id).await.unwrap().unwrap().status, "可用");
+    }
 }
