@@ -64,4 +64,70 @@ export function useAgents() {
   });
 }
 
+import {
+  listDataCollectorUnits,
+  nextUnitId,
+  saveDataCollectorUnit,
+  deleteDataCollectorUnit,
+  searchConfigNames,
+  getTablesForConfig,
+} from './data-collector-units';
+import type {
+  DataCollectorUnitSaveRequest,
+  ConfigNameItem,
+} from '../types/api';
+
+export function useDataCollectorUnits() {
+  return useQuery({
+    queryKey: ['data-collector-units'],
+    queryFn: listDataCollectorUnits,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useNextUnitId() {
+  return useMutation({
+    mutationFn: nextUnitId,
+  });
+}
+
+export function useSaveDataCollectorUnit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: DataCollectorUnitSaveRequest }) =>
+      saveDataCollectorUnit(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['data-collector-units'] });
+    },
+  });
+}
+
+export function useDeleteDataCollectorUnit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: deleteDataCollectorUnit,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['data-collector-units'] });
+    },
+  });
+}
+
+export function useConfigNames(search: string | undefined) {
+  return useQuery({
+    queryKey: ['config-names', search],
+    queryFn: () => searchConfigNames(search),
+    enabled: search !== undefined,
+    staleTime: 60_000,
+  });
+}
+
+export function useTablesForConfig(configName: string | undefined) {
+  return useQuery({
+    queryKey: ['config-tables', configName],
+    queryFn: () => getTablesForConfig(configName!),
+    enabled: !!configName,
+    staleTime: 60_000,
+  });
+}
+
 

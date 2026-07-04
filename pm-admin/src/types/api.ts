@@ -133,3 +133,72 @@ export interface ConfigUpdateRequest {
   snapshot_id: string;
   content_hash: string;
 }
+
+export interface DataCollectorUnit {
+  id: number;
+  unit_name: string;
+  config_name: string;
+  config_version: string;
+  table_names: string;
+  agent_ids: string;
+  data_interval_seconds: number;
+  collector_interval: number;
+  task_timeout_seconds: number;
+  source_type: string;
+  file_encoding: string;
+  remote_pattern: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  connect_retry: number;
+  download_retry: number;
+  download_parallel: number;
+  retry_interval_secs: number;
+  connect_timeout_secs: number;
+  read_timeout_secs: number;
+  cache_retention_days: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataCollectorUnitSaveRequest {
+  unit_name: string;
+  config_name: string;
+  table_names: string;
+  agent_ids: string;
+  data_interval_seconds?: number;
+  collector_interval?: number;
+  task_timeout_seconds?: number;
+  source_type?: string;
+  file_encoding?: string;
+  remote_pattern?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  connect_retry?: number;
+  download_retry?: number;
+  download_parallel?: number;
+  retry_interval_secs?: number;
+  connect_timeout_secs?: number;
+  read_timeout_secs?: number;
+  cache_retention_days?: number;
+}
+
+export interface NextIdResponse {
+  id: number;
+}
+
+export interface ConfigNameItem {
+  name: string;
+  version: string;
+}
+
+export interface ConfigNamesResponse {
+  config_names: ConfigNameItem[];
+}
+
+export interface TablesResponse {
+  tables: string[];
+}
