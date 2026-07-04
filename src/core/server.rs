@@ -6,6 +6,7 @@ use std::time::Duration;
 use anyhow::Result;
 use axum::{
     body::Body,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -14,10 +15,15 @@ use axum::{
 use serde::Serialize;
 use tracing::info;
 
+use std::collections::HashMap;
+
+use axum::extract::Query;
+
 use crate::core::config_storage::ConfigStorage;
 use crate::core::db::CoreDb;
 use crate::core_agent_api::{
-    AgentRegisterRequest, AgentRegisterResponse, ConfigNamesResponse,
+    AgentRegisterRequest, AgentRegisterResponse, BatchStatusRequest, ConfigNamesResponse,
+    CollectionStrategyCreateRequest, CollectionStrategyUpdateRequest,
     DataCollectorUnitSaveRequest, NextIdResponse,
     TablesResponse, TaskDispatchRequest, TaskDispatchResponse, TaskResultReport,
 };
@@ -79,6 +85,13 @@ pub fn router(state: CoreState) -> Router {
         .route("/api/data-collector-units/:id", delete(delete_data_collector_unit_handler))
         .route("/api/data-collector-units/config-names", get(search_config_names))
         .route("/api/data-collector-units/tables", get(tables_for_config_handler))
+        .route("/api/strategies/next-id", post(next_strategy_id))
+        .route("/api/strategies", post(create_strategies))
+        .route("/api/strategies", get(list_strategies))
+        .route("/api/strategies/batch-suspend", post(batch_suspend))
+        .route("/api/strategies/batch-activate", post(batch_activate))
+        .route("/api/strategies/:id", get(get_strategy))
+        .route("/api/strategies/:id", put(update_strategy))
         .with_state(state)
 }
 
@@ -516,6 +529,93 @@ async fn tables_for_config_handler(
     match state.db.tables_for_config(&query.config_name).await {
         Ok(tables) => ok_response(TablesResponse { tables }, "获取表名列表成功").into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
+}
+
+async fn next_strategy_id(
+    State(state): State<CoreState>,
+) -> Response {
+    match state.db.next_strategy_id().await {
+        Ok(id) => ok_response(serde_json::json!({ "id": id }), "OK").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+    }
+}
+
+async fn create_strategies(
+    State(state): State<CoreState>,
+    Json(req): Json<CollectionStrategyCreateRequest>,
+) -> Response {
+    if req.table_names.is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "table_names 不能为空").into_response();
+    }
+    if !["immediate", "periodic"].contains(&req.strategy_type.as_str()) {
+        return err_response(StatusCode::BAD_REQUEST, "strategy_type 必须是 immediate 或 periodic").into_response();
+    }
+    match state.db.create_strategies(&req).await {
+        Ok(rows) => ok_response(rows, "创建成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+    }
+}
+
+async fn list_strategies(
+    State(state): State<CoreState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let collector_name = params.get("collector_name").map(|s| s.as_str());
+    let strategy_type = params.get("type").map(|s| s.as_str());
+    let status = params.get("status").map(|s| s.as_str());
+    match state.db.list_strategies(collector_name, strategy_type, status).await {
+        Ok(rows) => ok_response(rows, "获取策略列表成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+    }
+}
+
+async fn get_strategy(
+    State(state): State<CoreState>,
+    Path(id): Path<i64>,
+) -> Response {
+    match state.db.get_strategy(id).await {
+        Ok(Some(row)) => ok_response(row, "OK").into_response(),
+        Ok(None) => err_response(StatusCode::NOT_FOUND, "策略不存在").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+    }
+}
+
+async fn update_strategy(
+    State(state): State<CoreState>,
+    Path(id): Path<i64>,
+    Json(req): Json<CollectionStrategyUpdateRequest>,
+) -> Response {
+    match state.db.update_strategy(id, &req).await {
+        Ok(true) => ok_response(serde_json::json!({}), "更新成功").into_response(),
+        Ok(false) => err_response(StatusCode::NOT_FOUND, "策略不存在").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+    }
+}
+
+async fn batch_suspend(
+    State(state): State<CoreState>,
+    Json(req): Json<BatchStatusRequest>,
+) -> Response {
+    if req.ids.is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "ids 不能为空").into_response();
+    }
+    match state.db.batch_suspend(&req.ids).await {
+        Ok(count) => ok_response(serde_json::json!({ "affected": count }), &format!("已挂起 {count} 条")).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+    }
+}
+
+async fn batch_activate(
+    State(state): State<CoreState>,
+    Json(req): Json<BatchStatusRequest>,
+) -> Response {
+    if req.ids.is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "ids 不能为空").into_response();
+    }
+    match state.db.batch_activate(&req.ids).await {
+        Ok(count) => ok_response(serde_json::json!({ "affected": count }), &format!("已激活 {count} 条")).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
     }
 }
 
