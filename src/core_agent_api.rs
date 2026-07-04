@@ -107,6 +107,81 @@ pub struct ConfigUpdateRequest {
     pub content_hash: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DataCollectorUnitRow {
+    pub id: i64,
+    pub unit_name: String,
+    pub config_name: String,
+    pub config_version: String,
+    pub table_names: String,
+    pub agent_ids: String,
+    pub data_interval_seconds: i64,
+    pub collector_interval: i64,
+    pub task_timeout_seconds: i64,
+    pub source_type: String,
+    pub file_encoding: String,
+    pub remote_pattern: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub password: String,
+    pub connect_retry: i64,
+    pub download_retry: i64,
+    pub download_parallel: i64,
+    pub retry_interval_secs: i64,
+    pub connect_timeout_secs: i64,
+    pub read_timeout_secs: i64,
+    pub cache_retention_days: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DataCollectorUnitSaveRequest {
+    pub unit_name: String,
+    pub config_name: String,
+    pub table_names: String,
+    pub agent_ids: String,
+    pub data_interval_seconds: Option<i64>,
+    pub collector_interval: Option<i64>,
+    pub task_timeout_seconds: Option<i64>,
+    pub source_type: Option<String>,
+    pub file_encoding: Option<String>,
+    pub remote_pattern: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<i64>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub connect_retry: Option<i64>,
+    pub download_retry: Option<i64>,
+    pub download_parallel: Option<i64>,
+    pub retry_interval_secs: Option<i64>,
+    pub connect_timeout_secs: Option<i64>,
+    pub read_timeout_secs: Option<i64>,
+    pub cache_retention_days: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NextIdResponse {
+    pub id: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ConfigNameItem {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigNamesResponse {
+    pub config_names: Vec<ConfigNameItem>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TablesResponse {
+    pub tables: Vec<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigSnapshotMeta {
     pub config_snapshot_id: String,

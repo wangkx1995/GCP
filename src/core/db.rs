@@ -5,8 +5,9 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 
 use crate::core_agent_api::{
-    AgentCapabilities, AgentInfo, AgentRegisterRequest, AgentStatus, ConfigSnapshotMeta,
-    ConfigSnapshotResponse, OnlineAgent, ResultRow, TaskResultReport, TaskStatus,
+    AgentCapabilities, AgentInfo, AgentRegisterRequest, AgentStatus, ConfigNameItem,
+    ConfigSnapshotMeta, ConfigSnapshotResponse, DataCollectorUnitRow,
+    DataCollectorUnitSaveRequest, OnlineAgent, ResultRow, TaskResultReport, TaskStatus,
 };
 
 #[derive(Clone)]
@@ -136,6 +137,39 @@ impl CoreDb {
                 config_snapshot_id TEXT NOT NULL,
                 config_name TEXT NOT NULL,
                 table_name TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS data_collector_unit (
+                id INTEGER PRIMARY KEY,
+                unit_name TEXT NOT NULL,
+                config_name TEXT NOT NULL,
+                config_version TEXT NOT NULL DEFAULT '',
+                table_names TEXT NOT NULL DEFAULT '[]',
+                agent_ids TEXT NOT NULL DEFAULT '[]',
+                data_interval_seconds INTEGER NOT NULL DEFAULT 900,
+                collector_interval INTEGER NOT NULL DEFAULT 900,
+                task_timeout_seconds INTEGER NOT NULL DEFAULT 3600,
+                source_type TEXT NOT NULL DEFAULT 'sftp',
+                file_encoding TEXT NOT NULL DEFAULT 'UTF-8',
+                remote_pattern TEXT NOT NULL DEFAULT '',
+                host TEXT NOT NULL DEFAULT '',
+                port INTEGER NOT NULL DEFAULT 22,
+                username TEXT NOT NULL DEFAULT '',
+                password TEXT NOT NULL DEFAULT '',
+                connect_retry INTEGER NOT NULL DEFAULT 3,
+                download_retry INTEGER NOT NULL DEFAULT 3,
+                download_parallel INTEGER NOT NULL DEFAULT 4,
+                retry_interval_secs INTEGER NOT NULL DEFAULT 30,
+                connect_timeout_secs INTEGER NOT NULL DEFAULT 30,
+                read_timeout_secs INTEGER NOT NULL DEFAULT 300,
+                cache_retention_days INTEGER NOT NULL DEFAULT 7,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             "#,
         )
@@ -557,6 +591,193 @@ impl CoreDb {
             .collect();
         Ok(results)
     }
+
+    pub async fn next_unit_id(&self) -> Result<i64> {
+        tracing::debug!("[db] ==> SELECT COALESCE(MAX(id), 0) + 1 FROM data_collector_unit");
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(MAX(id), 0) + 1 FROM data_collector_unit",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    pub async fn list_data_collector_units(&self) -> Result<Vec<DataCollectorUnitRow>> {
+        tracing::debug!("[db] ==> SELECT * FROM data_collector_unit ORDER BY id DESC");
+        let rows = sqlx::query_as::<_, DataCollectorUnitRow>(
+            "SELECT id, unit_name, config_name, config_version, table_names, agent_ids, \
+             data_interval_seconds, collector_interval, task_timeout_seconds, \
+             source_type, file_encoding, remote_pattern, host, port, username, password, \
+             connect_retry, download_retry, download_parallel, retry_interval_secs, \
+             connect_timeout_secs, read_timeout_secs, cache_retention_days, \
+             created_at, updated_at \
+             FROM data_collector_unit ORDER BY id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let rows = rows.into_iter().map(|mut r| {
+            r.password = "******".to_string();
+            r
+        }).collect();
+        Ok(rows)
+    }
+
+    pub async fn upsert_data_collector_unit(
+        &self,
+        id: i64,
+        data: &DataCollectorUnitSaveRequest,
+    ) -> Result<()> {
+        let config_exists: bool = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM config_snapshots WHERE name = ? AND is_active = 1",
+        )
+        .bind(&data.config_name)
+        .fetch_one(&self.pool)
+        .await? != 0;
+        if !config_exists {
+            anyhow::bail!("config_name '{}' not found or not active", data.config_name);
+        }
+
+        let agent_ids: Vec<String> = serde_json::from_str(&data.agent_ids)
+            .map_err(|_| anyhow::anyhow!("agent_ids is not a valid JSON array"))?;
+        for aid in &agent_ids {
+            let agent_exists: bool = sqlx::query_scalar::<_, i32>(
+                "SELECT COUNT(*) FROM agents WHERE agent_id = ?",
+            )
+            .bind(aid)
+            .fetch_one(&self.pool)
+            .await? != 0;
+            if !agent_exists {
+                anyhow::bail!("agent_id '{}' not found", aid);
+            }
+        }
+
+        let now = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+
+        let password = match &data.password {
+            Some(p) if p.is_empty() || p == "******" => {
+                let existing: String = sqlx::query_scalar::<_, String>(
+                    "SELECT password FROM data_collector_unit WHERE id = ?",
+                )
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
+                .unwrap_or_default();
+                existing
+            }
+            Some(p) => p.clone(),
+            None => String::new(),
+        };
+
+        let config_version: String = sqlx::query_scalar(
+            "SELECT config_snapshot_id FROM config_snapshots WHERE name = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(&data.config_name)
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or_default();
+
+        let existing_created: Option<String> = sqlx::query_scalar(
+            "SELECT created_at FROM data_collector_unit WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let created_at = existing_created.unwrap_or_else(|| now.clone());
+
+        tracing::debug!("[db] ==> INSERT OR REPLACE INTO data_collector_unit(...) VALUES(?)");
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO data_collector_unit(
+                id, unit_name, config_name, config_version, table_names, agent_ids,
+                data_interval_seconds, collector_interval, task_timeout_seconds,
+                source_type, file_encoding, remote_pattern, host, port, username, password,
+                connect_retry, download_retry, download_parallel, retry_interval_secs,
+                connect_timeout_secs, read_timeout_secs, cache_retention_days,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(id)
+        .bind(&data.unit_name)
+        .bind(&data.config_name)
+        .bind(&config_version)
+        .bind(&data.table_names)
+        .bind(&data.agent_ids)
+        .bind(data.data_interval_seconds.unwrap_or(900))
+        .bind(data.collector_interval.unwrap_or(900))
+        .bind(data.task_timeout_seconds.unwrap_or(3600))
+        .bind(data.source_type.as_deref().unwrap_or("sftp"))
+        .bind(data.file_encoding.as_deref().unwrap_or("UTF-8"))
+        .bind(data.remote_pattern.as_deref().unwrap_or(""))
+        .bind(data.host.as_deref().unwrap_or(""))
+        .bind(data.port.unwrap_or(22))
+        .bind(data.username.as_deref().unwrap_or(""))
+        .bind(&password)
+        .bind(data.connect_retry.unwrap_or(3))
+        .bind(data.download_retry.unwrap_or(3))
+        .bind(data.download_parallel.unwrap_or(4))
+        .bind(data.retry_interval_secs.unwrap_or(30))
+        .bind(data.connect_timeout_secs.unwrap_or(30))
+        .bind(data.read_timeout_secs.unwrap_or(300))
+        .bind(data.cache_retention_days.unwrap_or(7))
+        .bind(&created_at)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_data_collector_unit(&self, id: i64) -> Result<bool> {
+        tracing::debug!("[db] ==> DELETE FROM data_collector_unit WHERE id=?");
+        tracing::debug!("[db] ==> Parameters: id={}", id);
+        let result = sqlx::query("DELETE FROM data_collector_unit WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn search_active_config_names(&self, search: Option<&str>) -> Result<Vec<ConfigNameItem>> {
+        match search {
+            Some(q) if !q.is_empty() => {
+                let pattern = format!("%{}%", q);
+                tracing::debug!("[db] ==> SELECT DISTINCT name,config_snapshot_id FROM config_snapshots WHERE is_active=1 AND name LIKE ? ORDER BY name");
+                let rows = sqlx::query_as::<_, ConfigNameItem>(
+                    "SELECT DISTINCT name, config_snapshot_id AS version FROM config_snapshots WHERE is_active = 1 AND name LIKE ? ORDER BY name",
+                )
+                .bind(&pattern)
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows)
+            }
+            _ => {
+                tracing::debug!("[db] ==> SELECT DISTINCT name,config_snapshot_id FROM config_snapshots WHERE is_active=1 ORDER BY name");
+                let rows = sqlx::query_as::<_, ConfigNameItem>(
+                    "SELECT DISTINCT name, config_snapshot_id AS version FROM config_snapshots WHERE is_active = 1 ORDER BY name",
+                )
+                .fetch_all(&self.pool)
+                .await?;
+                Ok(rows)
+            }
+        }
+    }
+
+    pub async fn tables_for_config(&self, config_name: &str) -> Result<Vec<String>> {
+        tracing::debug!("[db] ==> SELECT DISTINCT ct.table_name FROM config_tables ct INNER JOIN config_snapshots cs ON ct.config_snapshot_id = cs.config_snapshot_id WHERE cs.name = ? AND cs.is_active = 1 ORDER BY ct.table_name");
+        let rows: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT ct.table_name FROM config_tables ct \
+             INNER JOIN config_snapshots cs ON ct.config_snapshot_id = cs.config_snapshot_id \
+             WHERE cs.name = ? AND cs.is_active = 1 ORDER BY ct.table_name",
+        )
+        .bind(config_name)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]
@@ -704,5 +925,96 @@ mod tests {
         assert!(v1.is_active);
         let v2 = db.get_config_snapshot("v2").await.unwrap().unwrap();
         assert!(!v2.is_active);
+    }
+
+    #[tokio::test]
+    async fn data_collector_unit_crud() {
+        let db = db().await;
+
+        let id = db.next_unit_id().await.unwrap();
+        assert_eq!(id, 1);
+
+        let save = DataCollectorUnitSaveRequest {
+            unit_name: "test-unit".to_string(),
+            config_name: "test-config".to_string(),
+            table_names: "[\"t1\"]".to_string(),
+            agent_ids: "[]".to_string(),
+            data_interval_seconds: Some(900),
+            collector_interval: Some(900),
+            task_timeout_seconds: Some(3600),
+            source_type: Some("sftp".to_string()),
+            file_encoding: Some("UTF-8".to_string()),
+            remote_pattern: Some("/path/{scan_start_time}".to_string()),
+            host: Some("192.168.1.1".to_string()),
+            port: Some(22),
+            username: Some("user".to_string()),
+            password: Some("pass".to_string()),
+            connect_retry: Some(3),
+            download_retry: Some(3),
+            download_parallel: Some(4),
+            retry_interval_secs: Some(30),
+            connect_timeout_secs: Some(30),
+            read_timeout_secs: Some(300),
+            cache_retention_days: Some(7),
+        };
+        let result = db.upsert_data_collector_unit(1, &save).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found or not active"));
+
+        use crate::core_agent_api::RuleFile;
+        db.insert_config_snapshot(&ConfigSnapshotResponse {
+            config_snapshot_id: "v_test".to_string(),
+            content_hash: "sha256:test".to_string(),
+            source_toml: "".to_string(),
+            mapping_dx_ini: "".to_string(),
+            load_toml: "".to_string(),
+            col_name_cut_config_ini: None,
+            rules: vec![RuleFile {
+                relative_path: "rules/a.json".to_string(),
+                content: "{\"table_name\":\"t1\"}".to_string(),
+            }],
+        }).await.unwrap();
+        db.insert_config_snapshot_meta("v_test", "sha256:test", "v_test", 1, "test-config", &["t1".to_string()]).await.unwrap();
+        db.activate_config_snapshot("v_test").await.unwrap();
+
+        db.upsert_data_collector_unit(1, &save).await.unwrap();
+
+        let id2 = db.next_unit_id().await.unwrap();
+        assert_eq!(id2, 2);
+
+        let list = db.list_data_collector_units().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].unit_name, "test-unit");
+        assert_eq!(list[0].password, "******");
+
+        let deleted = db.delete_data_collector_unit(1).await.unwrap();
+        assert!(deleted);
+        let list = db.list_data_collector_units().await.unwrap();
+        assert_eq!(list.len(), 0);
+
+        let deleted = db.delete_data_collector_unit(999).await.unwrap();
+        assert!(!deleted);
+    }
+
+    #[tokio::test]
+    async fn search_config_names_and_tables() {
+        let db = db().await;
+
+        db.insert_config_snapshot_meta("v1", "sha256:aaa", "v1", 1, "cfg-a", &["t1".to_string(), "t2".to_string()]).await.unwrap();
+        db.insert_config_snapshot_meta("v2", "sha256:bbb", "v2", 1, "cfg-b", &["t3".to_string()]).await.unwrap();
+        db.activate_config_snapshot("v1").await.unwrap();
+
+        let names = db.search_active_config_names(None).await.unwrap();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0].name, "cfg-a");
+        assert_eq!(names[0].version, "v1");
+
+        let names = db.search_active_config_names(Some("cfg")).await.unwrap();
+        assert_eq!(names.len(), 1);
+
+        let tables = db.tables_for_config("cfg-a").await.unwrap();
+        assert_eq!(tables, vec!["t1".to_string(), "t2".to_string()]);
+        let tables = db.tables_for_config("cfg-b").await.unwrap();
+        assert!(tables.is_empty());
     }
 }

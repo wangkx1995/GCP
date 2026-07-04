@@ -22,7 +22,7 @@ tempfile = "3.14"
 toml = "0.8"
 axum = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "chrono"] }
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "chrono", "macros"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 walkdir = "2.5"
