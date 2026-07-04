@@ -44,7 +44,12 @@ export default function ImmediateStrategyPage() {
   useEffect(() => {
     if (editData) {
       form.setFieldsValue({
-        ...editData,
+        collector_id: editData.collector_id,
+        collector_name: editData.collector_name,
+        collector_interval: editData.collect_interval,
+        data_interval_seconds: editData.data_interval,
+        table_names: editData.table_name ? [editData.table_name] : [],
+        agent_ids: editData.agent_ids,
         data_start_time: editData.data_start_time ? dayjs(editData.data_start_time) : undefined,
         data_end_time: editData.data_end_time ? dayjs(editData.data_end_time) : undefined,
         execute_time: editData.execute_time ? dayjs(editData.execute_time) : undefined,
@@ -72,6 +77,8 @@ export default function ImmediateStrategyPage() {
         message.success('创建成功，任务已执行');
       } else if (editId) {
         const data: CollectionStrategyUpdateRequest = {
+          collect_interval: values.collector_interval,
+          data_interval: values.data_interval_seconds,
           data_start_time: values.data_start_time?.format('YYYY-MM-DD HH:mm:ss'),
           data_end_time: values.data_end_time?.format('YYYY-MM-DD HH:mm:ss'),
           execute_time: values.execute_time?.format('YYYY-MM-DD HH:mm:ss'),
@@ -82,12 +89,15 @@ export default function ImmediateStrategyPage() {
       }
       navigate('/strategy-dispatch/info');
     } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) {
+        return;
+      }
       if (e instanceof Error) message.error(e.message);
     }
   }, [form, isNew, editId, createMutation, updateMutation, navigate]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="page-container">
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 16, marginBottom: 16, position: 'sticky', top: 0, zIndex: 10, background: 'var(--color-bg-layout)' }}>
         <div>
           <Button type="text" icon={<ArrowLeftOutlined />} aria-label="返回" onClick={() => navigate('/strategy-dispatch/info')} style={{ marginRight: 8 }} />

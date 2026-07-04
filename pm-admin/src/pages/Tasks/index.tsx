@@ -48,7 +48,7 @@ export default function TasksPage() {
   };
 
   return (
-    <div>
+    <div className="page-container">
       <div className="page-header">
         <h2>任务分发</h2>
         <p>向在线采集机分发采集任务</p>

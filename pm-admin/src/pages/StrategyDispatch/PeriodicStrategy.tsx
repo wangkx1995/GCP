@@ -5,6 +5,35 @@ import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useDataCollectorUnits, useCreateStrategies, useStrategy, useUpdateStrategy } from '../../api/hooks';
 import type { CollectionStrategyCreateRequest, CollectionStrategyUpdateRequest } from '../../types/api';
 
+function isValidCron(expr: string): boolean {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const ranges = [
+    { min: 0, max: 59 },
+    { min: 0, max: 23 },
+    { min: 1, max: 31 },
+    { min: 1, max: 12 },
+    { min: 0, max: 7 },
+  ];
+  return parts.every((part, i) => {
+    if (part === '*') return true;
+    return part.split(',').every(seg => {
+      let [start, end] = seg.split('/');
+      if (end !== undefined && !/^\d+$/.test(end)) return false;
+      let [from, to] = start.split('-');
+      if (from === '*' && to === undefined) return true;
+      if (to !== undefined) {
+        const a = Number(from), b = Number(to);
+        if (isNaN(a) || isNaN(b) || a < ranges[i].min || b > ranges[i].max || a > b) return false;
+      } else {
+        const a = Number(from);
+        if (isNaN(a) || a < ranges[i].min || a > ranges[i].max) return false;
+      }
+      return true;
+    });
+  });
+}
+
 export default function PeriodicStrategyPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -40,7 +69,16 @@ export default function PeriodicStrategyPage() {
 
   useEffect(() => {
     if (editData) {
-      form.setFieldsValue(editData);
+      form.setFieldsValue({
+        collector_id: editData.collector_id,
+        collector_name: editData.collector_name,
+        collector_interval: editData.collect_interval,
+        data_interval_seconds: editData.data_interval,
+        table_names: editData.table_name ? [editData.table_name] : [],
+        agent_ids: editData.agent_ids,
+        cron_expression: editData.cron_expression,
+        status: editData.status,
+      });
     }
   }, [editData, form]);
 
@@ -73,12 +111,15 @@ export default function PeriodicStrategyPage() {
       }
       navigate('/strategy-dispatch/info');
     } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) {
+        return;
+      }
       if (e instanceof Error) message.error(e.message);
     }
   }, [form, isNew, editId, createMutation, updateMutation, navigate]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="page-container">
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 16, marginBottom: 16, position: 'sticky', top: 0, zIndex: 10, background: 'var(--color-bg-layout)' }}>
         <div>
           <Button type="text" icon={<ArrowLeftOutlined />} aria-label="返回" onClick={() => navigate('/strategy-dispatch/info')} style={{ marginRight: 8 }} />
@@ -105,7 +146,7 @@ export default function PeriodicStrategyPage() {
             <Form.Item name="table_names" label="指标组(表名)" rules={[{ required: true }]}>
               <Select mode="multiple" placeholder="选择表名" options={availableTables.map(t => ({ label: t, value: t }))} disabled={!isNew} />
             </Form.Item>
-            <Form.Item name="cron_expression" label="采集时间(Crontab)" rules={[{ required: true }]}>
+            <Form.Item name="cron_expression" label="采集时间(Crontab)" rules={[{ required: true, validator: (_, value) => !value || isValidCron(value) ? Promise.resolve() : Promise.reject(new Error('Crontab 格式无效，需 5 段 (分 时 日 月 周)')) }]}>
               <Input placeholder="0 0 * * *" />
             </Form.Item>
             <Form.Item name="agent_ids" label="采集机" rules={[{ required: true }]}>

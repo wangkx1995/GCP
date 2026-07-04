@@ -92,12 +92,13 @@ export default function AgentsPage() {
   const { data: agents, isLoading } = useAgents();
 
   return (
-    <div>
+    <div className="page-container">
       <div className="page-header">
         <h2>采集机管理</h2>
         <p>已注册的采集机（自动注册，无需手动添加）</p>
       </div>
 
+      <div className="page-body">
       <Card className="content-card" styles={{ body: { padding: 0 } }}>
         <Table<AgentInfo>
           className="data-table"
@@ -108,6 +109,7 @@ export default function AgentsPage() {
           pagination={false}
         />
       </Card>
+      </div>
     </div>
   );
 }

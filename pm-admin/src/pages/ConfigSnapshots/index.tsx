@@ -92,7 +92,7 @@ export default function ConfigSnapshotsPage() {
   ];
 
   return (
-    <div>
+    <div className="page-container">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h2>采集适配器管理</h2>
@@ -102,6 +102,7 @@ export default function ConfigSnapshotsPage() {
           上传配置
         </Button>
       </div>
+      <div className="page-body">
       <Card className="content-card" styles={{ body: { padding: 0 } }}>
         <Table
           className="data-table"
@@ -112,6 +113,7 @@ export default function ConfigSnapshotsPage() {
           pagination={false}
         />
       </Card>
+      </div>
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
     </div>
   );

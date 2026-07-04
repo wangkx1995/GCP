@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Card, Button, message, Popconfirm, Tag, Space, Empty } from 'antd';
+import { Table, Card, Button, message, Popconfirm, Tag, Space, Empty, Tooltip } from 'antd';
 import { EditOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useStrategies, useBatchSuspend, useBatchActivate } from '../../api/hooks';
 import type { CollectionStrategy } from '../../types/api';
@@ -37,15 +37,39 @@ export default function StrategyInfoPage() {
     }
   }, [selectedIds, activateMutation, refetch]);
 
+  function fmt(v: string | null | undefined): string {
+    return v ?? '—';
+  }
+
   const columns: ColumnsType<CollectionStrategy> = [
     { title: '策略Id', dataIndex: 'id', key: 'id', width: 70 },
-    { title: '采集单元名称', dataIndex: 'collector_name', key: 'collector_name' },
+    { title: '采集单元', dataIndex: 'collector_name', key: 'collector_name' },
     { title: '表名', dataIndex: 'table_name', key: 'table_name' },
     {
       title: '类型', dataIndex: 'strategy_type', key: 'strategy_type', width: 80,
       render: (v: string) => v === 'immediate' ? <Tag color="blue">及时</Tag> : <Tag color="green">周期</Tag>,
     },
-    { title: 'Crontab', dataIndex: 'cron_expression', key: 'cron_expression' },
+    {
+      title: '采集周期(秒)', dataIndex: 'collect_interval', key: 'collect_interval', width: 100,
+      render: (v: number) => fmt(v?.toString()),
+    },
+    {
+      title: '数据周期(秒)', dataIndex: 'data_interval', key: 'data_interval', width: 100,
+      render: (v: number) => fmt(v?.toString()),
+    },
+    { title: 'Crontab', dataIndex: 'cron_expression', key: 'cron_expression', render: v => fmt(v) },
+    {
+      title: '开始时间', dataIndex: 'data_start_time', key: 'data_start_time', width: 150,
+      render: v => fmt(v),
+    },
+    {
+      title: '结束时间', dataIndex: 'data_end_time', key: 'data_end_time', width: 150,
+      render: v => fmt(v),
+    },
+    {
+      title: '执行时间', dataIndex: 'execute_time', key: 'execute_time', width: 150,
+      render: v => fmt(v),
+    },
     {
       title: '采集机', key: 'agents', width: 160,
       render: (_: unknown, r: CollectionStrategy) => r.agent_ids.join(', '),
@@ -56,19 +80,24 @@ export default function StrategyInfoPage() {
         ? <Tag color="success">可用</Tag>
         : <Tag color="default">挂起</Tag>,
     },
+
     {
-      title: '操作', key: 'action', width: 140,
+      title: '操作', key: 'action', width: 140, fixed: 'right',
       render: (_: unknown, record: CollectionStrategy) => (
         <span onClick={e => e.stopPropagation()}>
-          <Button type="link" size="small" icon={<EditOutlined />} aria-label="编辑"
-            onClick={() => navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`)} />
+          <Tooltip title="编辑">
+            <Button type="link" size="small" icon={<EditOutlined />} aria-label="编辑"
+              onClick={() => navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`)} />
+          </Tooltip>
           {record.status === '可用' ? (
             <Popconfirm title="确认挂起?" onConfirm={async () => {
               await suspendMutation.mutateAsync([record.id]);
               message.success('已挂起');
               refetch();
             }}>
-              <Button type="link" size="small" icon={<PauseCircleOutlined />} aria-label="挂起" />
+              <Tooltip title="挂起">
+                <Button type="link" size="small" icon={<PauseCircleOutlined />} aria-label="挂起" />
+              </Tooltip>
             </Popconfirm>
           ) : (
             <Popconfirm title="确认激活?" onConfirm={async () => {
@@ -76,7 +105,9 @@ export default function StrategyInfoPage() {
               message.success('已激活');
               refetch();
             }}>
-              <Button type="link" size="small" icon={<PlayCircleOutlined />} aria-label="激活" />
+              <Tooltip title="激活">
+                <Button type="link" size="small" icon={<PlayCircleOutlined />} aria-label="激活" />
+              </Tooltip>
             </Popconfirm>
           )}
         </span>
@@ -85,12 +116,13 @@ export default function StrategyInfoPage() {
   ];
 
   return (
-    <div>
+    <div className="page-container">
       <div className="page-header">
         <h2>采集策略信息</h2>
         <p>查看和管理所有采集策略</p>
       </div>
 
+      <div className="page-body">
       <Card
         className="content-card"
         styles={{ body: { padding: 0 } }}
@@ -129,6 +161,7 @@ export default function StrategyInfoPage() {
           })}
         />
       </Card>
+      </div>
     </div>
   );
 }

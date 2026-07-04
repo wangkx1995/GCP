@@ -18,7 +18,7 @@ export default function ResultsPage() {
   });
 
   return (
-    <div>
+    <div className="page-container">
       <div className="page-header">
         <h2>结果网格</h2>
         <p>按策略和日期查看各表采集状态</p>

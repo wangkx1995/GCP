@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Table, Card, Button, message, Popconfirm, Empty } from 'antd';
+import { Table, Card, Button, message, Popconfirm, Empty, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useDataCollectorUnits, useDeleteDataCollectorUnit } from '../../api/hooks';
 import type { DataCollectorUnit } from '../../types/api';
@@ -35,9 +35,13 @@ export default function DataCollectorUnitsPage() {
       title: '操作', key: 'action', width: 120,
       render: (_: unknown, record: DataCollectorUnit) => (
         <span onClick={e => e.stopPropagation()}>
-          <Button type="link" size="small" icon={<EditOutlined />} aria-label="编辑" onClick={() => navigate(`/data-collector-units/${record.id}/edit`)} />
+          <Tooltip title="编辑">
+            <Button type="link" size="small" icon={<EditOutlined />} aria-label="编辑" onClick={() => navigate(`/data-collector-units/${record.id}/edit`)} />
+          </Tooltip>
           <Popconfirm title="确认删除?" onConfirm={() => handleDelete(record.id)}>
-            <Button danger type="link" size="small" icon={<DeleteOutlined />} aria-label="删除" loading={deletingId === record.id} />
+            <Tooltip title="删除">
+              <Button danger type="link" size="small" icon={<DeleteOutlined />} aria-label="删除" loading={deletingId === record.id} />
+            </Tooltip>
           </Popconfirm>
         </span>
       ),
@@ -45,12 +49,13 @@ export default function DataCollectorUnitsPage() {
   ];
 
   return (
-    <div>
+    <div className="page-container">
       <div className="page-header">
         <h2>采集单元管理</h2>
         <p>管理采集单元，绑定适配器、采集机、数据源和调度配置</p>
       </div>
 
+      <div className="page-body">
       <Card
         title="采集单元列表"
         className="content-card"
@@ -77,6 +82,7 @@ export default function DataCollectorUnitsPage() {
           })}
         />
       </Card>
+      </div>
     </div>
   );
 }
