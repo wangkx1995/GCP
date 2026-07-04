@@ -4,12 +4,12 @@ import { Card, Form, Input, InputNumber, Select, Button, message, Divider, Colla
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import {
   useDataCollectorUnits,
-  useNextUnitId,
   useSaveDataCollectorUnit,
   useAgents,
   useConfigNames,
   useTablesForConfig,
 } from '../../api/hooks';
+import { nextUnitId } from '../../api/data-collector-units';
 import type { DataCollectorUnitSaveRequest } from '../../types/api';
 
 function tryParseJson(val: string, fallback: string[]) {
@@ -24,7 +24,6 @@ export default function DataCollectorUnitFormPage() {
 
   const { data: units } = useDataCollectorUnits();
   const { data: agents } = useAgents();
-  const nextIdMutation = useNextUnitId();
   const saveMutation = useSaveDataCollectorUnit();
 
   const [configSearch, setConfigSearch] = useState('');
@@ -47,11 +46,11 @@ export default function DataCollectorUnitFormPage() {
 
   useEffect(() => {
     if (isNew) {
-      nextIdMutation.mutateAsync().then(result => {
+      nextUnitId().then(result => {
         form.setFieldsValue({ id: result.id, collector_interval: 900, data_interval_seconds: 900 });
       });
     }
-  }, []);
+  }, [isNew, form]);
 
   useEffect(() => {
     if (selectedUnit) {
