@@ -1025,6 +1025,16 @@ impl CoreDb {
         }
     }
 
+    pub async fn get_active_snapshot_id_for_config_name(&self, config_name: &str) -> Result<Option<String>> {
+        sqlx::query_scalar(
+            "SELECT config_snapshot_id FROM config_snapshots WHERE name = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1"
+        )
+        .bind(config_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     pub async fn tables_for_config(&self, config_name: &str) -> Result<Vec<String>> {
         tracing::debug!("[db] ==> SELECT DISTINCT ct.table_name FROM config_tables ct INNER JOIN config_snapshots cs ON ct.config_snapshot_id = cs.config_snapshot_id WHERE cs.name = ? AND cs.is_active = 1 ORDER BY ct.table_name");
         let rows: Vec<String> = sqlx::query_scalar(

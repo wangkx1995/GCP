@@ -23,8 +23,8 @@ use crate::core::config_storage::ConfigStorage;
 use crate::core::db::CoreDb;
 use crate::core_agent_api::{
     AgentRegisterRequest, AgentRegisterResponse, BatchStatusRequest, ConfigNamesResponse,
-    CollectionStrategyCreateRequest, CollectionStrategyUpdateRequest,
-    DataCollectorUnitSaveRequest, NextIdResponse,
+    CollectionStrategyCreateRequest, CollectionStrategyRow, CollectionStrategyUpdateRequest,
+    DataCollectorUnitRow, DataCollectorUnitSaveRequest, NextIdResponse,
     TablesResponse, TaskDispatchRequest, TaskDispatchResponse, TaskResultReport,
 };
 
@@ -552,10 +552,46 @@ async fn create_strategies(
     if !["immediate", "periodic"].contains(&req.strategy_type.as_str()) {
         return err_response(StatusCode::BAD_REQUEST, "strategy_type 必须是 immediate 或 periodic").into_response();
     }
-    match state.db.create_strategies(&req).await {
-        Ok(rows) => ok_response(rows, "创建成功").into_response(),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+
+    let rows = match state.db.create_strategies(&req).await {
+        Ok(rows) => rows,
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
+    };
+
+    if req.strategy_type == "immediate" {
+        let unit = match state.db.get_unit_by_id(req.collector_id).await {
+            Ok(Some(u)) => u,
+            Ok(None) => {
+                tracing::warn!("[create_strategies] unit not found for collector_id={}", req.collector_id);
+                return ok_response(rows, "策略已创建，但采集单元不存在").into_response();
+            }
+            Err(e) => {
+                tracing::warn!("[create_strategies] failed to get unit: {e}");
+                return ok_response(rows, &format!("策略已创建，但查询采集单元失败: {e}")).into_response();
+            }
+        };
+        let config_snapshot_id = match state.db.get_active_snapshot_id_for_config_name(&unit.config_name).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::warn!("[create_strategies] no active snapshot for config_name={}", unit.config_name);
+                return ok_response(rows, "策略已创建，但未找到激活的配置快照").into_response();
+            }
+            Err(e) => {
+                tracing::warn!("[create_strategies] failed to get snapshot: {e}");
+                return ok_response(rows, &format!("策略已创建，但查询快照失败: {e}")).into_response();
+            }
+        };
+
+        for row in &rows {
+            match dispatch_for_strategy(&state, row, &unit, &config_snapshot_id).await {
+                Ok(true) => tracing::info!("[create_strategies] dispatched strategy_id={}", row.id),
+                Ok(false) => tracing::warn!("[create_strategies] agent rejected strategy_id={}", row.id),
+                Err(e) => tracing::error!("[create_strategies] dispatch failed for strategy_id={}: {e}", row.id),
+            }
+        }
     }
+
+    ok_response(rows, "创建成功").into_response()
 }
 
 async fn list_strategies(
@@ -618,6 +654,69 @@ async fn batch_activate(
         Ok(count) => ok_response(serde_json::json!({ "affected": count }), &format!("已激活 {count} 条")).into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
     }
+}
+
+async fn dispatch_for_strategy(
+    state: &CoreState,
+    strategy: &CollectionStrategyRow,
+    unit: &DataCollectorUnitRow,
+    config_snapshot_id: &str,
+) -> Result<bool> {
+    let now = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+    let strategy_id = strategy.id.to_string();
+    let scan_start_time = strategy.execute_time.clone()
+        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+    let task_id = format!("task_immediate_{}_{}", strategy_id, now);
+    let collect_id = format!("collect_immediate_{}_{}", strategy_id, now);
+    let logical_task_key = format!("strategy_{}:{}", strategy_id, scan_start_time);
+
+    let request = TaskDispatchRequest {
+        task_id: task_id.clone(),
+        logical_task_key,
+        strategy_id,
+        config_snapshot_id: config_snapshot_id.to_string(),
+        scan_start_time,
+        collect_id,
+        load_type: unit.load_type.clone(),
+        encoding: unit.file_encoding.clone(),
+        output_delimiter: unit.output_delimiter.clone(),
+        timeout_seconds: unit.task_timeout_seconds as u64,
+        callback_base_url: state.callback_base_url.clone(),
+        source_type: unit.source_type.clone(),
+        remote_pattern: unit.remote_pattern.clone(),
+        source_host: unit.host.clone(),
+        source_port: unit.port as u16,
+        source_username: unit.username.clone(),
+        source_password: unit.password.clone(),
+        source_connect_retry: unit.connect_retry as u64,
+        source_download_retry: unit.download_retry as u64,
+        source_download_parallel: unit.download_parallel as u64,
+        source_retry_interval_secs: unit.retry_interval_secs as u64,
+        source_connect_timeout_secs: unit.connect_timeout_secs as u64,
+        source_read_timeout_secs: unit.read_timeout_secs as u64,
+        source_cache_retention_days: unit.cache_retention_days as u64,
+        db_host: unit.db_host.clone(),
+        db_port: unit.db_port as u16,
+        db_user: unit.db_user.clone(),
+        db_password: unit.db_password.clone(),
+        db_database: unit.db_database.clone(),
+        db_table_name_case: unit.db_table_name_case.clone(),
+    };
+
+    let (agent_id, agent_host, agent_port) = state.db.select_online_agent().await?;
+    state.db.create_task(
+        &task_id,
+        &request.logical_task_key,
+        &request.strategy_id,
+        &request.config_snapshot_id,
+        &request.scan_start_time,
+        &request.collect_id,
+        &agent_id,
+    ).await?;
+    let agent_url = format!("http://{agent_host}:{agent_port}/api/tasks");
+    let agent_resp = state.http.post(&agent_url).json(&request).send().await?;
+    let accepted = agent_resp.status().is_success();
+    Ok(accepted)
 }
 
 pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
