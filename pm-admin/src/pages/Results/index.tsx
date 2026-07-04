@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, Select, DatePicker, Radio, Space, Alert, Spin } from 'antd';
 import dayjs from 'dayjs';
 import GridTable from './GridTable';
-import { useGrid } from '../../api/hooks';
-
-const STRATEGIES = ['strategy_1', 'strategy_2'];
+import { useGrid, useStrategies } from '../../api/hooks';
 
 export default function ResultsPage() {
-  const [strategyId, setStrategyId] = useState<string>(STRATEGIES[0]);
+  const { data: strategies } = useStrategies();
+  const strategyOptions = useMemo(() =>
+    (strategies ?? []).map(s => ({ value: s.id.toString(), label: `${s.table_name} (ID: ${s.id})` })),
+    [strategies],
+  );
+  const [strategyId, setStrategyId] = useState<string>('');
   const [day, setDay] = useState(dayjs().format('YYYY-MM-DD'));
   const [interval, setInterval] = useState(15);
 
@@ -30,9 +33,13 @@ export default function ResultsPage() {
             <Select
               value={strategyId}
               onChange={setStrategyId}
-              options={STRATEGIES.map(s => ({ value: s, label: s }))}
-              style={{ width: 200 }}
+              options={strategyOptions}
+              style={{ width: 240 }}
               placeholder="选择策略"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
             />
           </div>
           <div>
