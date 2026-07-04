@@ -39,6 +39,7 @@ export default function DataCollectorUnitFormPage() {
 
   const [form] = Form.useForm();
   const watchedConfigName = Form.useWatch('config_name', form);
+  const watchedUnitName = Form.useWatch('unit_name', form);
   const { data: tablesData } = useTablesForConfig(watchedConfigName);
   const availableTables = tablesData?.tables ?? [];
 
@@ -100,14 +101,32 @@ export default function DataCollectorUnitFormPage() {
     }
   }, [form, saveMutation, navigate]);
 
-  return (
-    <div>
-      <div className="page-header" style={{ position: 'sticky', top: 0, zIndex: 10, background: '#F1F5F9', paddingBottom: 12, marginBottom: 16 }}>
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
-        <h2 style={{ display: 'inline' }}>{isNew ? '新建采集单元' : `编辑采集单元 #${editId}`}</h2>
+return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingBottom: 16,
+        marginBottom: 16,
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        background: '#F1F5F9',
+      }}>
+        <div>
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
+          <h2 style={{ display: 'inline' }}>{isNew ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`}</h2>
+        </div>
+        <div>
+          <Button onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }}>取消</Button>
+          <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>保存</Button>
+        </div>
       </div>
 
-      <Card className="content-card">
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <Card className="content-card">
           <Form form={form} layout="vertical" initialValues={{ collector_interval: 900, data_interval_seconds: 900 }}>
             <Form.Item name="id" hidden><InputNumber /></Form.Item>
 
@@ -174,13 +193,9 @@ export default function DataCollectorUnitFormPage() {
                 ),
               }]}
             />
-
-            <div style={{ textAlign: 'right', marginTop: 24 }}>
-              <Button onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }}>取消</Button>
-              <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>保存</Button>
-            </div>
           </Form>
         </Card>
+      </div>
     </div>
   );
 }
