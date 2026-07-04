@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, Form, Input, InputNumber, Select, Button, message, Divider, Collapse, Spin } from 'antd';
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import {
@@ -18,10 +18,9 @@ function tryParseJson(val: string, fallback: string[]) {
 export default function DataCollectorUnitFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const isNew = id === 'create';
+  const location = useLocation();
+  const isNew = location.pathname.endsWith('/create');
   const editId = isNew ? null : (id ? Number(id) : null);
-
-  console.log('FormPage: id=', id, 'isNew=', isNew, 'editId=', editId);
 
   const { data: units } = useDataCollectorUnits();
   const { data: agents } = useAgents();
