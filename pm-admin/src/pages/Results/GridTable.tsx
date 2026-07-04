@@ -31,6 +31,9 @@ export default function GridTable({ grid, loading }: Props) {
         }
 
         const info = GRID_COLORS[cell.color];
+        if (cell.color === 'none') {
+          return <div className="grid-cell" style={{ background: 'transparent', color: '#e2e8f0' }}>-</div>;
+        }
         return (
           <Tooltip
             title={

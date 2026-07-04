@@ -105,8 +105,8 @@ export interface TableGridRow {
 export interface GridCell {
   data_time: string;
   value: number | null;
-  color: 'green' | 'yellow' | 'red' | 'gray';
-  status: 'ok' | 'empty' | 'failed' | 'missing';
+  color: 'green' | 'yellow' | 'red' | 'gray' | 'none';
+  status: 'ok' | 'empty' | 'failed' | 'missing' | 'future';
 }
 
 export interface GridQuery {

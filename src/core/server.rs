@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::Timelike;
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -347,6 +348,18 @@ async fn result_grid(
         "[core] result_grid strategy_id={} day={} interval={:?}",
         query.strategy_id, query.day, query.interval_minutes
     );
+
+    let interval_from_query = query.interval_minutes.unwrap_or(15);
+    let strategy_id: i64 = query.strategy_id.parse().unwrap_or(0);
+    let interval = match state.db.get_strategy(strategy_id).await {
+        Ok(Some(s)) => {
+            let mins = (s.collect_interval.max(60) as u32) / 60;
+            info!("[core] result_grid using strategy collect_interval={}s ({}min)", s.collect_interval, mins);
+            mins
+        }
+        _ => interval_from_query,
+    };
+
     match state.db.result_rows_for_day(&query.strategy_id, &query.day).await {
         Ok(rows) => {
             info!("[core] result_grid found {} rows", rows.len());
@@ -356,12 +369,29 @@ async fn result_grid(
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
                 .collect::<Vec<_>>();
-            let grid = crate::core::grid::build_daily_grid(
+            let mut grid = crate::core::grid::build_daily_grid(
                 &query.day,
-                query.interval_minutes.unwrap_or(15),
+                interval,
                 &expected_tables,
                 &rows,
             );
+
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            if query.day == today {
+                let now = chrono::Local::now();
+                let total_minutes = now.hour() as u32 * 60 + now.minute() as u32;
+                let cutoff = total_minutes.saturating_sub(interval as u32);
+                let cutoff_str = format!("{:02}:{:02}:00", cutoff / 60, cutoff % 60);
+                for row in &mut grid.rows {
+                    for cell in &mut row.cells {
+                        if cell.color == "gray" && &cell.data_time[11..] > cutoff_str.as_str() {
+                            cell.color = "none".to_string();
+                            cell.status = "future".to_string();
+                        }
+                    }
+                }
+            }
+
             ok_response(grid, "获取结果成功").into_response()
         }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
@@ -664,7 +694,7 @@ async fn dispatch_for_strategy(
 ) -> Result<bool> {
     let now = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
     let strategy_id = strategy.id.to_string();
-    let scan_start_time = strategy.execute_time.clone()
+    let scan_start_time = strategy.data_start_time.clone()
         .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
     let task_id = format!("task_immediate_{}_{}", strategy_id, now);
     let collect_id = format!("collect_immediate_{}_{}", strategy_id, now);
