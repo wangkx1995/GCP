@@ -37,7 +37,9 @@ export default function App() {
               <Route path="/strategy-dispatch" element={<Navigate to="/strategy-dispatch/info" />} />
               <Route path="/strategy-dispatch/info" element={<StrategyInfoPage />} />
               <Route path="/strategy-dispatch/immediate" element={<ImmediateStrategyPage />} />
+              <Route path="/strategy-dispatch/immediate/:id/edit" element={<ImmediateStrategyPage />} />
               <Route path="/strategy-dispatch/periodic" element={<PeriodicStrategyPage />} />
+              <Route path="/strategy-dispatch/periodic/:id/edit" element={<PeriodicStrategyPage />} />
               <Route path="/results/grid" element={<ResultsPage />} />
             </Route>
           </Routes>
