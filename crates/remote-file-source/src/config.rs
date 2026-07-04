@@ -5,49 +5,49 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct SourceConfig {
-    pub(crate) source: SourceSection,
+pub struct SourceConfig {
+    pub source: SourceSection,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct SourceSection {
+pub struct SourceSection {
     #[serde(rename = "type")]
-    pub(crate) kind: SourceKind,
-    pub(crate) download_dir: PathBuf,
-    pub(crate) remote_pattern: String,
+    pub kind: SourceKind,
+    pub download_dir: PathBuf,
+    pub remote_pattern: String,
     #[serde(default = "default_cache_retention_days")]
-    pub(crate) cache_retention_days: u64,
+    pub cache_retention_days: u64,
     #[serde(default = "default_retry")]
-    pub(crate) connect_retry: usize,
+    pub connect_retry: usize,
     #[serde(default = "default_retry")]
-    pub(crate) download_retry: usize,
+    pub download_retry: usize,
     #[serde(default = "default_download_parallel")]
-    pub(crate) download_parallel: usize,
+    pub download_parallel: usize,
     #[serde(default = "default_retry_interval_secs")]
-    pub(crate) retry_interval_secs: u64,
+    pub retry_interval_secs: u64,
     #[serde(default = "default_connect_timeout_secs")]
-    pub(crate) connect_timeout_secs: u64,
+    pub connect_timeout_secs: u64,
     #[serde(default = "default_read_timeout_secs")]
-    pub(crate) read_timeout_secs: u64,
-    pub(crate) connection: ConnectionConfig,
+    pub read_timeout_secs: u64,
+    pub connection: ConnectionConfig,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum SourceKind {
+pub enum SourceKind {
     Ftp,
     Sftp,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct ConnectionConfig {
-    pub(crate) host: String,
-    pub(crate) port: u16,
-    pub(crate) username: String,
-    pub(crate) password: String,
+pub struct ConnectionConfig {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
 }
 
-pub(crate) fn load_source_config(path: &Path) -> Result<SourceConfig> {
+pub fn load_source_config(path: &Path) -> Result<SourceConfig> {
     let text = fs::read_to_string(path)
         .with_context(|| format!("failed to read source config: {}", path.display()))?;
     let config: SourceConfig = toml::from_str(&text)

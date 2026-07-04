@@ -65,11 +65,15 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
     crate::tpd::validate_streaming_rules(&rules)?;
     let dest_tables_by_source = dest_tables_by_source_table(&rules);
 
+    let source_config = match &options.source_config {
+        Some(path) => Some(remote_file_source::config::load_source_config(path)?),
+        None => None,
+    };
     let routed_inputs = remote_file_source::resolve_routed_files_with_router(
         remote_file_source::ResolveOptions {
             local_input: options.input,
             recursive: options.recursive,
-            source_config: options.source_config,
+            source_config,
             scan_start_time: options.scan_start_time,
         },
         |remote_file| route_remote_file(remote_file, &ctx, &dest_tables_by_source),
