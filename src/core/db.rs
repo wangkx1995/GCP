@@ -961,7 +961,6 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found or not active"));
 
-        use crate::core_agent_api::RuleFile;
         db.insert_config_snapshot(&ConfigSnapshotResponse {
             config_snapshot_id: "v_test".to_string(),
             content_hash: "sha256:test".to_string(),
