@@ -29,8 +29,8 @@ export default function App() {
               <Route path="/config-snapshots" element={<ConfigSnapshotsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/data-collector-units" element={<DataCollectorUnitsPage />} />
-              <Route path="/data-collector-units/new" element={<DataCollectorUnitFormPage />} />
-              <Route path="/data-collector-units/:id" element={<DataCollectorUnitFormPage />} />
+              <Route path="/data-collector-units/create" element={<DataCollectorUnitFormPage />} />
+              <Route path="/data-collector-units/:id/edit" element={<DataCollectorUnitFormPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/strategy-dispatch" element={<StrategyDispatchPage />} />
               <Route path="/results/grid" element={<ResultsPage />} />

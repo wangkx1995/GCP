@@ -19,7 +19,7 @@ function tryParseJson(val: string, fallback: string[]) {
 export default function DataCollectorUnitFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const isNew = id === 'new';
+  const isNew = id === 'create';
   const editId = isNew ? null : (id ? Number(id) : null);
 
   const { data: units } = useDataCollectorUnits();

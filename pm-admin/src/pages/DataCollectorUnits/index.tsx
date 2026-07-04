@@ -35,7 +35,7 @@ export default function DataCollectorUnitsPage() {
       title: '操作', key: 'action', width: 120,
       render: (_: unknown, record: DataCollectorUnit) => (
         <span onClick={e => e.stopPropagation()}>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/data-collector-units/${record.id}`)} />
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/data-collector-units/${record.id}/edit`)} />
           <Popconfirm title="确认删除?" onConfirm={() => handleDelete(record.id)}>
             <Button danger type="link" size="small" icon={<DeleteOutlined />} loading={deleteMutation.isPending} />
           </Popconfirm>
@@ -56,7 +56,7 @@ export default function DataCollectorUnitsPage() {
         className="content-card"
         styles={{ body: { padding: 0 } }}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/data-collector-units/new')}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/data-collector-units/create')}>
             新建
           </Button>
         }
@@ -71,7 +71,7 @@ export default function DataCollectorUnitsPage() {
           size="small"
           scroll={{ x: 'max-content' }}
           onRow={(record) => ({
-            onClick: () => navigate(`/data-collector-units/${record.id}`),
+            onClick: () => navigate(`/data-collector-units/${record.id}/edit`),
             style: { cursor: 'pointer' },
           })}
         />
