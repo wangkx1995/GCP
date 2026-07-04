@@ -107,13 +107,25 @@ pub struct ConfigUpdateRequest {
     pub content_hash: String,
 }
 
+fn serialize_json_string<S>(value: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match serde_json::from_str::<serde_json::Value>(value) {
+        Ok(v) => serde_json::Value::serialize(&v, serializer),
+        Err(_) => serializer.serialize_str(value),
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DataCollectorUnitRow {
     pub id: i64,
     pub unit_name: String,
     pub config_name: String,
     pub config_version: String,
+    #[serde(serialize_with = "serialize_json_string")]
     pub table_names: String,
+    #[serde(serialize_with = "serialize_json_string")]
     pub agent_ids: String,
     pub data_interval_seconds: i64,
     pub collector_interval: i64,
@@ -159,6 +171,58 @@ pub struct DataCollectorUnitSaveRequest {
     pub connect_timeout_secs: Option<i64>,
     pub read_timeout_secs: Option<i64>,
     pub cache_retention_days: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CollectionStrategyRow {
+    pub id: i64,
+    pub collector_name: String,
+    pub collector_id: i64,
+    pub table_name: String,
+    pub status: String,
+    pub cron_expression: String,
+    pub collect_interval: i64,
+    pub data_interval: i64,
+    pub data_start_time: Option<String>,
+    pub data_end_time: Option<String>,
+    pub execute_time: Option<String>,
+    #[serde(serialize_with = "serialize_json_string")]
+    pub agent_ids: String,
+    pub strategy_type: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CollectionStrategyCreateRequest {
+    pub collector_id: i64,
+    pub collector_name: String,
+    pub table_names: Vec<String>,
+    pub cron_expression: Option<String>,
+    pub collect_interval: i64,
+    pub data_interval: i64,
+    pub data_start_time: Option<String>,
+    pub data_end_time: Option<String>,
+    pub execute_time: Option<String>,
+    pub agent_ids: String,
+    pub strategy_type: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CollectionStrategyUpdateRequest {
+    pub cron_expression: Option<String>,
+    pub collect_interval: Option<i64>,
+    pub data_interval: Option<i64>,
+    pub data_start_time: Option<String>,
+    pub data_end_time: Option<String>,
+    pub execute_time: Option<String>,
+    pub agent_ids: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BatchStatusRequest {
+    pub ids: Vec<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
