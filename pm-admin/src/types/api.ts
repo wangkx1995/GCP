@@ -158,6 +158,14 @@ export interface DataCollectorUnit {
   connect_timeout_secs: number;
   read_timeout_secs: number;
   cache_retention_days: number;
+  load_type: string;
+  output_delimiter: string;
+  db_host: string;
+  db_port: number;
+  db_user: string;
+  db_password: string;
+  db_database: string;
+  db_table_name_case: string;
   created_at: string;
   updated_at: string;
 }
@@ -184,6 +192,14 @@ export interface DataCollectorUnitSaveRequest {
   connect_timeout_secs?: number;
   read_timeout_secs?: number;
   cache_retention_days?: number;
+  load_type?: string;
+  output_delimiter?: string;
+  db_host?: string;
+  db_port?: number;
+  db_user?: string;
+  db_password?: string;
+  db_database?: string;
+  db_table_name_case?: string;
 }
 
 export interface NextIdResponse {

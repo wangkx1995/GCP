@@ -94,17 +94,28 @@ export default function DataCollectorUnitFormPage() {
         connect_timeout_secs: values.connect_timeout_secs,
         read_timeout_secs: values.read_timeout_secs,
         cache_retention_days: values.cache_retention_days,
+        load_type: values.load_type,
+        output_delimiter: values.output_delimiter,
+        db_host: values.db_host,
+        db_port: values.db_port,
+        db_user: values.db_user,
+        db_password: values.db_password || undefined,
+        db_database: values.db_database,
+        db_table_name_case: values.db_table_name_case,
       };
       await saveMutation.mutateAsync({ id: values.id, data });
       message.success('保存成功');
       navigate('/data-collector-units');
     } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) {
+        return;
+      }
       if (e instanceof Error) message.error(e.message);
     }
   }, [form, saveMutation, navigate]);
 
 return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="page-container">
       <div style={{
         flexShrink: 0,
         display: 'flex',
@@ -144,6 +155,9 @@ return (
             file_encoding: 'UTF-8',
             source_type: 'sftp',
             port: 22,
+            load_type: 'clickhouse',
+            output_delimiter: '|',
+            db_table_name_case: 'lower',
           }}>
             <Form.Item name="id" hidden><InputNumber /></Form.Item>
 
@@ -170,6 +184,60 @@ return (
               <div style={{ flex: 1 }}><Form.Item name="data_interval_seconds" label="数据周期(秒)"><InputNumber style={{ width: '100%' }} min={60} placeholder="900" /></Form.Item></div>
               <div style={{ flex: 1 }}><Form.Item name="collector_interval" label="采集周期(秒)"><InputNumber style={{ width: '100%' }} min={60} placeholder="900" /></Form.Item></div>
               <div style={{ flex: 1 }}><Form.Item name="task_timeout_seconds" label="任务超时(秒)"><InputNumber style={{ width: '100%' }} min={60} placeholder="3600" /></Form.Item></div>
+            </div>
+
+            <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>入库配置</Divider>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <div style={{ flex: 1 }}>
+                <Form.Item name="load_type" label="入库类型" rules={[{ required: true }]}>
+                  <Select options={[
+                    { value: 'clickhouse', label: 'ClickHouse' },
+                    { value: 'postgresql', label: 'PostgreSQL' },
+                  ]} />
+                </Form.Item>
+              </div>
+              <div style={{ flex: 1 }}>
+                <Form.Item name="output_delimiter" label="输出分隔符" rules={[{ required: true }]}>
+                  <Select options={[
+                    { value: '|', label: '竖线 |' },
+                    { value: ',', label: '逗号 ,' },
+                    { value: '\t', label: '制表符 \\t' },
+                  ]} />
+                </Form.Item>
+              </div>
+              <div style={{ flex: 1 }}>
+                <Form.Item name="db_table_name_case" label="表名大小写" initialValue="lower">
+                  <Select options={[
+                    { value: 'lower', label: '小写' },
+                    { value: 'upper', label: '大写' },
+                  ]} />
+                </Form.Item>
+              </div>
+            </div>
+            <Form.Item name="db_host" label="数据库地址" rules={[{ required: true }]}>
+              <Input placeholder="127.0.0.1" />
+            </Form.Item>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <div style={{ width: 120 }}>
+                <Form.Item name="db_port" label="端口" rules={[{ required: true }]}>
+                  <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="9000" />
+                </Form.Item>
+              </div>
+              <div style={{ flex: 1 }}>
+                <Form.Item name="db_user" label="数据库用户" rules={[{ required: true }]}>
+                  <Input placeholder="default" />
+                </Form.Item>
+              </div>
+              <div style={{ flex: 1 }}>
+                <Form.Item name="db_password" label="数据库密码">
+                  <Input.Password placeholder="可选" />
+                </Form.Item>
+              </div>
+              <div style={{ flex: 1 }}>
+                <Form.Item name="db_database" label="数据库名" rules={[{ required: true }]}>
+                  <Input placeholder="default" />
+                </Form.Item>
+              </div>
             </div>
 
             <Divider titlePlacement="left" style={{ fontSize: 14, fontWeight: 600 }}>数据源</Divider>
