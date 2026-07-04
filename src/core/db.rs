@@ -5,8 +5,9 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 
 use crate::core_agent_api::{
-    AgentCapabilities, AgentInfo, AgentRegisterRequest, AgentStatus, ConfigNameItem,
-    ConfigSnapshotMeta, ConfigSnapshotResponse, DataCollectorUnitRow,
+    AgentCapabilities, AgentInfo, AgentRegisterRequest, AgentStatus,
+    CollectionStrategyCreateRequest, CollectionStrategyRow, CollectionStrategyUpdateRequest,
+    ConfigNameItem, ConfigSnapshotMeta, ConfigSnapshotResponse, DataCollectorUnitRow,
     DataCollectorUnitSaveRequest, OnlineAgent, ResultRow, TaskResultReport, TaskStatus,
 };
 
@@ -168,6 +169,29 @@ impl CoreDb {
                 connect_timeout_secs INTEGER NOT NULL DEFAULT 30,
                 read_timeout_secs INTEGER NOT NULL DEFAULT 300,
                 cache_retention_days INTEGER NOT NULL DEFAULT 7,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS collection_strategy (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                collector_name TEXT NOT NULL,
+                collector_id INTEGER NOT NULL,
+                table_name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT '可用',
+                cron_expression TEXT NOT NULL DEFAULT '',
+                collect_interval INTEGER NOT NULL,
+                data_interval INTEGER NOT NULL,
+                data_start_time TEXT,
+                data_end_time TEXT,
+                execute_time TEXT,
+                agent_ids TEXT NOT NULL DEFAULT '[]',
+                strategy_type TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -424,7 +448,16 @@ impl CoreDb {
         .bind(snapshot_id)
         .execute(&self.pool)
         .await?;
-        self.get_config_snapshot(snapshot_id).await?.ok_or_else(|| anyhow::anyhow!("snapshot {snapshot_id} not found"))
+        let meta = self.get_config_snapshot(snapshot_id).await?.ok_or_else(|| anyhow::anyhow!("snapshot {snapshot_id} not found"))?;
+        if let Some(ref name) = meta.name {
+            sqlx::query("UPDATE data_collector_unit SET config_version = ? WHERE config_name = ? AND config_version != ?")
+                .bind(&meta.config_snapshot_id)
+                .bind(name)
+                .bind(&meta.config_snapshot_id)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(meta)
     }
 
     pub async fn create_task(
@@ -600,6 +633,193 @@ impl CoreDb {
         .fetch_one(&self.pool)
         .await?;
         Ok(row.0)
+    }
+
+    pub async fn next_strategy_id(&self) -> Result<i64> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(MAX(id), 0) + 1 FROM collection_strategy",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
+    }
+
+    pub async fn create_strategies(
+        &self,
+        req: &CollectionStrategyCreateRequest,
+    ) -> Result<Vec<CollectionStrategyRow>> {
+        let now = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        for table_name in &req.table_names {
+            sqlx::query(
+                "INSERT INTO collection_strategy (collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at) VALUES (?, ?, ?, '可用', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(&req.collector_name)
+            .bind(req.collector_id)
+            .bind(table_name)
+            .bind(req.cron_expression.as_deref().unwrap_or(""))
+            .bind(req.collect_interval)
+            .bind(req.data_interval)
+            .bind(&req.data_start_time)
+            .bind(&req.data_end_time)
+            .bind(&req.execute_time)
+            .bind(&req.agent_ids)
+            .bind(&req.strategy_type)
+            .bind(&now)
+            .bind(&now)
+            .execute(&self.pool)
+            .await?;
+        }
+        let ids: Vec<i64> = sqlx::query_scalar(
+            "SELECT id FROM collection_strategy ORDER BY id DESC LIMIT ?",
+        )
+        .bind(req.table_names.len() as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut rows = Vec::new();
+        for id in ids.iter().rev() {
+            rows.push(self.get_strategy(*id).await?.unwrap());
+        }
+        Ok(rows)
+    }
+
+    pub async fn get_strategy(&self, id: i64) -> Result<Option<CollectionStrategyRow>> {
+        let row = sqlx::query_as::<_, CollectionStrategyRow>(
+            "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    pub async fn list_strategies(
+        &self,
+        collector_name: Option<&str>,
+        strategy_type: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<Vec<CollectionStrategyRow>> {
+        let collector_name = collector_name.map(|s| format!("%{}%", s));
+        let strategy_type = strategy_type.map(|s| s.to_string());
+        let status = status.map(|s| s.to_string());
+
+        let mut sql = String::from(
+            "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE 1=1",
+        );
+        if collector_name.is_some() {
+            sql.push_str(" AND collector_name LIKE ?");
+        }
+        if strategy_type.is_some() {
+            sql.push_str(" AND strategy_type = ?");
+        }
+        if status.is_some() {
+            sql.push_str(" AND status = ?");
+        }
+        sql.push_str(" ORDER BY id DESC");
+
+        let mut query = sqlx::query_as::<_, CollectionStrategyRow>(&sql);
+        if let Some(ref v) = collector_name {
+            query = query.bind(v);
+        }
+        if let Some(ref v) = strategy_type {
+            query = query.bind(v);
+        }
+        if let Some(ref v) = status {
+            query = query.bind(v);
+        }
+        let rows = query.fetch_all(&self.pool).await?;
+        Ok(rows)
+    }
+
+    pub async fn update_strategy(
+        &self,
+        id: i64,
+        req: &CollectionStrategyUpdateRequest,
+    ) -> Result<bool> {
+        let now = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        let mut sql = String::from("UPDATE collection_strategy SET updated_at = ?");
+        let mut values: Vec<String> = vec![now];
+
+        if let Some(ref v) = req.cron_expression {
+            sql.push_str(", cron_expression = ?");
+            values.push(v.clone());
+        }
+        if let Some(v) = req.collect_interval {
+            sql.push_str(", collect_interval = ?");
+            values.push(v.to_string());
+        }
+        if let Some(v) = req.data_interval {
+            sql.push_str(", data_interval = ?");
+            values.push(v.to_string());
+        }
+        if let Some(ref v) = req.data_start_time {
+            sql.push_str(", data_start_time = ?");
+            values.push(v.clone());
+        }
+        if let Some(ref v) = req.data_end_time {
+            sql.push_str(", data_end_time = ?");
+            values.push(v.clone());
+        }
+        if let Some(ref v) = req.execute_time {
+            sql.push_str(", execute_time = ?");
+            values.push(v.clone());
+        }
+        if let Some(ref v) = req.agent_ids {
+            sql.push_str(", agent_ids = ?");
+            values.push(v.clone());
+        }
+        if let Some(ref v) = req.status {
+            sql.push_str(", status = ?");
+            values.push(v.clone());
+        }
+        sql.push_str(" WHERE id = ?");
+        values.push(id.to_string());
+
+        let mut query = sqlx::query(&sql);
+        for v in values {
+            query = query.bind(v);
+        }
+        let result = query.execute(&self.pool).await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn batch_suspend(&self, ids: &[i64]) -> Result<usize> {
+        let now = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        let mut count = 0;
+        for id in ids {
+            let r = sqlx::query(
+                "UPDATE collection_strategy SET status = '挂起', updated_at = ? WHERE id = ?",
+            )
+            .bind(&now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+            count += r.rows_affected() as usize;
+        }
+        Ok(count)
+    }
+
+    pub async fn batch_activate(&self, ids: &[i64]) -> Result<usize> {
+        let now = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        let mut count = 0;
+        for id in ids {
+            let r = sqlx::query(
+                "UPDATE collection_strategy SET status = '可用', updated_at = ? WHERE id = ?",
+            )
+            .bind(&now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+            count += r.rows_affected() as usize;
+        }
+        Ok(count)
     }
 
     pub async fn list_data_collector_units(&self) -> Result<Vec<DataCollectorUnitRow>> {
