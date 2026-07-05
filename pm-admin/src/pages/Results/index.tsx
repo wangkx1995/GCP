@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Card, Select, DatePicker, Radio, Space, Alert, Spin } from 'antd';
+import { Card, Select, DatePicker, Space, Alert, Spin } from 'antd';
 import dayjs from 'dayjs';
 import GridTable from './GridTable';
 import { useGrid, useStrategies } from '../../api/hooks';
@@ -12,12 +12,10 @@ export default function ResultsPage() {
   );
   const [strategyId, setStrategyId] = useState<string>('');
   const [day, setDay] = useState(dayjs().format('YYYY-MM-DD'));
-  const [interval, setInterval] = useState(15);
 
   const { data: grid, isLoading, isError } = useGrid({
     strategy_id: strategyId,
     day,
-    interval_minutes: interval,
   });
 
   return (
@@ -48,19 +46,6 @@ export default function ResultsPage() {
               value={dayjs(day)}
               onChange={d => d && setDay(d.format('YYYY-MM-DD'))}
               allowClear={false}
-            />
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 500 }}>时间间隔</div>
-            <Radio.Group
-              value={interval}
-              onChange={e => setInterval(e.target.value)}
-              optionType="button"
-              options={[
-                { value: 15, label: '15min' },
-                { value: 30, label: '30min' },
-                { value: 60, label: '60min' },
-              ]}
             />
           </div>
         </Space>

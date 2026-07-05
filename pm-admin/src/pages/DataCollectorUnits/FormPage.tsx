@@ -59,7 +59,7 @@ export default function DataCollectorUnitFormPage() {
 
   useEffect(() => {
     if (selectedUnit) {
-      form.setFieldsValue({ ...selectedUnit, password: undefined });
+      form.setFieldsValue({ ...selectedUnit, password: undefined, db_password: undefined });
     }
   }, [selectedUnit, form]);
 
@@ -99,7 +99,7 @@ export default function DataCollectorUnitFormPage() {
         db_host: values.db_host,
         db_port: values.db_port,
         db_user: values.db_user,
-        db_password: values.db_password || undefined,
+        db_password: values.db_password,
         db_database: values.db_database,
         db_table_name_case: values.db_table_name_case,
       };

@@ -653,6 +653,11 @@ async fn update_strategy(
     Path(id): Path<i64>,
     Json(req): Json<CollectionStrategyUpdateRequest>,
 ) -> Response {
+    if let Ok(Some(s)) = state.db.get_strategy(id).await {
+        if s.strategy_type == "immediate" {
+            return err_response(StatusCode::BAD_REQUEST, "一次性任务不可编辑").into_response();
+        }
+    }
     match state.db.update_strategy(id, &req).await {
         Ok(true) => ok_response(serde_json::json!({}), "更新成功").into_response(),
         Ok(false) => err_response(StatusCode::NOT_FOUND, "策略不存在").into_response(),
@@ -667,6 +672,13 @@ async fn batch_suspend(
     if req.ids.is_empty() {
         return err_response(StatusCode::BAD_REQUEST, "ids 不能为空").into_response();
     }
+    for &id in &req.ids {
+        if let Ok(Some(s)) = state.db.get_strategy(id).await {
+            if s.strategy_type == "immediate" {
+                return err_response(StatusCode::BAD_REQUEST, format!("一次性任务不可挂起 (ID: {})", id)).into_response();
+            }
+        }
+    }
     match state.db.batch_suspend(&req.ids).await {
         Ok(count) => ok_response(serde_json::json!({ "affected": count }), &format!("已挂起 {count} 条")).into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
@@ -679,6 +691,13 @@ async fn batch_activate(
 ) -> Response {
     if req.ids.is_empty() {
         return err_response(StatusCode::BAD_REQUEST, "ids 不能为空").into_response();
+    }
+    for &id in &req.ids {
+        if let Ok(Some(s)) = state.db.get_strategy(id).await {
+            if s.strategy_type == "immediate" {
+                return err_response(StatusCode::BAD_REQUEST, format!("一次性任务不可激活 (ID: {})", id)).into_response();
+            }
+        }
     }
     match state.db.batch_activate(&req.ids).await {
         Ok(count) => ok_response(serde_json::json!({ "affected": count }), &format!("已激活 {count} 条")).into_response(),

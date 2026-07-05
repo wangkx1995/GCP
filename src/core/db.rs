@@ -954,6 +954,21 @@ impl CoreDb {
             None => String::new(),
         };
 
+        let db_password = match &data.db_password {
+            Some(p) if p.is_empty() || p == "******" => {
+                let existing: String = sqlx::query_scalar::<_, String>(
+                    "SELECT db_password FROM data_collector_unit WHERE id = ?",
+                )
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
+                .unwrap_or_default();
+                existing
+            }
+            Some(p) => p.clone(),
+            None => String::new(),
+        };
+
         let config_version: String = sqlx::query_scalar(
             "SELECT config_snapshot_id FROM config_snapshots WHERE name = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1",
         )
@@ -1014,7 +1029,7 @@ impl CoreDb {
         .bind(data.db_host.as_deref().unwrap_or(""))
         .bind(data.db_port.unwrap_or(9000))
         .bind(data.db_user.as_deref().unwrap_or(""))
-        .bind(data.db_password.as_deref().unwrap_or(""))
+        .bind(&db_password)
         .bind(data.db_database.as_deref().unwrap_or(""))
         .bind(data.db_table_name_case.as_deref().unwrap_or("lower"))
         .bind(&created_at)

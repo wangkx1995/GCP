@@ -85,30 +85,36 @@ export default function StrategyInfoPage() {
       title: '操作', key: 'action', width: 140, fixed: 'right',
       render: (_: unknown, record: CollectionStrategy) => (
         <span onClick={e => e.stopPropagation()}>
-          <Tooltip title="编辑">
-            <Button type="link" size="small" icon={<EditOutlined />} aria-label="编辑"
-              onClick={() => navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`)} />
-          </Tooltip>
-          {record.status === '可用' ? (
-            <Popconfirm title="确认挂起?" onConfirm={async () => {
-              await suspendMutation.mutateAsync([record.id]);
-              message.success('已挂起');
-              refetch();
-            }}>
-              <Tooltip title="挂起">
-                <Button type="link" size="small" icon={<PauseCircleOutlined />} aria-label="挂起" />
-              </Tooltip>
-            </Popconfirm>
+          {record.strategy_type === 'immediate' ? (
+            <span style={{ color: '#94a3b8', fontSize: 12 }}>一次性任务</span>
           ) : (
-            <Popconfirm title="确认激活?" onConfirm={async () => {
-              await activateMutation.mutateAsync([record.id]);
-              message.success('已激活');
-              refetch();
-            }}>
-              <Tooltip title="激活">
-                <Button type="link" size="small" icon={<PlayCircleOutlined />} aria-label="激活" />
+            <>
+              <Tooltip title="编辑">
+                <Button type="link" size="small" icon={<EditOutlined />} aria-label="编辑"
+                  onClick={() => navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`)} />
               </Tooltip>
-            </Popconfirm>
+              {record.status === '可用' ? (
+                <Popconfirm title="确认挂起?" onConfirm={async () => {
+                  await suspendMutation.mutateAsync([record.id]);
+                  message.success('已挂起');
+                  refetch();
+                }}>
+                  <Tooltip title="挂起">
+                    <Button type="link" size="small" icon={<PauseCircleOutlined />} aria-label="挂起" />
+                  </Tooltip>
+                </Popconfirm>
+              ) : (
+                <Popconfirm title="确认激活?" onConfirm={async () => {
+                  await activateMutation.mutateAsync([record.id]);
+                  message.success('已激活');
+                  refetch();
+                }}>
+                  <Tooltip title="激活">
+                    <Button type="link" size="small" icon={<PlayCircleOutlined />} aria-label="激活" />
+                  </Tooltip>
+                </Popconfirm>
+              )}
+            </>
           )}
         </span>
       ),
@@ -154,10 +160,15 @@ export default function StrategyInfoPage() {
           rowSelection={{
             selectedRowKeys: selectedIds,
             onChange: (keys) => setSelectedIds(keys as number[]),
+            getCheckboxProps: (record) => ({ disabled: record.strategy_type === 'immediate' }),
           }}
           onRow={(record) => ({
-            onClick: () => navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`),
-            style: { cursor: 'pointer' },
+            onClick: () => {
+              if (record.strategy_type !== 'immediate') {
+                navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`);
+              }
+            },
+            style: { cursor: record.strategy_type === 'immediate' ? 'default' : 'pointer' },
           })}
         />
       </Card>
