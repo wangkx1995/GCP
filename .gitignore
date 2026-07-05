@@ -17,5 +17,6 @@ core.db
 .superpowers/
 test/core.db
 test/agent_data/config_snapshots/
+test/agent_data/tasks/
 test/config_storage/
 
