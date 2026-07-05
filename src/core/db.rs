@@ -621,8 +621,11 @@ impl CoreDb {
                     tn,
                     strategy_id
                 );
+                let is_failure = terminal_status == "FAILED" || terminal_status == "TIMEOUT" || terminal_status == "CANCELLED";
+                let success = if is_failure { 0i64 } else { 1i64 };
+                let cell_status = if is_failure { "FAILED" } else { "SUCCEEDED" };
                 sqlx::query(
-                    "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, 'FAILED', ?, ?, ?)",
+                    "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, ?, ?)",
                 )
                 .bind(&report.task_id)
                 .bind(&strategy_id)
@@ -630,8 +633,9 @@ impl CoreDb {
                 .bind(&config_snapshot_id)
                 .bind(&tn)
                 .bind(&data_time)
+                .bind(success)
                 .bind(&now)
-                .bind(&terminal_status)
+                .bind(cell_status)
                 .bind(&now)
                 .bind(&now)
                 .execute(&self.pool)
