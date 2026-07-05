@@ -248,6 +248,7 @@ mod tests {
             db_password: "".to_string(),
             db_database: "".to_string(),
             db_table_name_case: "lower".to_string(),
+            table_name: "test_table".to_string(),
         };
         let task_dir = store.persist_task(&request).unwrap();
         assert!(task_dir.join("task.json").exists());

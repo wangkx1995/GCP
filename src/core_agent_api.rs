@@ -287,6 +287,7 @@ pub struct TaskDispatchRequest {
     pub output_delimiter: String,
     pub timeout_seconds: u64,
     pub callback_base_url: String,
+    pub table_name: String,
     // Source connection (was source.toml)
     pub source_type: String,
     pub remote_pattern: String,

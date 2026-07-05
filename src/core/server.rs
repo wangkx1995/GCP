@@ -731,6 +731,7 @@ async fn dispatch_for_strategy(
         output_delimiter: unit.output_delimiter.clone(),
         timeout_seconds: unit.task_timeout_seconds as u64,
         callback_base_url: state.callback_base_url.clone(),
+        table_name: strategy.table_name.clone(),
         source_type: unit.source_type.clone(),
         remote_pattern: unit.remote_pattern.clone(),
         source_host: unit.host.clone(),

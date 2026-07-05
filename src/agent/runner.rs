@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::fs;
 
 use anyhow::{bail, Result};
 use remote_file_source::config::{ConnectionConfig, SourceConfig, SourceKind, SourceSection};
@@ -100,8 +101,8 @@ impl AgentRunner {
             output_delimiter: task.output_delimiter.clone(),
             encoding: task.encoding.clone(),
             recursive: false,
-            rule_files: Vec::new(),
-            rules_dir: Some(config_dir.join("rules")),
+            rule_files: rule_files_for_table(&config_dir, &task.table_name),
+            rules_dir: None,
         };
         tracing::info!("[agent] run_parse_job input={:?} config={:?} output={:?}", opts.input, opts.config_dir, opts.output_dir);
 
@@ -145,4 +146,35 @@ async fn report_to_core(http: &reqwest::Client, core_api_base: &str, task_id: &s
     if let Err(e) = http.post(&url).json(&report).send().await {
         tracing::error!("[agent] HTTP request to Core failed: {e:#}");
     }
+}
+
+fn rule_files_for_table(config_dir: &PathBuf, table_name: &str) -> Vec<PathBuf> {
+    let rules_dir = config_dir.join("rules");
+    if !rules_dir.exists() {
+        tracing::warn!("[agent] rules dir not found: {:?}", rules_dir);
+        return Vec::new();
+    }
+    let expected = rules_dir.join(format!("{table_name}.json"));
+    if expected.exists() {
+        tracing::info!("[agent] using rule file: {:?}", expected);
+        return vec![expected];
+    }
+    let matches: Vec<PathBuf> = match fs::read_dir(&rules_dir) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
+            .filter(|e| e.path().file_stem().map(|s| s == table_name).unwrap_or(false))
+            .map(|e| e.path())
+            .collect(),
+        Err(e) => {
+            tracing::error!("[agent] failed to read rules dir: {e}");
+            Vec::new()
+        }
+    };
+    if matches.is_empty() {
+        tracing::warn!("[agent] no rule file found for table {table_name}, no rules will be used");
+    } else {
+        tracing::info!("[agent] found {} rule file(s) for table {table_name}", matches.len());
+    }
+    matches
 }

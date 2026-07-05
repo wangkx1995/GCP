@@ -201,7 +201,8 @@ mod tests {
             "db_user": "",
             "db_password": "",
             "db_database": "",
-            "db_table_name_case": "lower"
+            "db_table_name_case": "lower",
+            "table_name": "test_table"
         });
         let response = app.oneshot(Request::builder().method("POST").uri("/api/tasks").header("content-type", "application/json").body(Body::from(body.to_string())).unwrap()).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
