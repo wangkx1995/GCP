@@ -8,4 +8,5 @@ reconnect_max_delay_ms = 60000
 
 [agent]
 data_dir = "agent_data"
+working_dir = "./work"
 max_concurrent_tasks = 4

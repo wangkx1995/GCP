@@ -29,6 +29,7 @@ struct CoreConfig {
 #[derive(Deserialize)]
 struct AgentSettings {
     data_dir: PathBuf,
+    #[allow(dead_code)]
     max_concurrent_tasks: u32,
 }
 
