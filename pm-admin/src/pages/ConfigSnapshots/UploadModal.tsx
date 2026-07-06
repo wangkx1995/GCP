@@ -35,7 +35,7 @@ export default function UploadModal({ open, onClose }: Props) {
         style={{ marginBottom: 20, borderRadius: 6 }}
         type="info"
         message="上传 .zip 格式的配置文件包"
-        description="必需文件：source.toml、mapping_dx.ini、load.toml、rules/ 目录"
+        description="必需文件：mapping_dx.ini、rules/ 目录"
       />
       <Dragger
         accept=".zip"

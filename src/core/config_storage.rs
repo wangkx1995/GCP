@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use tracing::info;
 
-const REQUIRED_FILES: &[&str] = &["source.toml", "mapping_dx.ini", "load.toml"];
+const REQUIRED_FILES: &[&str] = &["mapping_dx.ini"];
 
 #[derive(Debug)]
 pub struct ValidationResult {
