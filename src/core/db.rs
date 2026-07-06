@@ -5,72 +5,12 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 
 use crate::core_agent_api::{
-    AgentCapabilities, AgentInfo, AgentRegisterRequest, AgentStatus,
-    CollectionStrategyCreateRequest, CollectionStrategyRow, CollectionStrategyUpdateRequest,
-    ConfigNameItem, ConfigSnapshotMeta, ConfigSnapshotResponse, DataCollectorUnitRow,
-    DataCollectorUnitSaveRequest, OnlineAgent, ResultRow, TaskResultReport, TaskStatus,
+    AgentCapabilities, AgentGroupRow, AgentInfo, AgentInfoRow, AgentRegisterRequest, AgentStatus,
+    AgentStatusHisRow, AgentStatusRow, CollectionStrategyCreateRequest, CollectionStrategyRow,
+    CollectionStrategyUpdateRequest, ConfigNameItem, ConfigSnapshotMeta, ConfigSnapshotResponse,
+    DataCollectorUnitRow, DataCollectorUnitSaveRequest, OnlineAgent, ResultRow, TaskResultReport,
+    TaskStatus,
 };
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
-pub struct AgentInfoRow {
-    pub agent_id: i64,
-    pub agent_name: String,
-    pub agent_ip: String,
-    pub port: i32,
-    pub version: String,
-    pub cpu_total: Option<String>,
-    pub memory_total: Option<f64>,
-    pub disk_total: Option<f64>,
-    pub heartbeat_interval: Option<i32>,
-    pub time_stamp: Option<String>,
-    pub description: Option<String>,
-    pub max_thread_num: Option<i32>,
-    pub agent_isuse_flag: i32,
-    pub fact_memory_total: Option<f64>,
-    pub agent_alias: Option<String>,
-    pub is_core: i32,
-    pub agent_power: Option<f64>,
-    pub host_load_limit: Option<f64>,
-    pub registered_at: String,
-    pub current_status: Option<String>,
-    pub cpu_load: Option<f64>,
-    pub memory_load: Option<f64>,
-    pub disk_load: Option<f64>,
-    pub current_thread_num: Option<i32>,
-    pub last_heartbeat_time: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
-pub struct AgentStatusRow {
-    pub agent_id: i64,
-    pub agent_name: String,
-    pub status: String,
-    pub cpu_load: Option<f64>,
-    pub memory_load: Option<f64>,
-    pub disk_load: Option<f64>,
-    pub heartbeat_time: String,
-    pub thread_num: Option<i32>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
-pub struct AgentStatusHisRow {
-    pub agent_id: i64,
-    pub cpu_load: Option<f64>,
-    pub memory_load: Option<f64>,
-    pub disk_load: Option<f64>,
-    pub heartbeat_time: String,
-    pub thread_num: Option<i32>,
-    pub insert_time: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
-pub struct AgentGroupRow {
-    pub group_id: i64,
-    pub group_name: String,
-    pub agent_ids: String,
-    pub description: Option<String>,
-    pub time_stamp: Option<String>,
-}
 
 #[derive(Clone)]
 pub struct CoreDb {
