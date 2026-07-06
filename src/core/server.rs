@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use axum::extract::Query;
 
 use crate::core::config_storage::ConfigStorage;
+use crate::core::agent_id::compute_agent_id;
 use crate::core::db::CoreDb;
 use crate::core::tcp::listener::tcp_listener;
 use crate::core::tcp::registry::{AgentId, ConnectionRegistry};
@@ -759,12 +760,23 @@ async fn tcp_dispatch_loop(
                 tracing::info!(%agent_id, task_id = %event.event_id, status = ?event.status, phase = ?event.phase, "TaskEvent");
             }
             InternalMessage::AgentRegister(mut req) => {
-                req.agent_id = Some(agent_id.clone());
-                if let Err(e) = db.register_agent(&req).await {
-                    tracing::warn!(%agent_id, error = %e, "注册 agent 到 DB 失败");
-                } else {
-                    tracing::info!(%agent_id, "Agent registered in DB");
+                let agent_id = compute_agent_id(&req.host, req.port);
+                req.agent_id = Some(agent_id.to_string());
+
+                if let Err(e) = db.upsert_agent_info(
+                    agent_id, &req.agent_name, &req.host, req.port, &req.version,
+                    req.cpu_total.as_deref(), req.memory_total, req.disk_total,
+                    req.max_thread_num, req.fact_memory_total, req.heartbeat_interval,
+                    req.is_core.unwrap_or(false),
+                ).await {
+                    tracing::warn!(%agent_id, error = %e, "upsert agent_info failed");
                 }
+
+                if let Err(e) = db.upsert_agent_status(agent_id, "ONLINE").await {
+                    tracing::warn!(%agent_id, error = %e, "upsert agent_status failed");
+                }
+
+                tracing::info!(%agent_id, "Agent registered in DB");
             }
             InternalMessage::ConfigSnapshotRequest(snapshot_id) => {
                 tracing::warn!(%agent_id, %snapshot_id, "ConfigSnapshotRequest 未实现");

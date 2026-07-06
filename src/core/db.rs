@@ -1154,6 +1154,78 @@ impl CoreDb {
         .map_err(Into::into)
     }
 
+    pub async fn upsert_agent_info(
+        &self,
+        agent_id: i64,
+        agent_name: &str,
+        agent_ip: &str,
+        port: u16,
+        version: &str,
+        cpu_total: Option<&str>,
+        memory_total: Option<f64>,
+        disk_total: Option<f64>,
+        max_thread_num: Option<i32>,
+        fact_memory_total: Option<f64>,
+        heartbeat_interval: Option<i32>,
+        is_core: bool,
+    ) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO agent_info(agent_id, agent_name, agent_ip, port, version, cpu_total, memory_total, disk_total, max_thread_num, fact_memory_total, heartbeat_interval, is_core, registered_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                agent_name=excluded.agent_name,
+                agent_ip=excluded.agent_ip,
+                port=excluded.port,
+                version=excluded.version,
+                cpu_total=COALESCE(excluded.cpu_total, agent_info.cpu_total),
+                memory_total=COALESCE(excluded.memory_total, agent_info.memory_total),
+                disk_total=COALESCE(excluded.disk_total, agent_info.disk_total),
+                max_thread_num=COALESCE(excluded.max_thread_num, agent_info.max_thread_num),
+                fact_memory_total=COALESCE(excluded.fact_memory_total, agent_info.fact_memory_total),
+                heartbeat_interval=COALESCE(excluded.heartbeat_interval, agent_info.heartbeat_interval),
+                is_core=excluded.is_core,
+                registered_at=excluded.registered_at
+            "#,
+        )
+        .bind(agent_id)
+        .bind(agent_name)
+        .bind(agent_ip)
+        .bind(port as i32)
+        .bind(version)
+        .bind(cpu_total)
+        .bind(memory_total)
+        .bind(disk_total)
+        .bind(max_thread_num)
+        .bind(fact_memory_total)
+        .bind(heartbeat_interval)
+        .bind(is_core as i32)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn upsert_agent_status(&self, agent_id: i64, status: &str) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO agent_status(agent_id, status, heartbeat_time)
+            VALUES (?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                status=excluded.status,
+                heartbeat_time=excluded.heartbeat_time
+            "#,
+        )
+        .bind(agent_id)
+        .bind(status)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn tables_for_config(&self, config_name: &str) -> Result<Vec<String>> {
         tracing::debug!("[db] ==> SELECT DISTINCT ct.table_name FROM config_tables ct INNER JOIN config_snapshots cs ON ct.config_snapshot_id = cs.config_snapshot_id WHERE cs.name = ? AND cs.is_active = 1 ORDER BY ct.table_name");
         let rows: Vec<String> = sqlx::query_scalar(
@@ -1173,6 +1245,7 @@ mod tests {
     use std::ops::Deref;
 
     use super::*;
+    use crate::core::agent_id::compute_agent_id;
     use crate::core_agent_api::{AgentCapabilities, RuleFile, TaskStatus};
     use tempfile::{tempdir, TempDir};
 
@@ -1443,6 +1516,38 @@ mod tests {
         let err = sqlx::query("SELECT COUNT(*) FROM agents")
             .fetch_one(&db.pool).await;
         assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_upsert_agent_info() {
+        let db = CoreDb::open(":memory:").await.unwrap();
+        let id = compute_agent_id("10.0.0.1", 9997);
+
+        db.upsert_agent_info(id, "agent-01", "10.0.0.1", 9997, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+
+        let row: (String,) = sqlx::query_as("SELECT agent_name FROM agent_info WHERE agent_id = ?")
+            .bind(id).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, "agent-01");
+
+        db.upsert_agent_info(id, "agent-01-v2", "10.0.0.1", 9997, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+
+        let row: (String,) = sqlx::query_as("SELECT agent_name FROM agent_info WHERE agent_id = ?")
+            .bind(id).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, "agent-01-v2");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_agent_status() {
+        let db = CoreDb::open(":memory:").await.unwrap();
+        let id = compute_agent_id("10.0.0.1", 9997);
+
+        db.upsert_agent_status(id, "ONLINE").await.unwrap();
+
+        let row: (String,) = sqlx::query_as("SELECT status FROM agent_status WHERE agent_id = ?")
+            .bind(id).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, "ONLINE");
+
+        db.upsert_agent_status(id, "ONLINE").await.unwrap();
     }
 
     #[tokio::test]
