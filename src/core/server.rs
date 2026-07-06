@@ -22,11 +22,15 @@ use axum::extract::Query;
 
 use crate::core::config_storage::ConfigStorage;
 use crate::core::db::CoreDb;
+use crate::core::tcp::listener::tcp_listener;
+use crate::core::tcp::registry::{AgentId, ConnectionRegistry};
+use crate::message::InternalMessage;
+use tokio::sync::mpsc;
 use crate::core_agent_api::{
-    AgentRegisterRequest, AgentRegisterResponse, BatchStatusRequest, ConfigNamesResponse,
+    BatchStatusRequest, ConfigNamesResponse,
     CollectionStrategyCreateRequest, CollectionStrategyRow, CollectionStrategyUpdateRequest,
     DataCollectorUnitRow, DataCollectorUnitSaveRequest, NextIdResponse,
-    TablesResponse, TaskDispatchRequest, TaskDispatchResponse, TaskResultReport,
+    TablesResponse, TaskDispatchRequest,
 };
 
 #[derive(Serialize)]
@@ -62,6 +66,8 @@ pub fn err_response(status: StatusCode, message: impl Into<String>) -> ApiRespon
 #[derive(Clone)]
 pub struct CoreState {
     pub db: CoreDb,
+    pub registry: ConnectionRegistry,
+    pub to_tcp: mpsc::Sender<(AgentId, InternalMessage)>,
     pub http: reqwest::Client,
     pub storage: Arc<ConfigStorage>,
     pub callback_base_url: String,
@@ -70,15 +76,11 @@ pub struct CoreState {
 pub fn router(state: CoreState) -> Router {
     Router::new()
         .route("/api/agents", get(list_agents))
-        .route("/api/agents/register", post(register_agent))
-        .route("/api/agents/:agent_id/heartbeat", post(heartbeat))
         .route("/api/config-snapshots/upload", post(upload_config_snapshot))
         .route("/api/config-snapshots", get(list_config_snapshots))
         .route("/api/config-snapshots/:id/activate", post(activate_config_snapshot))
         .route("/api/config-snapshots/:id/download", get(download_config_snapshot))
         .route("/api/config-snapshots/:id", get(get_config_snapshot_handler))
-        .route("/api/tasks/:task_id/events", post(task_event))
-        .route("/api/tasks/:task_id/result", post(task_result))
         .route("/api/tasks/dispatch", post(dispatch_task))
         .route("/api/results/grid", get(result_grid))
         .route("/api/data-collector-units/next-id", post(next_unit_id))
@@ -102,41 +104,6 @@ async fn list_agents(
 ) -> Response {
     match state.db.list_all_agents().await {
         Ok(agents) => ok_response(agents, "获取 Agent 列表成功").into_response(),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
-    }
-}
-
-async fn register_agent(
-    axum::extract::State(state): axum::extract::State<CoreState>,
-    Json(request): Json<AgentRegisterRequest>,
-) -> Response {
-    info!("[core] register_agent name={} host={}:{}", request.agent_name, request.host, request.port);
-    match state.db.register_agent(&request).await {
-        Ok(agent_id) => {
-            info!("[core] agent registered: {agent_id}");
-            ok_response(
-                AgentRegisterResponse {
-                    agent_id,
-                    heartbeat_interval_seconds: 10,
-                    task_report_interval_seconds: 10,
-                },
-                "Agent 注册成功",
-            )
-            .into_response()
-        }
-        Err(e) => {
-            err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response()
-        }
-    }
-}
-
-async fn heartbeat(
-    axum::extract::State(state): axum::extract::State<CoreState>,
-    axum::extract::Path(agent_id): axum::extract::Path<String>,
-) -> Response {
-    info!("[core] heartbeat agent_id={agent_id}");
-    match state.db.update_agent_heartbeat(&agent_id).await {
-        Ok(_) => ok_response(serde_json::json!({"accepted": true}), "心跳上报成功").into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
     }
 }
@@ -329,10 +296,6 @@ async fn download_config_snapshot(
         .unwrap())
 }
 
-async fn task_event() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"accepted": true}))
-}
-
 #[derive(serde::Deserialize)]
 struct GridQuery {
     strategy_id: String,
@@ -398,37 +361,16 @@ async fn result_grid(
     }
 }
 
-async fn task_result(
-    axum::extract::State(state): axum::extract::State<CoreState>,
-    Json(report): Json<TaskResultReport>,
-) -> Response {
-    info!(
-        "[core] task_result task_id={} agent_id={} status={:?} rows={}",
-        report.task_id,
-        report.agent_id,
-        report.status,
-        report.result_rows.len()
-    );
-    match state.db.accept_task_result(&report).await {
-        Ok(_) => {
-            info!("[core] task_result accepted OK");
-            ok_response(serde_json::json!({"accepted": true}), "结果已接收").into_response()
-        }
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
-    }
-}
-
 async fn dispatch_task(
     axum::extract::State(state): axum::extract::State<CoreState>,
     Json(request): Json<TaskDispatchRequest>,
 ) -> Response {
-    let task_id = request.task_id.clone();
     info!(
-        "[core] dispatch_task task_id={task_id} strategy_id={}",
-        request.strategy_id
+        "[core] dispatch_task task_id={} strategy_id={}",
+        request.task_id, request.strategy_id
     );
 
-    let (agent_id, agent_host, agent_port) = match state.db.select_online_agent().await {
+    let (agent_id, _, _) = match state.db.select_online_agent().await {
         Ok(x) => x,
         Err(e) => {
             return err_response(
@@ -438,12 +380,12 @@ async fn dispatch_task(
             .into_response()
         }
     };
-    info!("[core] selected agent {agent_id} at {agent_host}:{agent_port}");
+    info!("[core] selected agent {agent_id}");
 
     if let Err(e) = state
         .db
         .create_task(
-            &task_id,
+            &request.task_id,
             &request.logical_task_key,
             &request.strategy_id,
             &request.config_snapshot_id,
@@ -457,33 +399,24 @@ async fn dispatch_task(
             .into_response();
     }
 
-    let agent_url = format!("http://{agent_host}:{agent_port}/api/tasks");
-    info!("[core] forwarding task to Agent: {agent_url}");
-    let agent_resp = match state.http.post(&agent_url).json(&request).send().await {
-        Ok(resp) => match resp.json::<TaskDispatchResponse>().await {
-            Ok(r) => r,
-            Err(e) => {
-                return err_response(
-                    StatusCode::BAD_GATEWAY,
-                    format!("Agent 响应解析错误: {e}"),
-                )
-                .into_response()
-            }
-        },
-        Err(e) => {
-            return err_response(
-                StatusCode::BAD_GATEWAY,
-                format!("Agent 不可达: {e}"),
-            )
-            .into_response()
-        }
-    };
-
-    if !agent_resp.accepted {
-        info!("[core] Agent rejected task {task_id}: {:?}", agent_resp.reason);
+    if !state.registry.is_connected(&agent_id).await {
+        return err_response(StatusCode::SERVICE_UNAVAILABLE, &format!("Agent {agent_id} TCP 未连接")).into_response();
     }
-    info!("[core] dispatch_task done: accepted={}", agent_resp.accepted);
-    ok_response(agent_resp, "任务分发成功").into_response()
+
+    let msg = InternalMessage::DispatchTask(request.clone());
+    if let Err(e) = state.registry.send(&agent_id, &msg).await {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("TCP 发送失败: {e}")).into_response();
+    }
+
+    ok_response(
+        serde_json::json!({
+            "task_id": request.task_id,
+            "accepted": true,
+            "agent_id": agent_id,
+        }),
+        "任务已分发",
+    )
+    .into_response()
 }
 
 async fn next_unit_id(
@@ -753,7 +686,7 @@ async fn dispatch_for_strategy(
         db_table_name_case: unit.db_table_name_case.clone(),
     };
 
-    let (agent_id, agent_host, agent_port) = state.db.select_online_agent().await?;
+    let (agent_id, _, _) = state.db.select_online_agent().await?;
     state.db.create_task(
         &task_id,
         &request.logical_task_key,
@@ -763,43 +696,121 @@ async fn dispatch_for_strategy(
         &request.collect_id,
         &agent_id,
     ).await?;
-    let agent_url = format!("http://{agent_host}:{agent_port}/api/tasks");
-    let agent_resp = state.http.post(&agent_url).json(&request).send().await?;
-    let accepted = agent_resp.status().is_success();
-    Ok(accepted)
+
+    if !state.registry.is_connected(&agent_id).await {
+        tracing::warn!(%agent_id, "Agent not connected via TCP");
+        return Ok(false);
+    }
+
+    let msg = InternalMessage::DispatchTask(request);
+    state.registry.send(&agent_id, &msg).await?;
+    Ok(true)
 }
 
-pub async fn run_core_server(addr: SocketAddr, db_path: PathBuf, storage: ConfigStorage) -> Result<()> {
-    let callback_base_url = format!("http://{addr}/api");
+pub async fn run_core_server(
+    http_addr: SocketAddr,
+    tcp_addr: SocketAddr,
+    db_path: PathBuf,
+    storage: ConfigStorage,
+) -> Result<()> {
+    let callback_base_url = format!("http://{http_addr}/api");
+    let db = CoreDb::open(db_path).await?;
+
+    let registry = ConnectionRegistry::new();
+    let (to_dispatch_tx, to_dispatch_rx) = mpsc::channel::<(AgentId, InternalMessage)>(50000);
+    let (to_tcp_tx, to_tcp_rx) = mpsc::channel::<(AgentId, InternalMessage)>(50000);
+
     let state = CoreState {
-        db: CoreDb::open(db_path).await?,
+        db: db.clone(),
+        registry: registry.clone(),
+        to_tcp: to_tcp_tx,
         http: reqwest::Client::new(),
         storage: Arc::new(storage),
         callback_base_url,
     };
 
-    // Background task: mark agents offline if no heartbeat for 180s
-    let cleanup_db = state.db.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        // Start after first 60s
-        interval.tick().await;
-        loop {
-            interval.tick().await;
-            match cleanup_db.mark_stale_agents_offline(180).await {
-                Ok(n) => {
-                    if n > 0 {
-                        tracing::info!("[core] marked {n} stale agent(s) offline");
-                    }
-                }
-                Err(e) => tracing::error!("[core] cleanup stale agents failed: {e}"),
-            }
-        }
-    });
+    // TCP listener — accepts agent connections
+    tokio::spawn(tcp_listener(tcp_addr, to_dispatch_tx, registry.clone()));
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // Dispatch loop — processes messages from agents
+    let db_for_loop = db.clone();
+    let registry_for_loop = registry.clone();
+    tokio::spawn(tcp_dispatch_loop(to_dispatch_rx, registry_for_loop, db_for_loop));
+
+    // TCP sender — forwards messages to agents via registry
+    let reg_for_sender = registry.clone();
+    tokio::spawn(tcp_sender_loop(to_tcp_rx, reg_for_sender));
+
+    // Cleanup loop — unregisters timed-out agents
+    tokio::spawn(tcp_cleanup_loop(registry.clone()));
+
+    // HTTP server — management APIs
+    let listener = tokio::net::TcpListener::bind(http_addr).await?;
     axum::serve(listener, router(state)).await?;
     Ok(())
+}
+
+async fn tcp_dispatch_loop(
+    mut rx: mpsc::Receiver<(AgentId, InternalMessage)>,
+    _registry: ConnectionRegistry,
+    db: CoreDb,
+) {
+    while let Some((agent_id, msg)) = rx.recv().await {
+        match msg {
+            InternalMessage::TaskResult(report) => {
+                tracing::info!(
+                    agent_id = %agent_id,
+                    task_id = %report.task_id,
+                    rows = report.result_rows.len(),
+                    status = ?report.status,
+                    "收到 TaskResult"
+                );
+                if let Err(e) = db.accept_task_result(&report).await {
+                    tracing::error!(%agent_id, task_id = %report.task_id, error = %e, "accept_task_result 失败");
+                }
+            }
+            InternalMessage::TaskEvent(event) => {
+                tracing::info!(%agent_id, task_id = %event.event_id, status = ?event.status, phase = ?event.phase, "TaskEvent");
+            }
+            InternalMessage::AgentRegister(mut req) => {
+                req.agent_id = Some(agent_id.clone());
+                if let Err(e) = db.register_agent(&req).await {
+                    tracing::warn!(%agent_id, error = %e, "注册 agent 到 DB 失败");
+                } else {
+                    tracing::info!(%agent_id, "Agent registered in DB");
+                }
+            }
+            InternalMessage::ConfigSnapshotRequest(snapshot_id) => {
+                tracing::warn!(%agent_id, %snapshot_id, "ConfigSnapshotRequest 未实现");
+            }
+            _ => {
+                tracing::warn!(%agent_id, "dispatch_loop: 未处理消息类型");
+            }
+        }
+    }
+}
+
+async fn tcp_sender_loop(
+    mut rx: mpsc::Receiver<(AgentId, InternalMessage)>,
+    registry: ConnectionRegistry,
+) {
+    while let Some((agent_id, msg)) = rx.recv().await {
+        if let Err(e) = registry.send(&agent_id, &msg).await {
+            tracing::error!(%agent_id, error = %e, "tcp_sender_loop 发送失败");
+        }
+    }
+}
+
+async fn tcp_cleanup_loop(registry: ConnectionRegistry) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    loop {
+        interval.tick().await;
+        let timed_out = registry.check_timeouts(std::time::Duration::from_secs(150)).await;
+        for agent_id in timed_out {
+            tracing::warn!(%agent_id, "心跳超时，注销");
+            registry.unregister(&agent_id).await;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -811,40 +822,29 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
-    async fn register_agent_endpoint_returns_agent_id() {
+    async fn list_agents_returns_ok() {
         let dir = tempdir().unwrap();
+        let (to_tcp_tx, _) = mpsc::channel::<(AgentId, InternalMessage)>(64);
         let storage = ConfigStorage::new(dir.path().join("config_storage")).unwrap();
         let state = CoreState {
             db: CoreDb::open(dir.path().join("core.db")).await.unwrap(),
+            registry: ConnectionRegistry::new(),
+            to_tcp: to_tcp_tx,
             http: reqwest::Client::new(),
             storage: Arc::new(storage),
             callback_base_url: "http://127.0.0.1:8080/api".to_string(),
         };
         let app = router(state);
-        let body = serde_json::json!({
-            "agent_id": null,
-            "agent_name": "agent-1",
-            "host": "127.0.0.1",
-            "port": 18081,
-            "version": "1.0.0",
-            "capabilities": {"can_collect": true, "can_parse": true, "can_load": false, "supported_protocols": ["ftp"]}
-        });
         let response = app
             .oneshot(
                 Request::builder()
-                    .method("POST")
-                    .uri("/api/agents/register")
-                    .header("content-type", "application/json")
-                    .body(Body::from(body.to_string()))
+                    .method("GET")
+                    .uri("/api/agents")
+                    .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        // Should return 200 with ApiResponse wrapper containing data.agent_id
         assert_eq!(response.status(), StatusCode::OK);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(json["status"], 200);
-        assert!(json["data"]["agent_id"].as_str().unwrap().starts_with("agent_"));
     }
 }

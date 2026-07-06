@@ -7,7 +7,9 @@ use clap::Parser;
 #[derive(Parser)]
 struct Cli {
     #[arg(long, default_value = "127.0.0.1:18080")]
-    listen: SocketAddr,
+    http_listen: SocketAddr,
+    #[arg(long, default_value = "127.0.0.1:18081")]
+    tcp_listen: SocketAddr,
     #[arg(long, default_value = "core.db")]
     db: PathBuf,
     #[arg(long, default_value = "config_storage")]
@@ -27,12 +29,18 @@ async fn main() -> Result<()> {
     let config_storage =
         wy_gnb_pm_parser::core::config_storage::ConfigStorage::new(cli.config_storage)?;
     tracing::info!(
-        "[core] starting listen={} db={} config_storage={:?}",
-        cli.listen,
+        "[core] starting http={} tcp={} db={} config_storage={:?}",
+        cli.http_listen,
+        cli.tcp_listen,
         cli.db.display(),
         config_storage.versions_dir()
     );
-    let result =
-        wy_gnb_pm_parser::core::server::run_core_server(cli.listen, cli.db, config_storage).await;
+    let result = wy_gnb_pm_parser::core::server::run_core_server(
+        cli.http_listen,
+        cli.tcp_listen,
+        cli.db,
+        config_storage,
+    )
+    .await;
     result
 }
