@@ -1,8 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
-
 use anyhow::Result;
 use chrono::Timelike;
 use axum::{
@@ -70,7 +68,6 @@ pub struct CoreState {
     pub to_tcp: mpsc::Sender<(AgentId, InternalMessage)>,
     pub http: reqwest::Client,
     pub storage: Arc<ConfigStorage>,
-    pub callback_base_url: String,
 }
 
 pub fn router(state: CoreState) -> Router {
@@ -241,27 +238,15 @@ async fn activate_config_snapshot(
             Vec::new()
         }
     };
-    let content_hash = meta.content_hash.clone();
     let snapshot_id = id.clone();
     for agent in &agents {
-        let http = state.http.clone();
         let agent_id = agent.agent_id.clone();
-        let url = format!("http://{}:{}/api/configs/update", agent.host, agent.port);
         let sid = snapshot_id.clone();
-        let ch = content_hash.clone();
-        let body = serde_json::json!({
-            "snapshot_id": &sid,
-            "content_hash": &ch,
-        });
+        let registry = state.registry.clone();
         tokio::spawn(async move {
-            match http.post(&url).json(&body).timeout(Duration::from_secs(5)).send().await {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        info!("[core] notified agent {agent_id} of config {sid}");
-                    } else {
-                        info!("[core] agent {agent_id} rejected config update: {}", resp.status());
-                    }
-                }
+            let msg = InternalMessage::ConfigSnapshotRequest(sid);
+            match registry.send(&agent_id, &msg).await {
+                Ok(_) => info!("[core] notified agent {agent_id} of config via TCP"),
                 Err(e) => info!("[core] failed to notify agent {agent_id}: {e}"),
             }
         });
@@ -663,7 +648,6 @@ async fn dispatch_for_strategy(
         encoding: unit.file_encoding.clone(),
         output_delimiter: unit.output_delimiter.clone(),
         timeout_seconds: unit.task_timeout_seconds as u64,
-        callback_base_url: state.callback_base_url.clone(),
         table_name: strategy.table_name.clone(),
         source_type: unit.source_type.clone(),
         remote_pattern: unit.remote_pattern.clone(),
@@ -713,7 +697,6 @@ pub async fn run_core_server(
     db_path: PathBuf,
     storage: ConfigStorage,
 ) -> Result<()> {
-    let callback_base_url = format!("http://{http_addr}/api");
     let db = CoreDb::open(db_path).await?;
 
     let registry = ConnectionRegistry::new();
@@ -726,7 +709,6 @@ pub async fn run_core_server(
         to_tcp: to_tcp_tx,
         http: reqwest::Client::new(),
         storage: Arc::new(storage),
-        callback_base_url,
     };
 
     // TCP listener — accepts agent connections
@@ -832,7 +814,6 @@ mod tests {
             to_tcp: to_tcp_tx,
             http: reqwest::Client::new(),
             storage: Arc::new(storage),
-            callback_base_url: "http://127.0.0.1:8080/api".to_string(),
         };
         let app = router(state);
         let response = app

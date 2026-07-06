@@ -101,12 +101,6 @@ pub struct AgentInfo {
     pub last_heartbeat_at: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ConfigUpdateRequest {
-    pub snapshot_id: String,
-    pub content_hash: String,
-}
-
 fn serialize_json_string<S>(value: &str, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -286,7 +280,6 @@ pub struct TaskDispatchRequest {
     pub encoding: String,
     pub output_delimiter: String,
     pub timeout_seconds: u64,
-    pub callback_base_url: String,
     pub table_name: String,
     // Source connection (was source.toml)
     pub source_type: String,

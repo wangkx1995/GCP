@@ -228,7 +228,6 @@ mod tests {
             encoding: "UTF-8".to_string(),
             output_delimiter: "|".to_string(),
             timeout_seconds: 1800,
-            callback_base_url: "http://127.0.0.1:18080/api".to_string(),
             source_type: "sftp".to_string(),
             remote_pattern: "/path/{scan_start_time}".to_string(),
             source_host: "192.168.1.1".to_string(),
