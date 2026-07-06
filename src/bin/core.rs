@@ -3,21 +3,50 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use serde::Deserialize;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(long, default_value = "127.0.0.1:18080")]
-    http_listen: SocketAddr,
-    #[arg(long, default_value = "127.0.0.1:18081")]
-    tcp_listen: SocketAddr,
-    #[arg(long, default_value = "core.db")]
-    db: PathBuf,
-    #[arg(long, default_value = "config_storage")]
-    config_storage: PathBuf,
+    #[arg(short, long, default_value = "server.toml")]
+    config: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct ServerConfig {
+    http: HttpConfig,
+    tcp: TcpConfig,
+    heartbeat: HeartbeatConfig,
+    database: DatabaseConfig,
+}
+
+#[derive(Deserialize)]
+struct HttpConfig {
+    host: String,
+    port: u16,
+}
+
+#[derive(Deserialize)]
+struct TcpConfig {
+    bind_host: String,
+    bind_port: u16,
+}
+
+#[derive(Deserialize)]
+struct HeartbeatConfig {
+    timeout_ms: u64,
+}
+
+#[derive(Deserialize)]
+struct DatabaseConfig {
+    url: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let config_content = std::fs::read_to_string(&cli.config)?;
+    let config: ServerConfig = toml::from_str(&config_content)?;
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -25,22 +54,22 @@ async fn main() -> Result<()> {
                 .add_directive("sqlx=info".parse().unwrap()),
         )
         .init();
-    let cli = Cli::parse();
+
+    let http_addr: SocketAddr = format!("{}:{}", config.http.host, config.http.port).parse()?;
+    let tcp_addr: SocketAddr =
+        format!("{}:{}", config.tcp.bind_host, config.tcp.bind_port).parse()?;
+    let db_path = PathBuf::from(&config.database.url);
     let config_storage =
-        wy_gnb_pm_parser::core::config_storage::ConfigStorage::new(cli.config_storage)?;
+        wy_gnb_pm_parser::core::config_storage::ConfigStorage::new("config_storage")?;
+
     tracing::info!(
         "[core] starting http={} tcp={} db={} config_storage={:?}",
-        cli.http_listen,
-        cli.tcp_listen,
-        cli.db.display(),
+        http_addr,
+        tcp_addr,
+        db_path.display(),
         config_storage.versions_dir()
     );
-    let result = wy_gnb_pm_parser::core::server::run_core_server(
-        cli.http_listen,
-        cli.tcp_listen,
-        cli.db,
-        config_storage,
-    )
-    .await;
-    result
+
+    wy_gnb_pm_parser::core::server::run_core_server(http_addr, tcp_addr, db_path, config_storage)
+        .await
 }

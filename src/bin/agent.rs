@@ -2,50 +2,66 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use serde::Deserialize;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(long, default_value = "agent_local")]
+    #[arg(short, long, default_value = "agent.toml")]
+    config: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct AgentConfig {
+    core: CoreConfig,
+    agent: AgentSettings,
+}
+
+#[derive(Deserialize)]
+struct CoreConfig {
+    host: String,
+    port: u16,
+    api_base: String,
     agent_id: String,
-    #[arg(long, default_value = "127.0.0.1")]
-    core_host: String,
-    #[arg(long, default_value = "18082")]
-    core_port: u16,
-    #[arg(long, default_value = "http://127.0.0.1:18080/api")]
-    core_api_base: String,
-    #[arg(long, default_value = "agent_data")]
-    data_dir: PathBuf,
-    #[arg(long, default_value = "5000")]
     reconnect_interval_ms: u64,
-    #[arg(long, default_value = "60000")]
     reconnect_max_delay_ms: u64,
-    #[arg(long)]
-    config_dir: Option<PathBuf>,
+}
+
+#[derive(Deserialize)]
+struct AgentSettings {
+    data_dir: PathBuf,
+    max_concurrent_tasks: u32,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let config_content = std::fs::read_to_string(&cli.config)?;
+    let config: AgentConfig = toml::from_str(&config_content)?;
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "debug".parse().unwrap()),
         )
         .init();
-    let cli = Cli::parse();
+
     tracing::info!(
-        "[agent] starting agent_id={} core_host={} core_port={} data_dir={} config_dir={:?}",
-        cli.agent_id, cli.core_host, cli.core_port, cli.data_dir.display(), cli.config_dir
+        "[agent] starting agent_id={} core_host={} core_port={} data_dir={}",
+        config.core.agent_id,
+        config.core.host,
+        config.core.port,
+        config.agent.data_dir.display()
     );
-    let result = wy_gnb_pm_parser::agent::server::run_agent_server(
-        cli.agent_id,
-        cli.core_host,
-        cli.core_port,
-        cli.core_api_base,
-        cli.data_dir,
-        cli.config_dir,
-        cli.reconnect_interval_ms,
-        cli.reconnect_max_delay_ms,
+
+    wy_gnb_pm_parser::agent::server::run_agent_server(
+        config.core.agent_id,
+        config.core.host,
+        config.core.port,
+        config.core.api_base,
+        config.agent.data_dir,
+        None,
+        config.core.reconnect_interval_ms,
+        config.core.reconnect_max_delay_ms,
     )
-    .await;
-    result
+    .await
 }

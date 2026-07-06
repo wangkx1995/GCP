@@ -1,0 +1,13 @@
+[http]
+host = "0.0.0.0"
+port = 18080
+
+[tcp]
+bind_host = "0.0.0.0"
+bind_port = 9997
+
+[heartbeat]
+timeout_ms = 150000
+
+[database]
+url = "core.db"
