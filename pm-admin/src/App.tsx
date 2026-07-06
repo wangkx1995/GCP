@@ -7,6 +7,8 @@ import Layout from './components/Layout';
 import ConfigSnapshotsPage from './pages/ConfigSnapshots';
 import AgentsPage from './pages/Agents';
 import AgentHistoryPage from './pages/Agents/HistoryPage';
+import AgentStatusPage from './pages/Agents/StatusPage';
+import AgentGroupsPage from './pages/AgentGroups';
 import ResultsPage from './pages/Results';
 import TasksPage from './pages/Tasks';
 import StrategyInfoPage from './pages/StrategyDispatch/StrategyInfo';
@@ -32,6 +34,8 @@ export default function App() {
               <Route path="/config-snapshots" element={<ConfigSnapshotsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/agents/history" element={<AgentHistoryPage />} />
+              <Route path="/agents/status" element={<AgentStatusPage />} />
+              <Route path="/agent-groups" element={<AgentGroupsPage />} />
               <Route path="/data-collector-units" element={<DataCollectorUnitsPage />} />
               <Route path="/data-collector-units/create" element={<DataCollectorUnitFormPage />} />
               <Route path="/data-collector-units/:id/edit" element={<DataCollectorUnitFormPage />} />

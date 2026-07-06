@@ -16,8 +16,15 @@ const { Sider, Content } = AntLayout;
 
 const menuItems = [
   { key: '/config-snapshots', icon: <FileZipOutlined />, label: '采集适配器管理' },
-  { key: '/agents', icon: <DesktopOutlined />, label: '采集机管理' },
-  { key: '/agents/history', icon: <BarChartOutlined />, label: '状态历史' },
+  {
+    key: 'agents-sub', icon: <DesktopOutlined />, label: '采集机管理',
+    children: [
+      { key: '/agents', icon: <InfoCircleOutlined />, label: '采集机信息' },
+      { key: '/agents/status', icon: <ThunderboltOutlined />, label: '实时状态' },
+      { key: '/agents/history', icon: <BarChartOutlined />, label: '状态历史' },
+      { key: '/agent-groups', icon: <SettingOutlined />, label: '采集机组' },
+    ],
+  },
   { key: '/data-collector-units', icon: <SettingOutlined />, label: '采集单元管理' },
   {
     key: '/strategy-dispatch', icon: <SendOutlined />, label: '采集策略管理',
