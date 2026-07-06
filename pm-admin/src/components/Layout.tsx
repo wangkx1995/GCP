@@ -17,6 +17,7 @@ const { Sider, Content } = AntLayout;
 const menuItems = [
   { key: '/config-snapshots', icon: <FileZipOutlined />, label: '采集适配器管理' },
   { key: '/agents', icon: <DesktopOutlined />, label: '采集机管理' },
+  { key: '/agents/history', icon: <BarChartOutlined />, label: '状态历史' },
   { key: '/data-collector-units', icon: <SettingOutlined />, label: '采集单元管理' },
   {
     key: '/strategy-dispatch', icon: <SendOutlined />, label: '采集策略管理',
