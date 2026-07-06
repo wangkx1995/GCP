@@ -9,6 +9,8 @@ use serde::Deserialize;
 struct Cli {
     #[arg(short, long, default_value = "server.toml")]
     config: PathBuf,
+    #[arg(short = 's', long, default_value = "config_storage")]
+    config_storage: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -60,7 +62,7 @@ async fn main() -> Result<()> {
         format!("{}:{}", config.tcp.bind_host, config.tcp.bind_port).parse()?;
     let db_path = PathBuf::from(&config.database.url);
     let config_storage =
-        wy_gnb_pm_parser::core::config_storage::        ConfigStorage::new(PathBuf::from("config_storage"))?;
+        wy_gnb_pm_parser::core::config_storage::ConfigStorage::new(cli.config_storage)?;
 
     tracing::info!(
         "[core] starting http={} tcp={} db={} config_storage={:?}",
