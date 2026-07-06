@@ -111,6 +111,7 @@ async fn upload_config_snapshot(
     body: axum::body::Bytes,
 ) -> Response {
     if body.is_empty() {
+        tracing::warn!("[core] upload request body is empty");
         return err_response(StatusCode::BAD_REQUEST, "请求体为空").into_response();
     }
     let snapshot_id = format!("v_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"));
@@ -121,11 +122,13 @@ async fn upload_config_snapshot(
     let result = match state.storage.validate_and_unpack(&body, &snapshot_id) {
         Ok(r) => r,
         Err(e) => {
+            tracing::error!("[core] validate_and_unpack failed: {e}");
             return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("存储错误: {e}"))
                 .into_response()
         }
     };
     if !result.valid {
+        tracing::warn!("[core] config validation failed: {}", result.errors.join("; "));
         return err_response(
             StatusCode::BAD_REQUEST,
             format!("配置校验失败: {}", result.errors.join("; ")),
@@ -137,6 +140,7 @@ async fn upload_config_snapshot(
         .insert_config_snapshot_meta(&snapshot_id, &result.content_hash, &snapshot_id, result.file_count, name, &result.table_names)
         .await
     {
+        tracing::error!("[core] DB insert failed: {e}");
         return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}"))
             .into_response();
     }
