@@ -4,13 +4,13 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct LoadConfig {
     pub clickhouse: ClickHouseConfig,
     pub postgresql: PostgresConfig,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ClickHouseConfig {
     #[serde(default = "default_clickhouse_client")]
     pub client: String,
@@ -28,7 +28,7 @@ pub struct ClickHouseConfig {
     pub table_name_case: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct PostgresConfig {
     #[serde(default = "default_psql_client")]
     pub client: String,
@@ -42,6 +42,80 @@ pub struct PostgresConfig {
     pub password: String,
     #[serde(default = "default_postgres_database")]
     pub database: String,
+}
+
+impl LoadConfig {
+    pub fn new(
+        load_type: &str,
+        db_host: &str,
+        db_port: u16,
+        db_user: &str,
+        db_password: &str,
+        db_database: &str,
+        db_table_name_case: &str,
+    ) -> LoadConfig {
+        let mut config = match load_type {
+            "clickhouse" => LoadConfig {
+                clickhouse: ClickHouseConfig {
+                    client: default_clickhouse_client(),
+                    host: db_host.to_string(),
+                    port: db_port,
+                    user: db_user.to_string(),
+                    password: db_password.to_string(),
+                    database: db_database.to_string(),
+                    table_name_case: db_table_name_case.to_string(),
+                },
+                postgresql: PostgresConfig {
+                    client: default_psql_client(),
+                    host: default_localhost(),
+                    port: default_postgres_port(),
+                    user: default_postgres_user(),
+                    password: String::new(),
+                    database: default_postgres_database(),
+                },
+            },
+            "postgresql" => LoadConfig {
+                clickhouse: ClickHouseConfig {
+                    client: default_clickhouse_client(),
+                    host: default_localhost(),
+                    port: default_clickhouse_port(),
+                    user: default_clickhouse_user(),
+                    password: String::new(),
+                    database: default_database(),
+                    table_name_case: default_table_name_case(),
+                },
+                postgresql: PostgresConfig {
+                    client: default_psql_client(),
+                    host: db_host.to_string(),
+                    port: db_port,
+                    user: db_user.to_string(),
+                    password: db_password.to_string(),
+                    database: db_database.to_string(),
+                },
+            },
+            _ => LoadConfig {
+                clickhouse: ClickHouseConfig {
+                    client: default_clickhouse_client(),
+                    host: default_localhost(),
+                    port: default_clickhouse_port(),
+                    user: default_clickhouse_user(),
+                    password: String::new(),
+                    database: default_database(),
+                    table_name_case: default_table_name_case(),
+                },
+                postgresql: PostgresConfig {
+                    client: default_psql_client(),
+                    host: default_localhost(),
+                    port: default_postgres_port(),
+                    user: default_postgres_user(),
+                    password: String::new(),
+                    database: default_postgres_database(),
+                },
+            },
+        };
+        config.clickhouse.table_name_case = config.clickhouse.table_name_case.to_ascii_lowercase();
+        config
+    }
 }
 
 pub fn load_config(path: &Path) -> Result<LoadConfig> {

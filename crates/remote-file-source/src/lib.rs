@@ -1,6 +1,6 @@
 //! Resolves parser input files from either local paths or configured FTP/SFTP sources.
 
-mod config;
+pub mod config;
 mod ftp;
 mod local;
 mod remote;
@@ -21,8 +21,8 @@ pub struct ResolveOptions {
     pub local_input: Option<PathBuf>,
     /// Recursively collect local input directories when `local_input` is a directory.
     pub recursive: bool,
-    /// Path to `source.toml` for FTP/SFTP input. Mutually exclusive with `local_input`.
-    pub source_config: Option<PathBuf>,
+    /// Parsed `SourceConfig` for FTP/SFTP input. Mutually exclusive with `local_input`.
+    pub source_config: Option<config::SourceConfig>,
     /// Scan start time in `yyyy-MM-dd HH:mm:ss`; required for `source_config` mode.
     pub scan_start_time: Option<String>,
 }
@@ -72,14 +72,12 @@ where
             representative_files: local::collect_inputs(input, options.recursive)?,
             groups: Vec::new(),
         }),
-        (None, Some(config_path)) => {
+        (None, Some(config)) => {
             let scan_start_time = options
                 .scan_start_time
                 .as_deref()
                 .context("--scan-start-time is required when --source-config is used")?;
-            let config = config::load_source_config(config_path)
-                .with_context(|| format!("failed to parse {}", config_path.display()))?;
-            resolve_remote_files(&config, scan_start_time, &route_remote_file)
+            resolve_remote_files(config, scan_start_time, &route_remote_file)
         }
     }
 }

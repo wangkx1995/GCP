@@ -10,4 +10,10 @@ WYGNBPMParser.jar
 部署文档.md
 rules/
 logs/
+*.zip
+pm-admin/node_modules/
+pm-admin/dist/
+core.db
+.superpowers/
+test/
 
