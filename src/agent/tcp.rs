@@ -3,6 +3,7 @@ use crate::core_agent_api::*;
 use crate::message::InternalMessage;
 use anyhow::Result;
 use std::sync::Arc;
+use std::thread::available_parallelism;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 
@@ -31,6 +32,7 @@ impl AgentTcpClient {
                     let framed_rx = Arc::new(Mutex::new(new_framed_read(reader)));
                     let framed_tx = Arc::new(Mutex::new(new_framed_write(writer)));
 
+                    let cpu_count = available_parallelism().map(|n| n.get() as i32).unwrap_or(1);
                     let req = AgentRegisterRequest {
                         agent_id: Some(self.agent_id.clone()),
                         agent_name: self.agent_id.clone(),
@@ -43,10 +45,10 @@ impl AgentTcpClient {
                             can_load: false,
                             supported_protocols: vec!["tcp".into()],
                         },
-                        cpu_total: None,
+                        cpu_total: Some(format!("{} cores", cpu_count)),
                         memory_total: None,
                         disk_total: None,
-                        max_thread_num: None,
+                        max_thread_num: Some(cpu_count * 2),
                         fact_memory_total: None,
                         heartbeat_interval: None,
                         is_core: None,
@@ -71,6 +73,7 @@ impl AgentTcpClient {
                     }
 
                     let hb_tx = framed_tx.clone();
+                    let thread_count = cpu_count;
                     tokio::spawn(async move {
                         let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
                         loop {
@@ -82,7 +85,7 @@ impl AgentTcpClient {
                                 cpu_load: None,
                                 memory_load: None,
                                 disk_load: None,
-                                thread_num: None,
+                                thread_num: Some(thread_count),
                             };
                             let mut tx = hb_tx.lock().await;
                             if send_message(&mut *tx, &InternalMessage::Heartbeat(hb)).await.is_err() {
