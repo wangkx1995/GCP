@@ -265,3 +265,80 @@ export interface CollectionStrategyUpdateRequest {
 export interface BatchStatusRequest {
   ids: number[];
 }
+
+export interface AgentInfoRow {
+  agent_id: number;
+  agent_name: string;
+  agent_ip: string;
+  port: number;
+  version: string;
+  cpu_total?: string;
+  memory_total?: number;
+  disk_total?: number;
+  heartbeat_interval?: number;
+  time_stamp?: string;
+  description?: string;
+  max_thread_num?: number;
+  agent_isuse_flag: number;
+  fact_memory_total?: number;
+  agent_alias?: string;
+  is_core: number;
+  agent_power?: number;
+  host_load_limit?: number;
+  registered_at: string;
+  current_status?: string;
+  cpu_load?: number;
+  memory_load?: number;
+  disk_load?: number;
+  current_thread_num?: number;
+  last_heartbeat_time?: string;
+}
+
+export interface AgentStatusRow {
+  agent_id: number;
+  agent_name: string;
+  status: string;
+  cpu_load?: number;
+  memory_load?: number;
+  disk_load?: number;
+  heartbeat_time: string;
+  thread_num?: number;
+}
+
+export interface AgentStatusHisRow {
+  agent_id: number;
+  cpu_load?: number;
+  memory_load?: number;
+  disk_load?: number;
+  heartbeat_time: string;
+  thread_num?: number;
+  insert_time?: string;
+}
+
+export interface AgentGroupRow {
+  group_id: number;
+  group_name: string;
+  agent_ids: string;
+  description?: string;
+  time_stamp?: string;
+}
+
+export interface UpdateAgentRequest {
+  agent_alias?: string;
+  agent_isuse_flag?: number;
+  agent_power?: number;
+  host_load_limit?: number;
+  description?: string;
+}
+
+export interface CreateGroupRequest {
+  name: string;
+  agent_ids: string;
+  description?: string;
+}
+
+export interface UpdateGroupRequest {
+  name: string;
+  agent_ids: string;
+  description?: string;
+}

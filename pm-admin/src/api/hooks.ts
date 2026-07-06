@@ -180,4 +180,96 @@ export const useBatchActivate = () => {
   });
 };
 
+import {
+  getAgentDetail,
+  updateAgent,
+  getAgentStatusList,
+  getAgentStatusHistory,
+  getAgentGroupList,
+  createAgentGroup,
+  updateAgentGroup,
+  deleteAgentGroup,
+} from './agents';
+import type {
+  UpdateAgentRequest,
+  CreateGroupRequest,
+  UpdateGroupRequest,
+  AgentInfoRow,
+  AgentStatusRow,
+  AgentStatusHisRow,
+  AgentGroupRow,
+} from '../types/api';
+
+export function useAgentDetail(id: number | null) {
+  return useQuery({
+    queryKey: ['agent', id],
+    queryFn: () => getAgentDetail(id!),
+    enabled: id !== null,
+  });
+}
+
+export function useUpdateAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateAgentRequest }) => updateAgent(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useAgentStatusList() {
+  return useQuery({
+    queryKey: ['agent-status-list'],
+    queryFn: getAgentStatusList,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useAgentStatusHistory(id: number | null, limit = 100) {
+  return useQuery({
+    queryKey: ['agent-status-history', id, limit],
+    queryFn: () => getAgentStatusHistory(id!, limit),
+    enabled: id !== null,
+  });
+}
+
+export function useAgentGroupList() {
+  return useQuery({
+    queryKey: ['agent-groups'],
+    queryFn: getAgentGroupList,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreateAgentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateGroupRequest) => createAgentGroup(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-groups'] });
+    },
+  });
+}
+
+export function useUpdateAgentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateGroupRequest }) => updateAgentGroup(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-groups'] });
+    },
+  });
+}
+
+export function useDeleteAgentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => deleteAgentGroup(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent-groups'] });
+    },
+  });
+}
+
 
