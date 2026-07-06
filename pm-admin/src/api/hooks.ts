@@ -194,10 +194,6 @@ import type {
   UpdateAgentRequest,
   CreateGroupRequest,
   UpdateGroupRequest,
-  AgentInfoRow,
-  AgentStatusRow,
-  AgentStatusHisRow,
-  AgentGroupRow,
 } from '../types/api';
 
 export function useAgentDetail(id: number | null) {
