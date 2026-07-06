@@ -40,10 +40,9 @@ pub async fn run_agent_server(
 
     let runner = AgentRunner {
         agent_id: agent_id.clone(),
-        core_api_base,
-        http: reqwest::Client::new(),
-        tcp_tx: Some(send_to_tcp_tx.clone()),
+        tcp_tx: send_to_tcp_tx.clone(),
     };
+    let http = reqwest::Client::new();
 
     while let Some(msg) = tcp_msg_rx.recv().await {
         match msg {
@@ -52,8 +51,9 @@ pub async fn run_agent_server(
                 let task_dir = data_dir.join("tasks").join(&request.task_id);
                 let runner = runner.clone();
                 let store = store.clone();
+                let http = http.clone();
                 tokio::spawn(async move {
-                    if store.ensure_config_async(&request.config_snapshot_id, &runner.http).await.is_ok() {
+                    if store.ensure_config_async(&request.config_snapshot_id, &http).await.is_ok() {
                         if let Err(e) = runner.run_task(&store, request, task_dir).await {
                             tracing::warn!("Task failed: {e:#}");
                         }

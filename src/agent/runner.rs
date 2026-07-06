@@ -16,14 +16,12 @@ use tokio::sync::mpsc;
 #[derive(Clone)]
 pub struct AgentRunner {
     pub agent_id: String,
-    pub core_api_base: String,
-    pub http: reqwest::Client,
-    pub tcp_tx: Option<mpsc::Sender<InternalMessage>>,
+    pub tcp_tx: mpsc::Sender<InternalMessage>,
 }
 
 impl AgentRunner {
-    pub fn new(agent_id: String, core_api_base: String) -> Self {
-        Self { agent_id, core_api_base, http: reqwest::Client::new(), tcp_tx: None }
+    pub fn new(agent_id: String, tcp_tx: mpsc::Sender<InternalMessage>) -> Self {
+        Self { agent_id, tcp_tx }
     }
 
     pub async fn run_task(&self, store: &AgentStore, task: TaskDispatchRequest, task_dir: PathBuf) -> Result<()> {
@@ -49,7 +47,7 @@ impl AgentRunner {
             other => {
                 tracing::error!("[agent] unsupported load_type {other}");
                 store.update_task_state(&task.task_id, TaskStatus::Failed)?;
-                report_to_core(&self.http, &self.core_api_base, &task.task_id, &self.agent_id, TaskStatus::Failed, Vec::new()).await;
+                report_to_core(&self.tcp_tx, &task.task_id, &self.agent_id, TaskStatus::Failed, Vec::new()).await;
                 bail!("unsupported load_type {other}")
             }
         };
@@ -131,23 +129,22 @@ impl AgentRunner {
             }
         };
 
-        report_to_core(&self.http, &self.core_api_base, &task.task_id, &self.agent_id, report_status, result_rows).await;
+        report_to_core(&self.tcp_tx, &task.task_id, &self.agent_id, report_status, result_rows).await;
 
         Ok(())
     }
 }
 
-async fn report_to_core(http: &reqwest::Client, core_api_base: &str, task_id: &str, agent_id: &str, status: TaskStatus, result_rows: Vec<crate::core_agent_api::ResultRow>) {
+async fn report_to_core(tcp_tx: &mpsc::Sender<InternalMessage>, task_id: &str, agent_id: &str, status: TaskStatus, result_rows: Vec<crate::core_agent_api::ResultRow>) {
     let report = TaskResultReport {
         task_id: task_id.to_string(),
         agent_id: agent_id.to_string(),
         status,
         result_rows,
     };
-    let url = format!("{core_api_base}/tasks/{task_id}/result");
-    tracing::info!("[agent] posting result to Core: {url}");
-    if let Err(e) = http.post(&url).json(&report).send().await {
-        tracing::error!("[agent] HTTP request to Core failed: {e:#}");
+    let msg = InternalMessage::TaskResult(report);
+    if let Err(e) = tcp_tx.send(msg).await {
+        tracing::error!("[agent] TCP send result to Core failed: {e}");
     }
 }
 
