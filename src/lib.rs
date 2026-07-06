@@ -2,6 +2,7 @@ pub mod agent;
 pub mod config;
 pub mod core;
 pub mod core_agent_api;
+pub mod message;
 pub mod crc64;
 pub mod load_config;
 pub mod parse_job;

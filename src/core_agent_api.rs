@@ -156,7 +156,7 @@ pub struct DataCollectorUnitRow {
     pub updated_at: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DataCollectorUnitSaveRequest {
     pub unit_name: String,
     pub config_name: String,
@@ -209,7 +209,7 @@ pub struct CollectionStrategyRow {
     pub updated_at: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CollectionStrategyCreateRequest {
     pub collector_id: i64,
     pub collector_name: String,
@@ -224,7 +224,7 @@ pub struct CollectionStrategyCreateRequest {
     pub strategy_type: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CollectionStrategyUpdateRequest {
     pub cron_expression: Option<String>,
     pub collect_interval: Option<i64>,
@@ -236,7 +236,7 @@ pub struct CollectionStrategyUpdateRequest {
     pub status: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BatchStatusRequest {
     pub ids: Vec<i64>,
 }
