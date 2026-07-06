@@ -8,19 +8,22 @@ use crate::agent::result_csv::read_result_rows;
 use crate::agent::store::AgentStore;
 use crate::core_agent_api::{TaskDispatchRequest, TaskResultReport, TaskStatus};
 use crate::load_config::LoadConfig;
+use crate::message::InternalMessage;
 use crate::parse_job::{run_parse_job, ParseJobOptions};
 use crate::LoadType;
+use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct AgentRunner {
     pub agent_id: String,
     pub core_api_base: String,
     pub http: reqwest::Client,
+    pub tcp_tx: Option<mpsc::Sender<InternalMessage>>,
 }
 
 impl AgentRunner {
     pub fn new(agent_id: String, core_api_base: String) -> Self {
-        Self { agent_id, core_api_base, http: reqwest::Client::new() }
+        Self { agent_id, core_api_base, http: reqwest::Client::new(), tcp_tx: None }
     }
 
     pub async fn run_task(&self, store: &AgentStore, task: TaskDispatchRequest, task_dir: PathBuf) -> Result<()> {
