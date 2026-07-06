@@ -19,8 +19,8 @@ export default function ConfigSnapshotsPage() {
         try {
           await activateMutation.mutateAsync(id);
           message.success('激活成功，已通知在线采集机');
-        } catch {
-          message.error('激活失败');
+        } catch (e) {
+          message.error(`激活失败: ${e instanceof Error ? e.message : '未知错误'}`);
         }
       },
     });

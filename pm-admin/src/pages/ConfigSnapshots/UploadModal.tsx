@@ -23,8 +23,8 @@ export default function UploadModal({ open, onClose }: Props) {
         message.success(`上传成功，快照 ID: ${result.config_snapshot_id}`);
         onClose();
       }
-    } catch {
-      message.error('上传失败');
+    } catch (e) {
+      message.error(`上传失败: ${e instanceof Error ? e.message : '未知错误'}`);
     }
     return false;
   };
