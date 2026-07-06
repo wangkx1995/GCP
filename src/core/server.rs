@@ -360,7 +360,7 @@ async fn dispatch_task(
         request.task_id, request.strategy_id
     );
 
-    let (agent_id, _, _) = match state.db.select_online_agent().await {
+    let (agent_id_i64, _) = match state.db.select_online_agent().await {
         Ok(x) => x,
         Err(e) => {
             return err_response(
@@ -370,6 +370,7 @@ async fn dispatch_task(
             .into_response()
         }
     };
+    let agent_id = agent_id_i64.to_string();
     info!("[core] selected agent {agent_id}");
 
     if let Err(e) = state
@@ -675,7 +676,8 @@ async fn dispatch_for_strategy(
         db_table_name_case: unit.db_table_name_case.clone(),
     };
 
-    let (agent_id, _, _) = state.db.select_online_agent().await?;
+    let (agent_id_i64, _agent_power) = state.db.select_online_agent().await?;
+    let agent_id = agent_id_i64.to_string();
     state.db.create_task(
         &task_id,
         &request.logical_task_key,

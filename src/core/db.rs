@@ -340,14 +340,22 @@ impl CoreDb {
         Ok(n)
     }
 
-    pub async fn select_online_agent(&self) -> Result<(String, String, u16)> {
-        tracing::debug!("[db] ==> SELECT agent_id,host,port FROM agents WHERE status='ONLINE' ORDER BY last_heartbeat_at DESC LIMIT 1");
-        let row = sqlx::query(
-            "SELECT agent_id, host, port FROM agents WHERE status = 'ONLINE' ORDER BY last_heartbeat_at DESC LIMIT 1",
+    pub async fn select_online_agent(&self) -> Result<(i64, f64)> {
+        let row = sqlx::query_as::<_, (i64, f64)>(
+            r#"
+            SELECT ai.agent_id, COALESCE(ai.agent_power, 1.0)
+            FROM agent_info ai
+            JOIN agent_status ast ON ast.agent_id = ai.agent_id
+            WHERE ast.status = 'ONLINE'
+              AND ai.agent_isuse_flag = 1
+            ORDER BY ast.heartbeat_time DESC
+            LIMIT 1
+            "#,
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok((row.get(0), row.get(1), row.get(2)))
+
+        row.ok_or_else(|| anyhow::anyhow!("no online agent available"))
     }
 
     pub async fn list_all_agents(&self) -> Result<Vec<AgentInfo>> {
@@ -1733,5 +1741,36 @@ mod tests {
         let status: String = sqlx::query_scalar("SELECT status FROM agent_status WHERE agent_id = ?")
             .bind(id).fetch_one(&db.pool).await.unwrap();
         assert_eq!(status, "OFFLINE");
+    }
+
+    #[tokio::test]
+    async fn test_select_online_agent() {
+        let db = CoreDb::open(":memory:").await.unwrap();
+        let id1 = compute_agent_id("10.0.0.1", 9997);
+        let id2 = compute_agent_id("10.0.0.2", 9997);
+
+        db.upsert_agent_info(id1, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_status(id1, "ONLINE").await.unwrap();
+
+        db.upsert_agent_info(id2, "a2", "10.0.0.2", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_status(id2, "ONLINE").await.unwrap();
+
+        let (aid, power) = db.select_online_agent().await.unwrap();
+        assert!(aid == id1 || aid == id2);
+        assert!((power - 1.0).abs() < 0.01);
+
+        sqlx::query("UPDATE agent_info SET agent_isuse_flag=0 WHERE agent_id=?")
+            .bind(id1).execute(&db.pool).await.unwrap();
+        sqlx::query("UPDATE agent_status SET heartbeat_time='2020-01-01 00:00:00' WHERE agent_id=?")
+            .bind(id2).execute(&db.pool).await.unwrap();
+
+        let (aid, _) = db.select_online_agent().await.unwrap();
+        assert_eq!(aid, id2);
+
+        sqlx::query("UPDATE agent_info SET agent_isuse_flag=0 WHERE agent_id=?")
+            .bind(id2).execute(&db.pool).await.unwrap();
+
+        let result = db.select_online_agent().await;
+        assert!(result.is_err(), "no online+enabled agent should return error");
     }
 }
