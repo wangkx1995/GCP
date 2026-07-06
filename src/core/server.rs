@@ -8,10 +8,10 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use std::collections::HashMap;
@@ -74,6 +74,11 @@ pub struct CoreState {
 pub fn router(state: CoreState) -> Router {
     Router::new()
         .route("/api/agents", get(list_agents))
+        .route("/api/agents/status", get(list_agent_status_handler))
+        .route("/api/agents/:id", get(get_agent_detail_handler).patch(update_agent_handler))
+        .route("/api/agents/:id/status-history", get(get_agent_status_history_handler))
+        .route("/api/agent-groups", get(list_agent_groups_handler).post(create_agent_group_handler))
+        .route("/api/agent-groups/:id", put(update_agent_group_handler).delete(delete_agent_group_handler))
         .route("/api/config-snapshots/upload", post(upload_config_snapshot))
         .route("/api/config-snapshots", get(list_config_snapshots))
         .route("/api/config-snapshots/:id/activate", post(activate_config_snapshot))
@@ -100,9 +105,130 @@ pub fn router(state: CoreState) -> Router {
 async fn list_agents(
     axum::extract::State(state): axum::extract::State<CoreState>,
 ) -> Response {
-    match state.db.list_all_agents().await {
+    match state.db.list_agents_with_status().await {
         Ok(agents) => ok_response(agents, "获取 Agent 列表成功").into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UpdateAgentRequest {
+    pub agent_alias: Option<String>,
+    pub agent_isuse_flag: Option<i32>,
+    pub agent_power: Option<f64>,
+    pub host_load_limit: Option<f64>,
+    pub description: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct HistoryParams {
+    pub limit: Option<i32>,
+}
+
+async fn get_agent_detail_handler(
+    State(state): State<CoreState>,
+    Path(id): Path<i64>,
+) -> Response {
+    match state.db.get_agent_detail(id).await {
+        Ok(Some(agent)) => ok_response(agent, "ok").into_response(),
+        Ok(None) => err_response(StatusCode::NOT_FOUND, format!("Agent {id} 不存在")).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
+    }
+}
+
+async fn update_agent_handler(
+    State(state): State<CoreState>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateAgentRequest>,
+) -> Response {
+    match state.db.update_agent_info(
+        id,
+        body.agent_alias.as_deref(),
+        body.agent_isuse_flag,
+        body.agent_power,
+        body.host_load_limit,
+        body.description.as_deref(),
+    )
+    .await
+    {
+        Ok(()) => ok_response(serde_json::json!({}), "更新成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
+    }
+}
+
+async fn list_agent_status_handler(
+    State(state): State<CoreState>,
+) -> Response {
+    match state.db.list_agent_status().await {
+        Ok(list) => ok_response(list, "ok").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
+    }
+}
+
+async fn get_agent_status_history_handler(
+    State(state): State<CoreState>,
+    Path(id): Path<i64>,
+    Query(params): Query<HistoryParams>,
+) -> Response {
+    let limit = params.limit.unwrap_or(100);
+    match state.db.get_status_history(id, limit).await {
+        Ok(list) => ok_response(list, "ok").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
+    }
+}
+
+async fn list_agent_groups_handler(
+    State(state): State<CoreState>,
+) -> Response {
+    match state.db.list_agent_groups().await {
+        Ok(list) => ok_response(list, "ok").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CreateGroupRequest {
+    pub group_name: String,
+    pub agent_ids: String,
+    pub description: Option<String>,
+}
+
+async fn create_agent_group_handler(
+    State(state): State<CoreState>,
+    Json(body): Json<CreateGroupRequest>,
+) -> Response {
+    match state.db.create_agent_group(&body.group_name, &body.agent_ids, body.description.as_deref()).await {
+        Ok(id) => ok_response(serde_json::json!({"group_id": id}), "创建成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UpdateGroupRequest {
+    pub group_name: String,
+    pub agent_ids: String,
+    pub description: Option<String>,
+}
+
+async fn update_agent_group_handler(
+    State(state): State<CoreState>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateGroupRequest>,
+) -> Response {
+    match state.db.update_agent_group(id, &body.group_name, &body.agent_ids, body.description.as_deref()).await {
+        Ok(()) => ok_response(serde_json::json!({}), "更新成功").into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
+    }
+}
+
+async fn delete_agent_group_handler(
+    State(state): State<CoreState>,
+    Path(id): Path<i64>,
+) -> Response {
+    match state.db.delete_agent_group(id).await {
+        Ok(true) => ok_response(serde_json::json!({"deleted": true}), "删除成功").into_response(),
+        Ok(false) => err_response(StatusCode::NOT_FOUND, format!("分组 {id} 不存在")).into_response(),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")).into_response(),
     }
 }
 

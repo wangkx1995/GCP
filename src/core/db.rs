@@ -11,6 +11,67 @@ use crate::core_agent_api::{
     DataCollectorUnitSaveRequest, OnlineAgent, ResultRow, TaskResultReport, TaskStatus,
 };
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct AgentInfoRow {
+    pub agent_id: i64,
+    pub agent_name: String,
+    pub agent_ip: String,
+    pub port: i32,
+    pub version: String,
+    pub cpu_total: Option<String>,
+    pub memory_total: Option<f64>,
+    pub disk_total: Option<f64>,
+    pub heartbeat_interval: Option<i32>,
+    pub time_stamp: Option<String>,
+    pub description: Option<String>,
+    pub max_thread_num: Option<i32>,
+    pub agent_isuse_flag: i32,
+    pub fact_memory_total: Option<f64>,
+    pub agent_alias: Option<String>,
+    pub is_core: i32,
+    pub agent_power: Option<f64>,
+    pub host_load_limit: Option<f64>,
+    pub registered_at: String,
+    pub current_status: Option<String>,
+    pub cpu_load: Option<f64>,
+    pub memory_load: Option<f64>,
+    pub disk_load: Option<f64>,
+    pub current_thread_num: Option<i32>,
+    pub last_heartbeat_time: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct AgentStatusRow {
+    pub agent_id: i64,
+    pub agent_name: String,
+    pub status: String,
+    pub cpu_load: Option<f64>,
+    pub memory_load: Option<f64>,
+    pub disk_load: Option<f64>,
+    pub heartbeat_time: String,
+    pub thread_num: Option<i32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct AgentStatusHisRow {
+    pub agent_id: i64,
+    pub cpu_load: Option<f64>,
+    pub memory_load: Option<f64>,
+    pub disk_load: Option<f64>,
+    pub heartbeat_time: String,
+    pub thread_num: Option<i32>,
+    pub insert_time: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct AgentGroupRow {
+    pub group_id: i64,
+    pub group_name: String,
+    pub agent_ids: String,
+    pub description: Option<String>,
+    pub time_stamp: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct CoreDb {
     pool: SqlitePool,
@@ -1282,6 +1343,164 @@ impl CoreDb {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn list_agents_with_status(&self) -> Result<Vec<AgentInfoRow>> {
+        sqlx::query_as::<_, AgentInfoRow>(
+            r#"
+            SELECT ai.*, ast.status as current_status, ast.cpu_load, ast.memory_load, ast.disk_load,
+                   ast.thread_num as current_thread_num, ast.heartbeat_time as last_heartbeat_time
+            FROM agent_info ai
+            LEFT JOIN agent_status ast ON ast.agent_id = ai.agent_id
+            ORDER BY ai.time_stamp DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("list agents: {e}"))
+    }
+
+    pub async fn get_agent_detail(&self, agent_id: i64) -> Result<Option<AgentInfoRow>> {
+        sqlx::query_as::<_, AgentInfoRow>(
+            r#"
+            SELECT ai.*, ast.status as current_status, ast.cpu_load, ast.memory_load, ast.disk_load,
+                   ast.thread_num as current_thread_num, ast.heartbeat_time as last_heartbeat_time
+            FROM agent_info ai
+            LEFT JOIN agent_status ast ON ast.agent_id = ai.agent_id
+            WHERE ai.agent_id = ?
+            "#,
+        )
+        .bind(agent_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("get agent detail: {e}"))
+    }
+
+    pub async fn update_agent_info(
+        &self,
+        agent_id: i64,
+        alias: Option<&str>,
+        isuse_flag: Option<i32>,
+        power: Option<f64>,
+        load_limit: Option<f64>,
+        description: Option<&str>,
+    ) -> Result<()> {
+        let mut sql = String::from("UPDATE agent_info SET");
+        let mut set_parts: Vec<String> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(v) = alias {
+            set_parts.push(" agent_alias = ?".to_string());
+            params.push(v.to_string());
+        }
+        if let Some(v) = isuse_flag {
+            set_parts.push(" agent_isuse_flag = ?".to_string());
+            params.push(v.to_string());
+        }
+        if let Some(v) = power {
+            set_parts.push(" agent_power = ?".to_string());
+            params.push(v.to_string());
+        }
+        if let Some(v) = load_limit {
+            set_parts.push(" host_load_limit = ?".to_string());
+            params.push(v.to_string());
+        }
+        if let Some(v) = description {
+            set_parts.push(" description = ?".to_string());
+            params.push(v.to_string());
+        }
+
+        if set_parts.is_empty() {
+            return Ok(());
+        }
+
+        sql.push_str(&set_parts.join(","));
+        sql.push_str(" WHERE agent_id = ?");
+        params.push(agent_id.to_string());
+
+        let mut query = sqlx::query(&sql);
+        for p in params {
+            query = query.bind(p);
+        }
+        query.execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn list_agent_status(&self) -> Result<Vec<AgentStatusRow>> {
+        sqlx::query_as::<_, AgentStatusRow>(
+            r#"
+            SELECT ast.*, ai.agent_name
+            FROM agent_status ast
+            JOIN agent_info ai ON ai.agent_id = ast.agent_id
+            ORDER BY ast.heartbeat_time DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("list status: {e}"))
+    }
+
+    pub async fn get_status_history(&self, agent_id: i64, limit: i32) -> Result<Vec<AgentStatusHisRow>> {
+        sqlx::query_as::<_, AgentStatusHisRow>(
+            r#"
+            SELECT * FROM agent_status_his WHERE agent_id = ?
+            ORDER BY heartbeat_time DESC LIMIT ?
+            "#,
+        )
+        .bind(agent_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("status history: {e}"))
+    }
+
+    pub async fn list_agent_groups(&self) -> Result<Vec<AgentGroupRow>> {
+        sqlx::query_as::<_, AgentGroupRow>(
+            "SELECT group_id, group_name, agent_ids, description, time_stamp FROM agent_group ORDER BY time_stamp DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("list groups: {e}"))
+    }
+
+    pub async fn create_agent_group(&self, name: &str, agent_ids: &str, description: Option<&str>) -> Result<i64> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        sqlx::query(
+            "INSERT INTO agent_group(group_name, agent_ids, description, time_stamp) VALUES (?, ?, ?, ?)",
+        )
+        .bind(name)
+        .bind(agent_ids)
+        .bind(description)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(id)
+    }
+
+    pub async fn update_agent_group(&self, group_id: i64, name: &str, agent_ids: &str, description: Option<&str>) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        sqlx::query(
+            "UPDATE agent_group SET group_name = ?, agent_ids = ?, description = ?, time_stamp = ? WHERE group_id = ?",
+        )
+        .bind(name)
+        .bind(agent_ids)
+        .bind(description)
+        .bind(&now)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_agent_group(&self, group_id: i64) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM agent_group WHERE group_id = ?")
+            .bind(group_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn tables_for_config(&self, config_name: &str) -> Result<Vec<String>> {
