@@ -40,7 +40,7 @@ pub struct AgentCapabilities {
     pub supported_protocols: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct AgentRegisterRequest {
     pub agent_id: Option<String>,
     pub agent_name: String,
@@ -48,6 +48,13 @@ pub struct AgentRegisterRequest {
     pub port: u16,
     pub version: String,
     pub capabilities: AgentCapabilities,
+    pub cpu_total: Option<String>,
+    pub memory_total: Option<f64>,
+    pub disk_total: Option<f64>,
+    pub max_thread_num: Option<i32>,
+    pub fact_memory_total: Option<f64>,
+    pub heartbeat_interval: Option<i32>,
+    pub is_core: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -62,6 +69,10 @@ pub struct AgentHeartbeatRequest {
     pub status: AgentStatus,
     pub running_task_ids: Vec<String>,
     pub disk_free_bytes: Option<u64>,
+    pub cpu_load: Option<f64>,
+    pub memory_load: Option<f64>,
+    pub disk_load: Option<f64>,
+    pub thread_num: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

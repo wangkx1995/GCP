@@ -69,6 +69,17 @@ pub async fn run_agent_server(
                 tracing::info!("Received shutdown, agent exiting");
                 break;
             }
+            InternalMessage::ConfigSnapshotRequest(snapshot_id) => {
+                tracing::info!(%snapshot_id, "Received config snapshot request");
+                let store = store.clone();
+                let http = http.clone();
+                tokio::spawn(async move {
+                    match store.ensure_config_async(&snapshot_id, &http).await {
+                        Ok(path) => tracing::info!(%snapshot_id, path=%path.display(), "config cached"),
+                        Err(e) => tracing::warn!(%snapshot_id, error=%e, "config download failed"),
+                    }
+                });
+            }
             InternalMessage::ConfigSnapshotResponse(data) => {
                 tracing::info!("Received config snapshot: {}", data.config_snapshot_id);
             }

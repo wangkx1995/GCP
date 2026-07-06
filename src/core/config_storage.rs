@@ -55,8 +55,16 @@ impl ConfigStorage {
             let mut file = archive.by_index(i)?;
             let entry_name = file.name().trim_end_matches('/').to_string();
             total_entries += 1;
+            // Skip macOS metadata entries (__MACOSX/ and ._ resource forks)
+            if entry_name.starts_with("__MACOSX") || entry_name.contains("/._") || entry_name.starts_with("._") {
+                continue;
+            }
+            // Skip .DS_Store files
+            if entry_name.ends_with("/.DS_Store") || entry_name == ".DS_Store" {
+                continue;
+            }
             if file.is_dir() {
-                if entry_name == "rules" || entry_name.starts_with("rules/") {
+                if entry_name == "rules" || entry_name.ends_with("/rules") || entry_name.starts_with("rules/") {
                     has_rules_dir = true;
                 }
                 continue;
@@ -74,7 +82,27 @@ impl ConfigStorage {
             entries.push((entry_name, content));
         }
 
+        let entry_names: Vec<String> = entries.iter().map(|(n, _)| n.clone()).collect();
+
+        tracing::debug!("[config_storage] zip raw entries ({total_entries} total): {:?}", entry_names);
+
+        // Detect and strip common top-level directory prefix
+        let prefix = common_prefix_str(&entry_names);
+        if let Some(pfx) = &prefix {
+            tracing::debug!("[config_storage] stripping common prefix: \"{pfx}/\"");
+            for (name, _) in &mut entries {
+                if let Some(stripped) = name.strip_prefix(&format!("{pfx}/")) {
+                    *name = stripped.to_string();
+                }
+            }
+        }
+
         let entry_names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+
+        // Re-check has_rules_dir with normalized names
+        if !has_rules_dir {
+            has_rules_dir = entry_names.iter().any(|n| *n == "rules" || n.starts_with("rules/"));
+        }
 
         for required in REQUIRED_FILES {
             if !entry_names.contains(required) {
@@ -193,6 +221,17 @@ fn collect_files(base: &Path, dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     result
 }
 
+/// Find the common top-level directory prefix among a list of file paths.
+/// Returns `Some("dirname")` if all non-root entries share the same first path segment.
+fn common_prefix_str(names: &[String]) -> Option<String> {
+    let prefix = names.iter().find_map(|n| n.split('/').next()).filter(|s| !s.is_empty())?;
+    if names.iter().all(|n| n == prefix || n.starts_with(&format!("{prefix}/"))) {
+        Some(prefix.to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,19 +267,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zip_missing_source_toml() {
+    fn rejects_zip_missing_mapping_dx_ini() {
         let dir = tempdir().unwrap();
         let storage = ConfigStorage::new(dir.path().join("cs")).unwrap();
         let buf = std::io::Cursor::new(Vec::new());
         let mut zip = zip::ZipWriter::new(buf);
         let opts = || zip::write::FileOptions::<'_, ()>::default();
         zip.add_directory("rules/", opts()).unwrap();
-        zip.start_file("mapping_dx.ini", opts()).unwrap();
-        zip.write_all(b"[tableMapping]").unwrap();
+        zip.start_file("source.toml", opts()).unwrap();
+        zip.write_all(b"[source]").unwrap();
         let zip_data = zip.finish().unwrap().into_inner();
         let result = storage.validate_and_unpack(&zip_data, "v2_test").unwrap();
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.contains("source.toml")));
+        assert!(result.errors.iter().any(|e| e.contains("mapping_dx.ini")));
     }
 
     #[test]
@@ -274,5 +313,63 @@ mod tests {
         assert!(vdir.join("mapping_dx.ini").exists());
         assert!(vdir.join("load.toml").exists());
         assert!(vdir.join("rules").join("rule_a.json").exists());
+    }
+
+    #[test]
+    fn common_prefix_detects_directory_wrapper() {
+        let names: Vec<String> = vec!["mycfg/mapping_dx.ini", "mycfg/rules/a.json", "mycfg/source.toml"].into_iter().map(String::from).collect();
+        assert_eq!(common_prefix_str(&names), Some("mycfg".to_string()));
+    }
+
+    #[test]
+    fn common_prefix_returns_none_for_flat() {
+        let names: Vec<String> = vec!["mapping_dx.ini", "rules/a.json"].into_iter().map(String::from).collect();
+        assert_eq!(common_prefix_str(&names), None);
+    }
+
+    #[test]
+    fn common_prefix_returns_none_for_mixed() {
+        let names: Vec<String> = vec!["a/mapping_dx.ini", "b/rules/a.json"].into_iter().map(String::from).collect();
+        assert_eq!(common_prefix_str(&names), None);
+    }
+
+    #[test]
+    fn validate_accepts_nested_zip() {
+        let dir = tempdir().unwrap();
+        let storage = ConfigStorage::new(dir.path().join("cs")).unwrap();
+        let buf = std::io::Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(buf);
+        let opts = || zip::write::FileOptions::<'_, ()>::default();
+        zip.start_file("mycfg/mapping_dx.ini", opts()).unwrap();
+        zip.write_all(b"[tableMapping]\n").unwrap();
+        zip.start_file("mycfg/rules/TPD_A.json", opts()).unwrap();
+        zip.write_all(b"{}").unwrap();
+        let zip_data = zip.finish().unwrap().into_inner();
+        let result = storage.validate_and_unpack(&zip_data, "v_nested").unwrap();
+        assert!(result.valid, "nested zip should be valid after prefix stripping");
+    }
+
+    #[test]
+    fn validate_accepts_macos_created_zip() {
+        let dir = tempdir().unwrap();
+        let storage = ConfigStorage::new(dir.path().join("cs")).unwrap();
+        let buf = std::io::Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(buf);
+        let opts = || zip::write::FileOptions::<'_, ()>::default();
+        zip.add_directory("__MACOSX/", opts()).unwrap();
+        zip.start_file("__MACOSX/._RNOP_V1.4.0_NR_GNB_DX_PM", opts()).unwrap();
+        zip.write_all(b"\x00").unwrap();
+        zip.start_file("RNOP_V1.4.0_NR_GNB_DX_PM/mapping_dx.ini", opts()).unwrap();
+        zip.write_all(b"[tableMapping]\n").unwrap();
+        zip.start_file("__MACOSX/RNOP_V1.4.0_NR_GNB_DX_PM/._mapping_dx.ini", opts()).unwrap();
+        zip.write_all(b"\x00").unwrap();
+        zip.add_directory("RNOP_V1.4.0_NR_GNB_DX_PM/rules/", opts()).unwrap();
+        zip.start_file("RNOP_V1.4.0_NR_GNB_DX_PM/rules/TPD_A.json", opts()).unwrap();
+        zip.write_all(b"{\"table_name\":\"TPD_A\"}").unwrap();
+        zip.start_file("__MACOSX/RNOP_V1.4.0_NR_GNB_DX_PM/rules/._TPD_A.json", opts()).unwrap();
+        zip.write_all(b"\x00").unwrap();
+        let zip_data = zip.finish().unwrap().into_inner();
+        let result = storage.validate_and_unpack(&zip_data, "v_macos").unwrap();
+        assert!(result.valid, "macos-created zip should be valid after filtering __MACOSX and stripping prefix");
     }
 }

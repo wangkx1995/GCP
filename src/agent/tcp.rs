@@ -43,6 +43,13 @@ impl AgentTcpClient {
                             can_load: false,
                             supported_protocols: vec!["tcp".into()],
                         },
+                        cpu_total: None,
+                        memory_total: None,
+                        disk_total: None,
+                        max_thread_num: None,
+                        fact_memory_total: None,
+                        heartbeat_interval: None,
+                        is_core: None,
                     };
                     {
                         let mut tx = framed_tx.lock().await;
@@ -72,6 +79,10 @@ impl AgentTcpClient {
                                 status: AgentStatus::Online,
                                 running_task_ids: vec![],
                                 disk_free_bytes: None,
+                                cpu_load: None,
+                                memory_load: None,
+                                disk_load: None,
+                                thread_num: None,
                             };
                             let mut tx = hb_tx.lock().await;
                             if send_message(&mut *tx, &InternalMessage::Heartbeat(hb)).await.is_err() {

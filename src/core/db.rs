@@ -1207,6 +1207,13 @@ mod tests {
                 can_load: false,
                 supported_protocols: vec!["ftp".to_string(), "sftp".to_string()],
             },
+            cpu_total: None,
+            memory_total: None,
+            disk_total: None,
+            max_thread_num: None,
+            fact_memory_total: None,
+            heartbeat_interval: None,
+            is_core: None,
         }
     }
 

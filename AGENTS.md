@@ -77,3 +77,14 @@ Use `--input <file-or-dir>` instead of `--source-config`; they are mutually excl
 - Gitignored: `/target/`, `/output/`, `/valid/`, `/downloads/`, `/rules/`, `fixtures/*.gz`, `fixtures/*.zip`.
 - `valid1/` is not ignored and is used as a checked baseline directory in local comparisons; do not overwrite or delete it casually.
 - Keep secret-bearing local config files out of commits.
+
+## After Rust Changes
+
+After any Rust code changes (not frontend-only), run release build and copy artifacts to `test/`:
+
+```bash
+cargo build --release && \
+cp target/release/core test/core && \
+cp target/release/agent test/agent && \
+cp server.toml agent.toml test/
+```
