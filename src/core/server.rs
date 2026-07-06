@@ -362,8 +362,8 @@ async fn activate_config_snapshot(
     };
     info!("[core] activated config snapshot {id}");
 
-    let agents = match state.db.list_online_agents().await {
-        Ok(a) => a,
+    let agents = match state.db.list_agents_with_status().await {
+        Ok(a) => a.into_iter().filter(|a| a.current_status.as_deref() == Some("ONLINE")).collect::<Vec<_>>(),
         Err(e) => {
             info!("[core] failed to list online agents: {e}");
             Vec::new()
@@ -371,7 +371,7 @@ async fn activate_config_snapshot(
     };
     let snapshot_id = id.clone();
     for agent in &agents {
-        let agent_id = agent.agent_id.clone();
+        let agent_id = agent.agent_id.to_string();
         let sid = snapshot_id.clone();
         let registry = state.registry.clone();
         tokio::spawn(async move {

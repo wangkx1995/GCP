@@ -5,10 +5,10 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 
 use crate::core_agent_api::{
-    AgentCapabilities, AgentGroupRow, AgentInfo, AgentInfoRow, AgentRegisterRequest, AgentStatus,
+    AgentGroupRow, AgentInfoRow,
     AgentStatusHisRow, AgentStatusRow, CollectionStrategyCreateRequest, CollectionStrategyRow,
     CollectionStrategyUpdateRequest, ConfigNameItem, ConfigSnapshotMeta, ConfigSnapshotResponse,
-    DataCollectorUnitRow, DataCollectorUnitSaveRequest, OnlineAgent, ResultRow, TaskResultReport,
+    DataCollectorUnitRow, DataCollectorUnitSaveRequest, ResultRow, TaskResultReport,
     TaskStatus,
 };
 
@@ -285,62 +285,6 @@ impl CoreDb {
         Ok(())
     }
 
-    pub async fn register_agent(&self, request: &AgentRegisterRequest) -> Result<String> {
-        let agent_id = request
-            .agent_id
-            .clone()
-            .unwrap_or_else(|| format!("agent_{}", uuid::Uuid::new_v4().simple()));
-        let now = chrono::Local::now()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string();
-        let capabilities_json = serde_json::to_string(&request.capabilities)?;
-        tracing::debug!(
-            "[db] ==> INSERT INTO agents(agent_id,agent_name,host,port,version,capabilities_json,status,registered_at,last_heartbeat_at) VALUES(?,?,?,?,?,?,'ONLINE',?,?) ON CONFLICT(agent_id) DO UPDATE SET agent_name=excluded.agent_name,host=excluded.host,port=excluded.port,version=excluded.version,capabilities_json=excluded.capabilities_json,status='ONLINE',last_heartbeat_at=excluded.last_heartbeat_at"
-        );
-        tracing::debug!("[db] ==> Parameters: agent_id={}, agent_name={}, host={}, port={}, version={}", agent_id, request.agent_name, request.host, request.port, request.version);
-        sqlx::query(
-            r#"
-            INSERT INTO agents(agent_id, agent_name, host, port, version, capabilities_json, status, registered_at, last_heartbeat_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'ONLINE', ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                agent_name=excluded.agent_name,
-                host=excluded.host,
-                port=excluded.port,
-                version=excluded.version,
-                capabilities_json=excluded.capabilities_json,
-                status='ONLINE',
-                last_heartbeat_at=excluded.last_heartbeat_at
-            "#,
-        )
-        .bind(&agent_id)
-        .bind(&request.agent_name)
-        .bind(&request.host)
-        .bind(request.port)
-        .bind(&request.version)
-        .bind(&capabilities_json)
-        .bind(&now)
-        .bind(&now)
-        .execute(&self.pool)
-        .await?;
-        Ok(agent_id)
-    }
-
-    pub async fn mark_stale_agents_offline(&self, max_age_seconds: i64) -> Result<usize> {
-        let cutoff = (chrono::Local::now() - chrono::Duration::seconds(max_age_seconds))
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string();
-        tracing::debug!("[db] ==> UPDATE agents SET status='OFFLINE' WHERE status='ONLINE' AND last_heartbeat_at<?");
-        tracing::debug!("[db] ==> Parameters: cutoff={}", cutoff);
-        let result = sqlx::query(
-            "UPDATE agents SET status = 'OFFLINE' WHERE status = 'ONLINE' AND last_heartbeat_at < ?",
-        )
-        .bind(&cutoff)
-        .execute(&self.pool)
-        .await?;
-        let n = result.rows_affected() as usize;
-        Ok(n)
-    }
-
     pub async fn select_online_agent(&self) -> Result<(i64, f64)> {
         let row = sqlx::query_as::<_, (i64, f64)>(
             r#"
@@ -357,63 +301,6 @@ impl CoreDb {
         .await?;
 
         row.ok_or_else(|| anyhow::anyhow!("no online agent available"))
-    }
-
-    pub async fn list_all_agents(&self) -> Result<Vec<AgentInfo>> {
-        tracing::debug!("[db] ==> SELECT agent_id,agent_name,host,port,version,capabilities_json,status,registered_at,last_heartbeat_at FROM agents ORDER BY registered_at DESC");
-        let rows = sqlx::query(
-            "SELECT agent_id, agent_name, host, port, version, capabilities_json, status, registered_at, last_heartbeat_at FROM agents ORDER BY registered_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        let agents = rows
-            .into_iter()
-            .map(|row| {
-                let capabilities_json: String = row.get(5);
-                let capabilities: AgentCapabilities =
-                    serde_json::from_str(&capabilities_json).unwrap_or(AgentCapabilities {
-                        can_collect: false,
-                        can_parse: false,
-                        can_load: false,
-                        supported_protocols: vec![],
-                    });
-                let status_str: String = row.get(6);
-                let status = match status_str.as_str() {
-                    "ONLINE" => AgentStatus::Online,
-                    "OFFLINE" => AgentStatus::Offline,
-                    _ => AgentStatus::Unknown,
-                };
-                AgentInfo {
-                    agent_id: row.get(0),
-                    agent_name: row.get(1),
-                    host: row.get(2),
-                    port: row.get(3),
-                    version: row.get(4),
-                    capabilities,
-                    status,
-                    registered_at: row.get(7),
-                    last_heartbeat_at: row.get(8),
-                }
-            })
-            .collect();
-        Ok(agents)
-    }
-
-    pub async fn list_online_agents(&self) -> Result<Vec<OnlineAgent>> {
-        let rows = sqlx::query(
-            "SELECT agent_id, host, port FROM agents WHERE status = 'ONLINE'",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        let agents = rows
-            .into_iter()
-            .map(|row| OnlineAgent {
-                agent_id: row.get(0),
-                host: row.get(1),
-                port: row.get(2),
-            })
-            .collect();
-        Ok(agents)
     }
 
     pub async fn insert_config_snapshot(&self, snapshot: &ConfigSnapshotResponse) -> Result<()> {
@@ -1463,7 +1350,7 @@ mod tests {
 
     use super::*;
     use crate::core::agent_id::compute_agent_id;
-    use crate::core_agent_api::{AgentCapabilities, RuleFile, TaskStatus};
+    use crate::core_agent_api::{RuleFile, TaskStatus};
     use tempfile::{tempdir, TempDir};
 
     struct TestDb {
@@ -1484,43 +1371,23 @@ mod tests {
         TestDb { db, _dir: dir }
     }
 
-    fn agent_request() -> AgentRegisterRequest {
-        AgentRegisterRequest {
-            agent_id: None,
-            agent_name: "agent-1".to_string(),
-            host: "127.0.0.1".to_string(),
-            port: 18081,
-            version: "1.0.0".to_string(),
-            capabilities: AgentCapabilities {
-                can_collect: true,
-                can_parse: true,
-                can_load: false,
-                supported_protocols: vec!["ftp".to_string(), "sftp".to_string()],
-            },
-            cpu_total: None,
-            memory_total: None,
-            disk_total: None,
-            max_thread_num: None,
-            fact_memory_total: None,
-            heartbeat_interval: None,
-            is_core: None,
-        }
-    }
-
     #[tokio::test]
     async fn registers_agent_and_reuses_existing_agent_id() {
         let db = db().await;
-        let agent_id = db.register_agent(&agent_request()).await.unwrap();
-        let mut reconnect = agent_request();
-        reconnect.agent_id = Some(agent_id.clone());
-        let reused = db.register_agent(&reconnect).await.unwrap();
-        assert_eq!(reused, agent_id);
+        let agent_id = compute_agent_id("127.0.0.1", 18081);
+        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_status(agent_id, "ONLINE").await.unwrap();
+        // Re-register (upsert) should succeed without error
+        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
     }
 
     #[tokio::test]
     async fn stores_task_result_rows() {
         let db = db().await;
-        let agent_id = db.register_agent(&agent_request()).await.unwrap();
+        let agent_id_i64 = compute_agent_id("127.0.0.1", 18081);
+        db.upsert_agent_info(agent_id_i64, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_status(agent_id_i64, "ONLINE").await.unwrap();
+        let agent_id = agent_id_i64.to_string();
         db.insert_config_snapshot(&ConfigSnapshotResponse {
             config_snapshot_id: "cfg_1".to_string(),
             content_hash: "sha256:test".to_string(),
@@ -1589,14 +1456,15 @@ mod tests {
     #[tokio::test]
     async fn lists_online_agents() {
         let db = db().await;
-        let mut req = agent_request();
-        req.agent_id = Some("agent_a".into());
-        db.register_agent(&req).await.unwrap();
-        let agents = db.list_online_agents().await.unwrap();
+        let agent_id = compute_agent_id("127.0.0.1", 18081);
+        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_status(agent_id, "ONLINE").await.unwrap();
+        let agents = db.list_agents_with_status().await.unwrap();
         assert_eq!(agents.len(), 1);
-        assert_eq!(agents[0].agent_id, "agent_a");
-        assert_eq!(agents[0].host, "127.0.0.1");
+        assert_eq!(agents[0].agent_id, agent_id);
+        assert_eq!(agents[0].agent_ip, "127.0.0.1");
         assert_eq!(agents[0].port, 18081);
+        assert_eq!(agents[0].current_status.as_deref(), Some("ONLINE"));
     }
 
     #[tokio::test]
