@@ -26,23 +26,88 @@ impl CoreDb {
     }
 
     async fn init_schema(&self) -> Result<()> {
+        sqlx::query("DROP TABLE IF EXISTS agents")
+            .execute(&self.pool).await?;
+
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS agents (
-                agent_id TEXT PRIMARY KEY,
-                agent_name TEXT NOT NULL,
-                host TEXT NOT NULL,
-                port INTEGER NOT NULL,
-                version TEXT NOT NULL,
-                capabilities_json TEXT NOT NULL,
-                status TEXT NOT NULL,
-                registered_at TEXT NOT NULL,
-                last_heartbeat_at TEXT
+            CREATE TABLE IF NOT EXISTS agent_info (
+                agent_id            INTEGER PRIMARY KEY,
+                agent_name          TEXT NOT NULL,
+                agent_ip            TEXT NOT NULL,
+                port                INTEGER NOT NULL,
+                version             TEXT NOT NULL,
+                cpu_total           TEXT,
+                memory_total        REAL,
+                disk_total          REAL,
+                heartbeat_interval  INTEGER,
+                time_stamp          TEXT DEFAULT (datetime('now','localtime')),
+                description         TEXT,
+                max_thread_num      INTEGER,
+                agent_isuse_flag    INTEGER NOT NULL DEFAULT 1,
+                fact_memory_total   REAL,
+                agent_alias         TEXT,
+                is_core             INTEGER NOT NULL DEFAULT 0,
+                agent_power         REAL DEFAULT 1.0,
+                host_load_limit     REAL DEFAULT 90.0,
+                registered_at       TEXT NOT NULL
             )
             "#,
         )
-        .execute(&self.pool)
-        .await?;
+        .execute(&self.pool).await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS agent_status (
+                agent_id          INTEGER PRIMARY KEY,
+                status            TEXT NOT NULL,
+                cpu_load          REAL,
+                memory_load       REAL,
+                disk_load         REAL,
+                heartbeat_time    TEXT NOT NULL,
+                thread_num        INTEGER,
+                description       TEXT
+            )
+            "#,
+        )
+        .execute(&self.pool).await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS agent_status_his (
+                agent_id          INTEGER NOT NULL,
+                cpu_load          REAL,
+                memory_load       REAL,
+                disk_load         REAL,
+                heartbeat_time    TEXT NOT NULL,
+                thread_num        INTEGER,
+                description       TEXT,
+                insert_time       TEXT DEFAULT (datetime('now','localtime'))
+            )
+            "#,
+        )
+        .execute(&self.pool).await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_agent_status_his_agent_time
+                ON agent_status_his(agent_id, heartbeat_time)
+            "#,
+        )
+        .execute(&self.pool).await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS agent_group (
+                group_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_name  TEXT NOT NULL,
+                agent_ids   TEXT DEFAULT '[]' NOT NULL,
+                description TEXT,
+                time_stamp  TEXT
+            )
+            "#,
+        )
+        .execute(&self.pool).await?;
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS config_snapshots (
@@ -1346,6 +1411,31 @@ mod tests {
         assert_eq!(tables, vec!["t1".to_string(), "t2".to_string()]);
         let tables = db.tables_for_config("cfg-b").await.unwrap();
         assert!(tables.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_agent_tables_exist() {
+        let db = CoreDb::open(":memory:").await.unwrap();
+        // Verify agent_info exists
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_info")
+            .fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, 0);
+        // Verify agent_status exists
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_status")
+            .fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, 0);
+        // Verify agent_status_his exists
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_status_his")
+            .fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, 0);
+        // Verify agent_group exists
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_group")
+            .fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, 0);
+        // Verify old agents table is gone (expect error)
+        let err = sqlx::query("SELECT COUNT(*) FROM agents")
+            .fetch_one(&db.pool).await;
+        assert!(err.is_err());
     }
 
     #[tokio::test]
