@@ -729,7 +729,8 @@ pub async fn run_core_server(
     tokio::spawn(tcp_sender_loop(to_tcp_rx, reg_for_sender));
 
     // Cleanup loop — unregisters timed-out agents
-    tokio::spawn(tcp_cleanup_loop(registry.clone()));
+    let db_for_cleanup = db.clone();
+    tokio::spawn(tcp_cleanup_loop(registry.clone(), db_for_cleanup));
 
     // HTTP server — management APIs
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
@@ -781,6 +782,21 @@ async fn tcp_dispatch_loop(
             InternalMessage::ConfigSnapshotRequest(snapshot_id) => {
                 tracing::warn!(%agent_id, %snapshot_id, "ConfigSnapshotRequest 未实现");
             }
+            InternalMessage::Heartbeat(hb) => {
+                let agent_id_i64 = agent_id.parse::<i64>().unwrap_or(0);
+                if let Err(e) = db.update_agent_heartbeat(
+                    agent_id_i64, "ONLINE",
+                    hb.cpu_load, hb.memory_load, hb.disk_load, hb.thread_num,
+                ).await {
+                    tracing::warn!(%agent_id, error = %e, "update heartbeat failed");
+                }
+                if let Err(e) = db.insert_status_his(
+                    agent_id_i64,
+                    hb.cpu_load, hb.memory_load, hb.disk_load, hb.thread_num,
+                ).await {
+                    tracing::warn!(%agent_id, error = %e, "insert status_his failed");
+                }
+            }
             _ => {
                 tracing::warn!(%agent_id, "dispatch_loop: 未处理消息类型");
             }
@@ -799,7 +815,7 @@ async fn tcp_sender_loop(
     }
 }
 
-async fn tcp_cleanup_loop(registry: ConnectionRegistry) {
+async fn tcp_cleanup_loop(registry: ConnectionRegistry, db: CoreDb) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
     loop {
         interval.tick().await;
@@ -807,6 +823,11 @@ async fn tcp_cleanup_loop(registry: ConnectionRegistry) {
         for agent_id in timed_out {
             tracing::warn!(%agent_id, "心跳超时，注销");
             registry.unregister(&agent_id).await;
+            if let Ok(agent_id_i64) = agent_id.parse::<i64>() {
+                if let Err(e) = db.mark_agent_offline(agent_id_i64).await {
+                    tracing::error!(%agent_id, error = %e, "mark agent offline failed");
+                }
+            }
         }
     }
 }

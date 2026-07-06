@@ -75,9 +75,10 @@ async fn handle_connection(
         match recv_message(&mut framed_rx).await {
             Ok(Some(msg)) => {
                 match &msg {
-                    InternalMessage::Heartbeat(_) => {
+                    InternalMessage::Heartbeat(hb) => {
                         registry.update_heartbeat(&agent_id).await;
                         let _ = registry.send(&agent_id, &InternalMessage::HeartbeatAck).await;
+                        let _ = to_dispatch.send((agent_id.clone(), InternalMessage::Heartbeat(hb.clone()))).await;
                     }
                     // 其他消息转发给 dispatch loop
                     _ => {

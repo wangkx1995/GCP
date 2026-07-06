@@ -324,22 +324,6 @@ impl CoreDb {
         Ok(agent_id)
     }
 
-    pub async fn update_agent_heartbeat(&self, agent_id: &str) -> Result<()> {
-        let now = chrono::Local::now()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string();
-        tracing::debug!("[db] ==> UPDATE agents SET status='ONLINE',last_heartbeat_at=? WHERE agent_id=?");
-        tracing::debug!("[db] ==> Parameters: last_heartbeat_at={}, agent_id={}", now, agent_id);
-        sqlx::query(
-            "UPDATE agents SET status = 'ONLINE', last_heartbeat_at = ? WHERE agent_id = ?",
-        )
-        .bind(&now)
-        .bind(agent_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     pub async fn mark_stale_agents_offline(&self, max_age_seconds: i64) -> Result<usize> {
         let cutoff = (chrono::Local::now() - chrono::Duration::seconds(max_age_seconds))
             .format("%Y-%m-%d %H:%M:%S")
@@ -1207,6 +1191,72 @@ impl CoreDb {
         Ok(())
     }
 
+    pub async fn update_agent_heartbeat(
+        &self,
+        agent_id: i64,
+        status: &str,
+        cpu_load: Option<f64>,
+        memory_load: Option<f64>,
+        disk_load: Option<f64>,
+        thread_num: Option<i32>,
+    ) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        sqlx::query(
+            r#"
+            UPDATE agent_status SET status=?, cpu_load=?, memory_load=?, disk_load=?, thread_num=?, heartbeat_time=?
+            WHERE agent_id=?
+            "#,
+        )
+        .bind(status)
+        .bind(cpu_load)
+        .bind(memory_load)
+        .bind(disk_load)
+        .bind(thread_num)
+        .bind(&now)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn insert_status_his(
+        &self,
+        agent_id: i64,
+        cpu_load: Option<f64>,
+        memory_load: Option<f64>,
+        disk_load: Option<f64>,
+        thread_num: Option<i32>,
+    ) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO agent_status_his(agent_id, cpu_load, memory_load, disk_load, thread_num, heartbeat_time)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(agent_id)
+        .bind(cpu_load)
+        .bind(memory_load)
+        .bind(disk_load)
+        .bind(thread_num)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn mark_agent_offline(&self, agent_id: i64) -> Result<()> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        sqlx::query(
+            "UPDATE agent_status SET status='OFFLINE', heartbeat_time=? WHERE agent_id=?",
+        )
+        .bind(&now)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn upsert_agent_status(&self, agent_id: i64, status: &str) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         sqlx::query(
@@ -1638,5 +1688,50 @@ mod tests {
         db.batch_activate(&ids).await.unwrap();
         assert_eq!(db.get_strategy(rows[0].id).await.unwrap().unwrap().status, "可用");
         assert_eq!(db.get_strategy(rows[1].id).await.unwrap().unwrap().status, "可用");
+    }
+
+    #[tokio::test]
+    async fn test_update_agent_heartbeat() {
+        let db = CoreDb::open(":memory:").await.unwrap();
+        let id = compute_agent_id("10.0.0.1", 9997);
+        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_status(id, "ONLINE").await.unwrap();
+
+        db.update_agent_heartbeat(id, "ONLINE", Some(45.5), Some(60.0), Some(30.0), Some(8)).await.unwrap();
+
+        let row: (String, Option<f64>, Option<f64>) = sqlx::query_as(
+            "SELECT status, cpu_load, memory_load FROM agent_status WHERE agent_id = ?"
+        ).bind(id).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(row.0, "ONLINE");
+        assert!((row.1.unwrap() - 45.5).abs() < 0.01);
+        assert!((row.2.unwrap() - 60.0).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn test_insert_status_his() {
+        let db = CoreDb::open(":memory:").await.unwrap();
+        let id = compute_agent_id("10.0.0.1", 9997);
+        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+
+        db.insert_status_his(id, Some(50.0), Some(70.0), Some(20.0), Some(5)).await.unwrap();
+        db.insert_status_his(id, Some(60.0), Some(65.0), Some(25.0), Some(6)).await.unwrap();
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_status_his WHERE agent_id = ?")
+            .bind(id).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(count.0, 2);
+    }
+
+    #[tokio::test]
+    async fn test_mark_agent_offline() {
+        let db = CoreDb::open(":memory:").await.unwrap();
+        let id = compute_agent_id("10.0.0.1", 9997);
+        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_status(id, "ONLINE").await.unwrap();
+
+        db.mark_agent_offline(id).await.unwrap();
+
+        let status: String = sqlx::query_scalar("SELECT status FROM agent_status WHERE agent_id = ?")
+            .bind(id).fetch_one(&db.pool).await.unwrap();
+        assert_eq!(status, "OFFLINE");
     }
 }
