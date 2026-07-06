@@ -34,7 +34,7 @@ impl AgentTcpClient {
                     let req = AgentRegisterRequest {
                         agent_id: Some(self.agent_id.clone()),
                         agent_name: self.agent_id.clone(),
-                        host: self.core_host.clone(),
+                        host: String::new(),
                         port: self.core_port,
                         version: env!("CARGO_PKG_VERSION").to_string(),
                         capabilities: AgentCapabilities {

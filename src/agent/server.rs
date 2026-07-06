@@ -53,8 +53,12 @@ pub async fn run_agent_server(
                 let runner = runner.clone();
                 let store = store.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = runner.run_task(&store, request, task_dir).await {
-                        tracing::warn!("Task failed: {e:#}");
+                    if store.ensure_config_async(&request.config_snapshot_id, &runner.http).await.is_ok() {
+                        if let Err(e) = runner.run_task(&store, request, task_dir).await {
+                            tracing::warn!("Task failed: {e:#}");
+                        }
+                    } else {
+                        tracing::error!("config download failed for task {}", request.task_id);
                     }
                 });
             }
