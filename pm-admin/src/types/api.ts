@@ -51,8 +51,7 @@ export interface AgentRegisterRequest {
 
 export interface AgentRegisterResponse {
   agent_id: string;
-  heartbeat_interval_seconds: number;
-  task_report_interval_seconds: number;
+  result: string;
 }
 
 export interface TaskDispatchRequest {
@@ -120,6 +119,7 @@ export type AgentStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
 export interface AgentInfo {
   agent_id: string;
   agent_name: string;
+  agent_alias: string;
   host: string;
   port: number;
   version: string;
@@ -135,7 +135,7 @@ export interface ConfigUpdateRequest {
 }
 
 export interface DataCollectorUnit {
-  id: number;
+  id: string;
   unit_name: string;
   config_name: string;
   config_version: string;
@@ -220,9 +220,9 @@ export interface TablesResponse {
 }
 
 export interface CollectionStrategy {
-  id: number;
+  id: string;
   collector_name: string;
-  collector_id: number;
+  collector_id: string;
   table_name: string;
   status: string;
   cron_expression: string;
@@ -238,7 +238,7 @@ export interface CollectionStrategy {
 }
 
 export interface CollectionStrategyCreateRequest {
-  collector_id: number;
+  collector_id: string;
   collector_name: string;
   table_names: string[];
   cron_expression?: string;
@@ -263,11 +263,11 @@ export interface CollectionStrategyUpdateRequest {
 }
 
 export interface BatchStatusRequest {
-  ids: number[];
+  ids: string[];
 }
 
 export interface AgentInfoRow {
-  agent_id: number;
+  agent_id: string;
   agent_name: string;
   agent_ip: string;
   port: number;
@@ -295,7 +295,7 @@ export interface AgentInfoRow {
 }
 
 export interface AgentStatusRow {
-  agent_id: number;
+  agent_id: string;
   agent_name: string;
   status: string;
   cpu_load?: number;
@@ -303,10 +303,11 @@ export interface AgentStatusRow {
   disk_load?: number;
   heartbeat_time: string;
   thread_num?: number;
+  agent_alias?: string;
 }
 
 export interface AgentStatusHisRow {
-  agent_id: number;
+  agent_id: string;
   cpu_load?: number;
   memory_load?: number;
   disk_load?: number;
@@ -316,7 +317,7 @@ export interface AgentStatusHisRow {
 }
 
 export interface AgentGroupRow {
-  group_id: number;
+  group_id: string;
   group_name: string;
   agent_ids: string;
   description?: string;
@@ -332,13 +333,13 @@ export interface UpdateAgentRequest {
 }
 
 export interface CreateGroupRequest {
-  name: string;
+  group_name: string;
   agent_ids: string;
   description?: string;
 }
 
 export interface UpdateGroupRequest {
-  name: string;
+  group_name: string;
   agent_ids: string;
   description?: string;
 }

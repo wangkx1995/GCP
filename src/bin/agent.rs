@@ -31,7 +31,11 @@ struct AgentSettings {
     data_dir: PathBuf,
     #[allow(dead_code)]
     max_concurrent_tasks: u32,
+    #[serde(default = "default_heartbeat_interval")]
+    heartbeat_interval_seconds: u64,
 }
+
+fn default_heartbeat_interval() -> u64 { 10 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,6 +67,7 @@ async fn main() -> Result<()> {
         None,
         config.core.reconnect_interval_ms,
         config.core.reconnect_max_delay_ms,
+        config.agent.heartbeat_interval_seconds,
     )
     .await
 }

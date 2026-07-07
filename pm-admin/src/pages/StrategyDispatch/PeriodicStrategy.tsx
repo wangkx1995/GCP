@@ -2,7 +2,7 @@ import { useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, Form, Input, InputNumber, Select, Button, message } from 'antd';
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
-import { useDataCollectorUnits, useCreateStrategies, useStrategy, useUpdateStrategy } from '../../api/hooks';
+import { useDataCollectorUnits, useCreateStrategies, useStrategy, useUpdateStrategy, useAgents } from '../../api/hooks';
 import type { CollectionStrategyCreateRequest, CollectionStrategyUpdateRequest } from '../../types/api';
 
 function isValidCron(expr: string): boolean {
@@ -39,9 +39,10 @@ export default function PeriodicStrategyPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const isNew = location.pathname.endsWith('/periodic');
-  const editId = isNew ? null : (id ? Number(id) : null);
+  const editId = isNew ? null : (id ?? null);
 
   const { data: units } = useDataCollectorUnits();
+  const { data: agents } = useAgents();
   const { data: editData } = useStrategy(editId);
   const createMutation = useCreateStrategies();
   const updateMutation = useUpdateStrategy();
@@ -54,6 +55,7 @@ export default function PeriodicStrategyPage() {
     return units.find(u => u.id === watchedCollectorId) || null;
   }, [watchedCollectorId, units]);
 
+  const agentNameMap = useMemo(() => new Map(agents?.map(a => [String(a.agent_id), a.agent_name]) ?? []), [agents]);
   const availableTables = selectedUnit?.table_names ?? [];
 
   useEffect(() => {
@@ -150,7 +152,7 @@ export default function PeriodicStrategyPage() {
               <Input placeholder="0 0 * * *" />
             </Form.Item>
             <Form.Item name="agent_ids" label="采集机" rules={[{ required: true }]}>
-              <Select mode="multiple" placeholder="选择采集机" options={(units ?? []).find(u => u.id === watchedCollectorId)?.agent_ids.map(a => ({ label: a, value: a })) ?? []} />
+              <Select mode="multiple" placeholder="选择采集机" options={(units ?? []).find(u => u.id === watchedCollectorId)?.agent_ids.map(a => ({ label: agentNameMap.get(String(a)) ?? String(a), value: a })) ?? []} />
             </Form.Item>
             {!isNew && (
               <Form.Item name="status" label="状态">

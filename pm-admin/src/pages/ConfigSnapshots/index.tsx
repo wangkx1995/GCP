@@ -104,14 +104,17 @@ export default function ConfigSnapshotsPage() {
       </div>
       <div className="page-body">
       <Card className="content-card" styles={{ body: { padding: 0 } }}>
-        <Table
-          className="data-table"
-          dataSource={snapshots}
-          columns={columns}
-          loading={isLoading}
-          rowKey="config_snapshot_id"
-          pagination={false}
-        />
+        <div className="table-scroll-wrap">
+          <Table
+            className="data-table"
+            dataSource={snapshots}
+            columns={columns}
+            loading={isLoading}
+            rowKey="config_snapshot_id"
+            pagination={false}
+            scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}
+          />
+        </div>
       </Card>
       </div>
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />

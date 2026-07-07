@@ -28,7 +28,7 @@ export function getAgentDetail(id: number) {
   return http.get<AgentInfoRow>(`/agents/${id}`).then(r => r.data);
 }
 
-export function updateAgent(id: number, data: UpdateAgentRequest) {
+export function updateAgent(id: string, data: UpdateAgentRequest) {
   return http.patch<AgentInfoRow>(`/agents/${id}`, data).then(r => r.data);
 }
 
@@ -48,10 +48,10 @@ export function createAgentGroup(data: CreateGroupRequest) {
   return http.post<AgentGroupRow>('/agent-groups', data).then(r => r.data);
 }
 
-export function updateAgentGroup(id: number, data: UpdateGroupRequest) {
+export function updateAgentGroup(id: string, data: UpdateGroupRequest) {
   return http.put<AgentGroupRow>(`/agent-groups/${id}`, data).then(r => r.data);
 }
 
-export function deleteAgentGroup(id: number) {
+export function deleteAgentGroup(id: string) {
   return http.delete(`/agent-groups/${id}`).then(r => r.data);
 }

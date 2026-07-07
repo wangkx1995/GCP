@@ -1,4 +1,5 @@
 use crate::message::InternalMessage;
+use crate::core::agent_id::compute_agent_id;
 use crate::core::tcp::protocol::{new_framed_read, new_framed_write, recv_message};
 use crate::core::tcp::registry::{AgentId, ConnectionRegistry};
 use tokio::net::TcpListener;
@@ -35,15 +36,14 @@ async fn handle_connection(
     // 等待 AgentRegister 消息
     let agent_id = match recv_message(&mut framed_rx).await {
         Ok(Some(InternalMessage::AgentRegister(req))) => {
-            let agent_id = req.agent_id.clone().unwrap_or_else(|| format!("agent-{}", addr.port()));
+            let agent_id = compute_agent_id(&req.host, req.deploy_dir.as_deref().unwrap_or("")).to_string();
             // 注册 (把 framed_tx move 进 registry)
             registry.register(agent_id.clone(), addr, framed_tx).await;
 
             // 回复 AgentRegisterAck (通过 registry.send)
             let ack = crate::core_agent_api::AgentRegisterResponse {
                 agent_id: agent_id.clone(),
-                heartbeat_interval_seconds: 10,
-                task_report_interval_seconds: 10,
+                result: "ok".to_string(),
             };
             if let Err(e) = registry.send(&agent_id, &InternalMessage::AgentRegisterAck(ack)).await {
                 tracing::error!(%addr, error = %e, "发送 register ack 失败");
@@ -97,6 +97,7 @@ async fn handle_connection(
     }
 
     registry.unregister(&agent_id).await;
+    let _ = to_dispatch.send((agent_id.clone(), InternalMessage::AgentDisconnected)).await;
 }
 
 /// 通过 registry 给 agent 发送消息（dispatch loop 或其他模块调用）

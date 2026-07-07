@@ -12,7 +12,7 @@ export default function AgentGroupsPage() {
   const deleteMutation = useDeleteAgentGroup();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<AgentGroupRow | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form] = Form.useForm();
 
   const openCreate = () => {
@@ -25,7 +25,7 @@ export default function AgentGroupsPage() {
     setEditing(record);
     form.setFieldsValue({
       ...record,
-      agent_ids: record.agent_ids ? record.agent_ids.split(',').map(Number) : [],
+      agent_ids: record.agent_ids ? record.agent_ids.split(',').filter(Boolean) : [],
     });
     setModalOpen(true);
   };
@@ -33,7 +33,7 @@ export default function AgentGroupsPage() {
   const handleOk = async () => {
     const values = await form.validateFields();
     const payload = {
-      name: values.group_name,
+      group_name: values.group_name,
       agent_ids: (values.agent_ids ?? []).join(','),
       description: values.description,
     };
@@ -51,7 +51,7 @@ export default function AgentGroupsPage() {
     }
   };
 
-  const handleDelete = useCallback(async (id: number) => {
+  const handleDelete = useCallback(async (id: string) => {
     setDeletingId(id);
     try {
       await deleteMutation.mutateAsync(id);
@@ -65,18 +65,21 @@ export default function AgentGroupsPage() {
 
   const agentOptions = agents?.map(a => ({
     value: a.agent_id,
-    label: `${a.agent_name} (${a.agent_id})`,
+    label: a.agent_alias,
   })) ?? [];
 
   const columns = [
-    { title: 'ID', dataIndex: 'group_id', key: 'group_id', width: 60 },
     { title: '组名', dataIndex: 'group_name', key: 'group_name' },
     {
-      title: 'Agent 数量',
-      key: 'agent_count',
+      title: '采集机',
+      key: 'agent_names',
       render: (_: unknown, r: AgentGroupRow) => {
-        if (!r.agent_ids) return 0;
-        return r.agent_ids.split(',').length;
+        if (!r.agent_ids) return '-';
+        const agentMap = new Map(agents?.map(a => [String(a.agent_id), a.agent_alias]) ?? []);
+        return r.agent_ids.split(',').map(id => {
+          const name = agentMap.get(id);
+          return name ?? id;
+        }).join(', ');
       },
     },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
@@ -110,15 +113,18 @@ export default function AgentGroupsPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建组</Button>
           }
         >
-          <Table<AgentGroupRow>
-            className="data-table"
-            rowKey="group_id"
-            dataSource={groups}
-            columns={columns}
-            loading={isLoading}
-            pagination={false}
-            size="small"
-          />
+          <div className="table-scroll-wrap with-card-head">
+            <Table<AgentGroupRow>
+              className="data-table"
+              rowKey="group_id"
+              dataSource={groups}
+              columns={columns}
+              loading={isLoading}
+              pagination={false}
+              size="small"
+              scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}
+            />
+          </div>
         </Card>
       </div>
 

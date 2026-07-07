@@ -71,23 +71,14 @@ impl ConfigStorage {
             }
             let mut content = Vec::new();
             file.read_to_end(&mut content)?;
-            if entry_name.starts_with("rules/") && entry_name.ends_with(".json") {
-                let table = entry_name
-                    .trim_start_matches("rules/")
-                    .trim_end_matches(".json");
-                if !table.is_empty() && !table_names.contains(&table.to_string()) {
-                    table_names.push(table.to_string());
-                }
-            }
             entries.push((entry_name, content));
         }
 
-        let entry_names: Vec<String> = entries.iter().map(|(n, _)| n.clone()).collect();
+        // Detect and strip common top-level directory prefix before extracting table names
+        let entry_names_raw: Vec<String> = entries.iter().map(|(n, _)| n.clone()).collect();
+        tracing::debug!("[config_storage] zip raw entries ({total_entries} total): {:?}", entry_names_raw);
 
-        tracing::debug!("[config_storage] zip raw entries ({total_entries} total): {:?}", entry_names);
-
-        // Detect and strip common top-level directory prefix
-        let prefix = common_prefix_str(&entry_names);
+        let prefix = common_prefix_str(&entry_names_raw);
         if let Some(pfx) = &prefix {
             tracing::debug!("[config_storage] stripping common prefix: \"{pfx}/\"");
             for (name, _) in &mut entries {
@@ -102,6 +93,18 @@ impl ConfigStorage {
         // Re-check has_rules_dir with normalized names
         if !has_rules_dir {
             has_rules_dir = entry_names.iter().any(|n| *n == "rules" || n.starts_with("rules/"));
+        }
+
+        // Extract table names from stripped entry names
+        for name in &entry_names {
+            if name.starts_with("rules/") && name.ends_with(".json") {
+                let table = name
+                    .trim_start_matches("rules/")
+                    .trim_end_matches(".json");
+                if !table.is_empty() && !table_names.contains(&table.to_string()) {
+                    table_names.push(table.to_string());
+                }
+            }
         }
 
         for required in REQUIRED_FILES {

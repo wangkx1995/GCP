@@ -16,6 +16,7 @@ pub struct AgentTcpClient {
     pub core_port: u16,
     pub reconnect_interval_ms: u64,
     pub reconnect_max_delay_ms: u64,
+    pub heartbeat_interval_seconds: u64,
     pub msg_tx: mpsc::Sender<InternalMessage>,
     pub msg_rx: mpsc::Receiver<InternalMessage>,
 }
@@ -46,14 +47,17 @@ impl AgentTcpClient {
                         .ok()
                         .map(|a| a.ip().to_string())
                         .unwrap_or_default();
-                    let local_port = self.core_port;
+                    let local_port = stream.local_addr().map(|a| a.port()).unwrap_or(0);
 
                     let (reader, writer) = stream.into_split();
                     let framed_rx = Arc::new(Mutex::new(new_framed_read(reader)));
                     let framed_tx = Arc::new(Mutex::new(new_framed_write(writer)));
 
                     let cpu_count = available_parallelism().map(|n| n.get() as i32).unwrap_or(1);
-                    let agent_name = format!("{}:{}", local_host, local_port);
+                    let deploy_dir = std::env::current_exe()
+                        .ok()
+                        .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()));
+                    let agent_name = format!("{}_{}", local_host, deploy_dir.as_deref().unwrap_or("unknown"));
                     let req = AgentRegisterRequest {
                         agent_id: Some(self.agent_id.clone()),
                         agent_name,
@@ -73,6 +77,7 @@ impl AgentTcpClient {
                         fact_memory_total: Some(memory_total as f64),
                         heartbeat_interval: None,
                         is_core: None,
+                        deploy_dir,
                     };
                     {
                         let mut tx = framed_tx.lock().await;
@@ -97,18 +102,28 @@ impl AgentTcpClient {
                     let thread_count = cpu_count;
                     tokio::spawn(async move {
                         let mut hb_sys = System::new();
-                        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+                        let mut interval = tokio::time::interval(std::time::Duration::from_secs(self.heartbeat_interval_seconds));
                         loop {
                             interval.tick().await;
                             hb_sys.refresh_cpu_all();
                             hb_sys.refresh_memory();
+                            let disks = sysinfo::Disks::new_with_refreshed_list();
+                            let disk_used: u64 = disks.iter()
+                                .filter(|d| d.mount_point() == std::path::Path::new("/"))
+                                .map(|d| d.total_space().saturating_sub(d.available_space()))
+                                .sum();
+                            let disk_load = if disk_total > 0 {
+                                Some(disk_used as f64 / disk_total as f64)
+                            } else {
+                                None
+                            };
                             let hb = AgentHeartbeatRequest {
                                 status: AgentStatus::Online,
                                 running_task_ids: vec![],
                                 disk_free_bytes: None,
                                 cpu_load: Some(hb_sys.global_cpu_usage() as f64 / 100.0),
                                 memory_load: Some(hb_sys.used_memory() as f64 / memory_total as f64),
-                                disk_load: None,
+                                disk_load,
                                 thread_num: Some(thread_count),
                             };
                             let mut tx = hb_tx.lock().await;

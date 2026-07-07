@@ -6,6 +6,7 @@ import {
   useDataCollectorUnits,
   useSaveDataCollectorUnit,
   useAgents,
+  useAgentGroupList,
   useConfigNames,
   useTablesForConfig,
 } from '../../api/hooks';
@@ -16,10 +17,11 @@ export default function DataCollectorUnitFormPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const isNew = location.pathname.endsWith('/create');
-  const editId = isNew ? null : (id ? Number(id) : null);
+  const editId = isNew ? null : (id ?? null);
 
   const { data: units } = useDataCollectorUnits();
   const { data: agents } = useAgents();
+  const { data: groups } = useAgentGroupList();
   const saveMutation = useSaveDataCollectorUnit();
 
   const [configSearch, setConfigSearch] = useState('');
@@ -37,6 +39,17 @@ export default function DataCollectorUnitFormPage() {
   const watchedUnitName = Form.useWatch('unit_name', form);
   const { data: tablesData } = useTablesForConfig(watchedConfigName);
   const availableTables = tablesData?.tables ?? [];
+
+  const agentOptions = useMemo(() => {
+    const opts: { label: string; value: string }[] = [];
+    for (const a of agents ?? []) {
+      opts.push({ label: `${a.agent_alias} [采集机]`, value: String(a.agent_id) });
+    }
+    for (const g of groups ?? []) {
+      opts.push({ label: `${g.group_name} [机组]`, value: `g:${g.group_id}` });
+    }
+    return opts;
+  }, [agents, groups]);
 
   const selectedUnit = editId ? units?.find(u => u.id === editId) : null;
 
@@ -59,7 +72,7 @@ export default function DataCollectorUnitFormPage() {
 
   useEffect(() => {
     if (selectedUnit) {
-      form.setFieldsValue({ ...selectedUnit, password: undefined, db_password: undefined });
+      form.setFieldsValue({ ...selectedUnit, agent_ids: selectedUnit.agent_ids?.map(String), password: undefined, db_password: undefined });
     }
   }, [selectedUnit, form]);
 
@@ -72,11 +85,23 @@ export default function DataCollectorUnitFormPage() {
   const handleSave = useCallback(async () => {
     try {
       const values = await form.validateFields();
+      const rawAgentIds = (values.agent_ids ?? []) as string[];
+      const groupMap = new Map(groups?.map(g => [g.group_id, g.agent_ids.split(',').filter(Boolean)]) ?? []);
+      const expandedIds: string[] = [];
+      for (const v of rawAgentIds) {
+        if (v.startsWith('g:')) {
+          const gid = v.slice(2);
+          const members = groupMap.get(gid);
+          if (members) expandedIds.push(...members);
+        } else {
+          expandedIds.push(v);
+        }
+      }
       const data: DataCollectorUnitSaveRequest = {
         unit_name: values.unit_name,
         config_name: values.config_name,
         table_names: JSON.stringify(values.table_names || []),
-        agent_ids: JSON.stringify(values.agent_ids || []),
+        agent_ids: JSON.stringify([...new Set(expandedIds)]),
         data_interval_seconds: values.data_interval_seconds,
         collector_interval: values.collector_interval,
         task_timeout_seconds: values.task_timeout_seconds,
@@ -112,7 +137,7 @@ export default function DataCollectorUnitFormPage() {
       }
       if (e instanceof Error) message.error(e.message);
     }
-  }, [form, saveMutation, navigate]);
+  }, [form, saveMutation, navigate, groups]);
 
 return (
     <div className="page-container">
@@ -130,7 +155,7 @@ return (
       }}>
         <div>
           <Button type="text" icon={<ArrowLeftOutlined />} aria-label="返回" onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
-          <h2 style={{ display: 'inline' }}>{idLoading ? '加载中...' : (isNew || !editId || isNaN(editId) ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`)}</h2>
+          <h2 style={{ display: 'inline' }}>{idLoading ? '加载中...' : (isNew || !editId ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`)}</h2>
         </div>
         <div>
           <Button onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }}>取消</Button>
@@ -175,7 +200,7 @@ return (
               <Select mode="multiple" placeholder="选择要采集的表" options={availableTables.map(t => ({ label: t, value: t }))} />
             </Form.Item>
             <Form.Item name="agent_ids" label="采集机" rules={[{ required: true }]}>
-              <Select mode="multiple" placeholder="选择采集机" options={(agents ?? []).map(a => ({ label: `${a.agent_name} (${a.agent_id})`, value: a.agent_id }))} />
+              <Select mode="multiple" placeholder="选择采集机或机组" options={agentOptions} />
             </Form.Item>
             <Form.Item name="remote_pattern" label="远程文件路径" rules={[{ required: true }]}>
               <Input placeholder="/data/pm/{scan_start_time}_*.csv.gz" />

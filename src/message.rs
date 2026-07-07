@@ -18,6 +18,7 @@ pub enum InternalMessage {
     ConfigSnapshotResponse(ConfigSnapshotResponse),
 
     CancelTask(String),
+    AgentDisconnected,
     Shutdown,
 }
 

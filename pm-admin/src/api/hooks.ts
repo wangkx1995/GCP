@@ -99,7 +99,7 @@ export function useNextUnitId() {
 export function useSaveDataCollectorUnit() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: DataCollectorUnitSaveRequest }) =>
+    mutationFn: ({ id, data }: { id: string; data: DataCollectorUnitSaveRequest }) =>
       saveDataCollectorUnit(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['data-collector-units'] });
@@ -148,7 +148,7 @@ export const useStrategies = (params?: { collector_name?: string; type?: string;
     refetchInterval: 30_000,
   });
 
-export const useStrategy = (id: number | null) =>
+export const useStrategy = (id: string | null) =>
   useQuery({
     queryKey: ['strategy', id],
     queryFn: () => strategyApi.get(id!),
@@ -166,7 +166,7 @@ export const useCreateStrategies = () => {
 export const useUpdateStrategy = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: CollectionStrategyUpdateRequest }) =>
+    mutationFn: ({ id, data }: { id: string; data: CollectionStrategyUpdateRequest }) =>
       strategyApi.update(id, data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['strategies'] }); },
   });
@@ -175,7 +175,7 @@ export const useUpdateStrategy = () => {
 export const useBatchSuspend = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (ids: number[]) => strategyApi.batchSuspend(ids),
+    mutationFn: (ids: string[]) => strategyApi.batchSuspend(ids),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['strategies'] }); },
   });
 };
@@ -183,7 +183,7 @@ export const useBatchSuspend = () => {
 export const useBatchActivate = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (ids: number[]) => strategyApi.batchActivate(ids),
+    mutationFn: (ids: string[]) => strategyApi.batchActivate(ids),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['strategies'] }); },
   });
 };
@@ -215,7 +215,7 @@ export function useAgentDetail(id: number | null) {
 export function useUpdateAgent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateAgentRequest }) => updateAgent(id, data),
+    mutationFn: ({ id, data }: { id: string; data: UpdateAgentRequest }) => updateAgent(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['agents'] });
     },
@@ -259,7 +259,7 @@ export function useCreateAgentGroup() {
 export function useUpdateAgentGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateGroupRequest }) => updateAgentGroup(id, data),
+    mutationFn: ({ id, data }: { id: string; data: UpdateGroupRequest }) => updateAgentGroup(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['agent-groups'] });
     },
@@ -269,7 +269,7 @@ export function useUpdateAgentGroup() {
 export function useDeleteAgentGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => deleteAgentGroup(id),
+    mutationFn: (id: string) => deleteAgentGroup(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['agent-groups'] });
     },

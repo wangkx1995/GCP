@@ -12,6 +12,66 @@ use crate::core_agent_api::{
     TaskStatus,
 };
 
+/// Log a SQL query with optional named parameters and log level.
+///
+/// ```ignore
+/// trace_sql!("SELECT * FROM t WHERE id = ?", id = val);
+/// trace_sql!(warn, "DELETE FROM t WHERE id = ?", id = val);
+/// trace_sql!("SELECT * FROM t"); // no params
+/// trace_sql!(debug, "SELECT 1"); // debug level, no params
+/// ```
+macro_rules! trace_sql {
+    // --- info (default) ---
+    ($sql:expr $(,)?) => {
+        tracing::info!("[db] ==> {}", $sql);
+    };
+    ($sql:expr $(, $key:ident = $val:expr)+ $(,)?) => {{
+        tracing::info!("[db] ==> {}", $sql);
+        let _p: Vec<String> = vec![$(format!("{}={:?}", stringify!($key), $val)),*];
+        tracing::info!("[db] ==> Parameters: {}", _p.join(", "));
+    }};
+    // --- dispatch by level ---
+    ($level:ident, $($rest:tt)*) => {
+        trace_sql!(@inner $level, $($rest)*)
+    };
+    // --- info ---
+    (@inner info, $sql:expr $(,)?) => {
+        tracing::info!("[db] ==> {}", $sql);
+    };
+    (@inner info, $sql:expr $(, $key:ident = $val:expr)+ $(,)?) => {{
+        tracing::info!("[db] ==> {}", $sql);
+        let _p: Vec<String> = vec![$(format!("{}={:?}", stringify!($key), $val)),*];
+        tracing::info!("[db] ==> Parameters: {}", _p.join(", "));
+    }};
+    // --- debug ---
+    (@inner debug, $sql:expr $(,)?) => {
+        tracing::debug!("[db] ==> {}", $sql);
+    };
+    (@inner debug, $sql:expr $(, $key:ident = $val:expr)+ $(,)?) => {{
+        tracing::debug!("[db] ==> {}", $sql);
+        let _p: Vec<String> = vec![$(format!("{}={:?}", stringify!($key), $val)),*];
+        tracing::debug!("[db] ==> Parameters: {}", _p.join(", "));
+    }};
+    // --- warn ---
+    (@inner warn, $sql:expr $(,)?) => {
+        tracing::warn!("[db] ==> {}", $sql);
+    };
+    (@inner warn, $sql:expr $(, $key:ident = $val:expr)+ $(,)?) => {{
+        tracing::warn!("[db] ==> {}", $sql);
+        let _p: Vec<String> = vec![$(format!("{}={:?}", stringify!($key), $val)),*];
+        tracing::warn!("[db] ==> Parameters: {}", _p.join(", "));
+    }};
+    // --- error ---
+    (@inner error, $sql:expr $(,)?) => {
+        tracing::error!("[db] ==> {}", $sql);
+    };
+    (@inner error, $sql:expr $(, $key:ident = $val:expr)+ $(,)?) => {{
+        tracing::error!("[db] ==> {}", $sql);
+        let _p: Vec<String> = vec![$(format!("{}={:?}", stringify!($key), $val)),*];
+        tracing::error!("[db] ==> Parameters: {}", _p.join(", "));
+    }};
+}
+
 #[derive(Clone)]
 pub struct CoreDb {
     pool: SqlitePool,
@@ -286,6 +346,7 @@ impl CoreDb {
     }
 
     pub async fn select_online_agent(&self) -> Result<(i64, f64)> {
+        trace_sql!("SELECT ai.agent_id, COALESCE(ai.agent_power, 1.0) FROM agent_info ai JOIN agent_status ast ON ast.agent_id = ai.agent_id WHERE ast.status = 'ONLINE' AND ai.agent_isuse_flag = 1 ORDER BY ast.heartbeat_time DESC LIMIT 1");
         let row = sqlx::query_as::<_, (i64, f64)>(
             r#"
             SELECT ai.agent_id, COALESCE(ai.agent_power, 1.0)
@@ -307,6 +368,7 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        trace_sql!("INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, snapshot_json, created_at) VALUES (?, ?, ?, ?)", config_snapshot_id = snapshot.config_snapshot_id, content_hash = snapshot.content_hash);
         sqlx::query(
             "INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, snapshot_json, created_at) VALUES (?, ?, ?, ?)",
         )
@@ -331,6 +393,7 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        trace_sql!("INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, version_label, is_active, file_count, name, snapshot_json, created_at, activated_at) VALUES (?, ?, ?, 0, ?, ?, '{{}}', ?, NULL)", snapshot_id = snapshot_id, content_hash = content_hash, version_label = version_label, file_count = file_count, name = name);
         sqlx::query(
             "INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, version_label, is_active, file_count, name, snapshot_json, created_at, activated_at) VALUES (?, ?, ?, 0, ?, ?, '{}', ?, NULL)",
         )
@@ -343,6 +406,7 @@ impl CoreDb {
         .execute(&self.pool)
         .await?;
         for table_name in table_names {
+            trace_sql!("INSERT INTO config_tables(config_snapshot_id, config_name, table_name) VALUES (?, ?, ?)", snapshot_id = snapshot_id, config_name = name, table_name = table_name);
             sqlx::query(
                 "INSERT INTO config_tables(config_snapshot_id, config_name, table_name) VALUES (?, ?, ?)",
             )
@@ -356,6 +420,7 @@ impl CoreDb {
     }
 
     pub async fn list_config_snapshots(&self) -> Result<Vec<ConfigSnapshotMeta>> {
+        trace_sql!("SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, name, created_at, activated_at FROM config_snapshots ORDER BY created_at DESC, config_snapshot_id DESC");
         let rows = sqlx::query(
             "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, name, created_at, activated_at FROM config_snapshots ORDER BY created_at DESC, config_snapshot_id DESC",
         )
@@ -378,6 +443,7 @@ impl CoreDb {
     }
 
     pub async fn get_config_snapshot(&self, snapshot_id: &str) -> Result<Option<ConfigSnapshotMeta>> {
+        trace_sql!("SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, name, created_at, activated_at FROM config_snapshots WHERE config_snapshot_id = ?", snapshot_id = snapshot_id);
         let row = sqlx::query(
             "SELECT config_snapshot_id, content_hash, version_label, is_active, file_count, name, created_at, activated_at FROM config_snapshots WHERE config_snapshot_id = ?",
         )
@@ -400,9 +466,11 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        trace_sql!("UPDATE config_snapshots SET is_active = 0");
         sqlx::query("UPDATE config_snapshots SET is_active = 0")
             .execute(&self.pool)
             .await?;
+        trace_sql!("UPDATE config_snapshots SET is_active = 1, activated_at = ? WHERE config_snapshot_id = ?", snapshot_id = snapshot_id);
         sqlx::query(
             "UPDATE config_snapshots SET is_active = 1, activated_at = ? WHERE config_snapshot_id = ?",
         )
@@ -412,6 +480,7 @@ impl CoreDb {
         .await?;
         let meta = self.get_config_snapshot(snapshot_id).await?.ok_or_else(|| anyhow::anyhow!("snapshot {snapshot_id} not found"))?;
         if let Some(ref name) = meta.name {
+            trace_sql!("UPDATE data_collector_unit SET config_version = ? WHERE config_name = ? AND config_version != ?", config_version = meta.config_snapshot_id, config_name = name);
             sqlx::query("UPDATE data_collector_unit SET config_version = ? WHERE config_name = ? AND config_version != ?")
                 .bind(&meta.config_snapshot_id)
                 .bind(name)
@@ -435,6 +504,7 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = task_id, logical_task_key = logical_task_key, strategy_id = strategy_id, config_snapshot_id = config_snapshot_id, scan_start_time = scan_start_time, collect_id = collect_id, assigned_agent_id = assigned_agent_id);
         sqlx::query(
             "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
         )
@@ -456,6 +526,7 @@ impl CoreDb {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
+        trace_sql!("SELECT strategy_id, config_snapshot_id, status, scan_start_time FROM collect_tasks WHERE task_id = ?", task_id = report.task_id);
         let task_row = sqlx::query(
             "SELECT strategy_id, config_snapshot_id, status, scan_start_time FROM collect_tasks WHERE task_id = ?",
         )
@@ -490,6 +561,7 @@ impl CoreDb {
                 );
                 let sid = format!("unknown_{}", report.task_id);
                 let cid = "unknown".to_string();
+                trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = report.task_id, agent_id = report.agent_id);
                 sqlx::query(
                     "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
                 )
@@ -503,6 +575,7 @@ impl CoreDb {
                 .bind(&now)
         .execute(&self.pool)
         .await?;
+        trace_sql!("ALTER TABLE config_tables ADD COLUMN config_snapshot_id TEXT");
         let _ = sqlx::query("ALTER TABLE config_tables ADD COLUMN config_snapshot_id TEXT")
             .execute(&self.pool)
             .await;
@@ -525,13 +598,14 @@ impl CoreDb {
             strategy_id
         );
         for result in &report.result_rows {
-            tracing::debug!(
+            tracing::info!(
                 "[core-db]   cell: table={} data_time={} rows={} success={}",
                 result.table_name,
                 result.data_time,
                 result.row_count,
                 result.success
             );
+            trace_sql!("INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, ...)");
             sqlx::query(
                 "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUCCEEDED', NULL, ?, ?)",
             )
@@ -553,6 +627,7 @@ impl CoreDb {
         // 如果任务是失败/超时/取消状态但没有结果行，创建一条合成失败记录
         if report.result_rows.is_empty() {
             let sid_int: i64 = strategy_id.parse().unwrap_or(0);
+            trace_sql!("SELECT table_name FROM collection_strategy WHERE id = ?", id = sid_int);
             let table_name: Option<String> = sqlx::query_scalar(
                 "SELECT table_name FROM collection_strategy WHERE id = ?",
             )
@@ -569,6 +644,7 @@ impl CoreDb {
                 let is_failure = terminal_status == "FAILED" || terminal_status == "TIMEOUT" || terminal_status == "CANCELLED";
                 let success = if is_failure { 0i64 } else { 1i64 };
                 let cell_status = if is_failure { "FAILED" } else { "SUCCEEDED" };
+                trace_sql!("INSERT INTO collect_result_cells(...) synthetic failure cell");
                 sqlx::query(
                     "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, ?, ?)",
                 )
@@ -588,6 +664,7 @@ impl CoreDb {
             }
         }
 
+        trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ? WHERE task_id = ?", status = terminal_status, task_id = report.task_id);
         sqlx::query(
             "UPDATE collect_tasks SET status = ?, finished_at = ? WHERE task_id = ?",
         )
@@ -606,6 +683,7 @@ impl CoreDb {
         day: &str,
     ) -> Result<Vec<ResultRow>> {
         let like = format!("{day}%");
+        trace_sql!("SELECT table_name, data_time, row_count, success, collect_time FROM collect_result_cells WHERE strategy_id = ? AND data_time LIKE ? ORDER BY table_name, data_time", strategy_id = strategy_id, day = day);
         let rows = sqlx::query(
             "SELECT table_name, data_time, row_count, success, collect_time FROM collect_result_cells WHERE strategy_id = ? AND data_time LIKE ? ORDER BY table_name, data_time",
         )
@@ -627,16 +705,11 @@ impl CoreDb {
     }
 
     pub async fn next_unit_id(&self) -> Result<i64> {
-        tracing::debug!("[db] ==> SELECT COALESCE(MAX(id), 0) + 1 FROM data_collector_unit");
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(MAX(id), 0) + 1 FROM data_collector_unit",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.0)
+        Ok(0)
     }
 
     pub async fn next_strategy_id(&self) -> Result<i64> {
+        trace_sql!("SELECT COALESCE(MAX(id), 0) + 1 FROM collection_strategy");
         let row: (i64,) = sqlx::query_as(
             "SELECT COALESCE(MAX(id), 0) + 1 FROM collection_strategy",
         )
@@ -652,7 +725,9 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        tracing::info!("[db] ==> INSERT INTO collection_strategy ... ({} tables)", req.table_names.len());
         for table_name in &req.table_names {
+            trace_sql!("INSERT INTO collection_strategy (collector_name, collector_id, table_name, ...) VALUES (?, ?, ?, ...)", table_name = table_name);
             sqlx::query(
                 "INSERT INTO collection_strategy (collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at) VALUES (?, ?, ?, '可用', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
@@ -672,6 +747,7 @@ impl CoreDb {
             .execute(&self.pool)
             .await?;
         }
+        trace_sql!("SELECT id FROM collection_strategy ORDER BY id DESC LIMIT ?", limit = req.table_names.len());
         let ids: Vec<i64> = sqlx::query_scalar(
             "SELECT id FROM collection_strategy ORDER BY id DESC LIMIT ?",
         )
@@ -686,6 +762,7 @@ impl CoreDb {
     }
 
     pub async fn get_strategy(&self, id: i64) -> Result<Option<CollectionStrategyRow>> {
+        trace_sql!("SELECT * FROM collection_strategy WHERE id = ?", id = id);
         let row = sqlx::query_as::<_, CollectionStrategyRow>(
             "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE id = ?"
         )
@@ -708,6 +785,7 @@ impl CoreDb {
         let mut sql = String::from(
             "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE 1=1",
         );
+        tracing::info!("[db] ==> {} (collector_name={:?}, strategy_type={:?}, status={:?})", sql, collector_name, strategy_type, status);
         if collector_name.is_some() {
             sql.push_str(" AND collector_name LIKE ?");
         }
@@ -741,6 +819,7 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        tracing::info!("[db] ==> UPDATE collection_strategy SET ... WHERE id = {}", id);
         let mut sql = String::from("UPDATE collection_strategy SET updated_at = ?");
         let mut values: Vec<String> = vec![now];
 
@@ -791,6 +870,7 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        tracing::info!("[db] ==> batch suspend {} strategies", ids.len());
         let mut count = 0;
         for id in ids {
             let r = sqlx::query(
@@ -809,6 +889,7 @@ impl CoreDb {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        tracing::info!("[db] ==> batch activate {} strategies", ids.len());
         let mut count = 0;
         for id in ids {
             let r = sqlx::query(
@@ -824,7 +905,7 @@ impl CoreDb {
     }
 
     pub async fn list_data_collector_units(&self) -> Result<Vec<DataCollectorUnitRow>> {
-        tracing::debug!("[db] ==> SELECT * FROM data_collector_unit ORDER BY id DESC");
+        trace_sql!("SELECT * FROM data_collector_unit ORDER BY id DESC");
         let rows = sqlx::query_as::<_, DataCollectorUnitRow>(
             "SELECT id, unit_name, config_name, config_version, table_names, agent_ids, \
              data_interval_seconds, collector_interval, task_timeout_seconds, \
@@ -846,6 +927,7 @@ impl CoreDb {
     }
 
     pub async fn get_unit_by_id(&self, id: i64) -> Result<Option<DataCollectorUnitRow>> {
+        trace_sql!("SELECT * FROM data_collector_unit WHERE id = ?", id = id);
         let row = sqlx::query_as::<_, DataCollectorUnitRow>(
             "SELECT id, unit_name, config_name, config_version, table_names, agent_ids, data_interval_seconds, collector_interval, task_timeout_seconds, source_type, file_encoding, remote_pattern, host, port, username, password, connect_retry, download_retry, download_parallel, retry_interval_secs, connect_timeout_secs, read_timeout_secs, cache_retention_days, load_type, output_delimiter, db_host, db_port, db_user, db_password, db_database, db_table_name_case, created_at, updated_at FROM data_collector_unit WHERE id = ?"
         )
@@ -860,6 +942,7 @@ impl CoreDb {
         id: i64,
         data: &DataCollectorUnitSaveRequest,
     ) -> Result<()> {
+        trace_sql!("SELECT COUNT(*) FROM config_snapshots WHERE name = ? AND is_active = 1", config_name = data.config_name);
         let config_exists: bool = sqlx::query_scalar::<_, i32>(
             "SELECT COUNT(*) FROM config_snapshots WHERE name = ? AND is_active = 1",
         )
@@ -870,11 +953,19 @@ impl CoreDb {
             anyhow::bail!("config_name '{}' not found or not active", data.config_name);
         }
 
-        let agent_ids: Vec<String> = serde_json::from_str(&data.agent_ids)
-            .map_err(|_| anyhow::anyhow!("agent_ids is not a valid JSON array"))?;
+        let agent_ids: Vec<String> = serde_json::from_str::<Vec<serde_json::Value>>(&data.agent_ids)
+            .map_err(|_| anyhow::anyhow!("agent_ids is not a valid JSON array"))?
+            .into_iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => Ok(s),
+                serde_json::Value::Number(n) => Ok(n.to_string()),
+                _ => anyhow::bail!("agent_ids contains invalid value: {v:?}"),
+            })
+            .collect::<Result<Vec<_>>>()?;
         for aid in &agent_ids {
+            trace_sql!("SELECT COUNT(*) FROM agent_info WHERE agent_id = ?", agent_id = aid);
             let agent_exists: bool = sqlx::query_scalar::<_, i32>(
-                "SELECT COUNT(*) FROM agents WHERE agent_id = ?",
+                "SELECT COUNT(*) FROM agent_info WHERE agent_id = ?",
             )
             .bind(aid)
             .fetch_one(&self.pool)
@@ -890,6 +981,7 @@ impl CoreDb {
 
         let password = match &data.password {
             Some(p) if p.is_empty() || p == "******" => {
+                trace_sql!("SELECT password FROM data_collector_unit WHERE id = ?", id = id);
                 let existing: String = sqlx::query_scalar::<_, String>(
                     "SELECT password FROM data_collector_unit WHERE id = ?",
                 )
@@ -905,6 +997,7 @@ impl CoreDb {
 
         let db_password = match &data.db_password {
             Some(p) if p.is_empty() || p == "******" => {
+                trace_sql!("SELECT db_password FROM data_collector_unit WHERE id = ?", id = id);
                 let existing: String = sqlx::query_scalar::<_, String>(
                     "SELECT db_password FROM data_collector_unit WHERE id = ?",
                 )
@@ -918,6 +1011,7 @@ impl CoreDb {
             None => String::new(),
         };
 
+        trace_sql!("SELECT config_snapshot_id FROM config_snapshots WHERE name = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1", config_name = data.config_name);
         let config_version: String = sqlx::query_scalar(
             "SELECT config_snapshot_id FROM config_snapshots WHERE name = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1",
         )
@@ -926,6 +1020,7 @@ impl CoreDb {
         .await?
         .unwrap_or_default();
 
+        trace_sql!("SELECT created_at FROM data_collector_unit WHERE id = ?", id = id);
         let existing_created: Option<String> = sqlx::query_scalar(
             "SELECT created_at FROM data_collector_unit WHERE id = ?",
         )
@@ -935,7 +1030,7 @@ impl CoreDb {
 
         let created_at = existing_created.unwrap_or_else(|| now.clone());
 
-        tracing::debug!("[db] ==> INSERT OR REPLACE INTO data_collector_unit(...) VALUES(?)");
+        trace_sql!("INSERT OR REPLACE INTO data_collector_unit(...) VALUES(?)", id = id, unit_name = data.unit_name, config_name = data.config_name);
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO data_collector_unit(
@@ -990,8 +1085,7 @@ impl CoreDb {
     }
 
     pub async fn delete_data_collector_unit(&self, id: i64) -> Result<bool> {
-        tracing::debug!("[db] ==> DELETE FROM data_collector_unit WHERE id=?");
-        tracing::debug!("[db] ==> Parameters: id={}", id);
+        trace_sql!("DELETE FROM data_collector_unit WHERE id=?", id = id);
         let result = sqlx::query("DELETE FROM data_collector_unit WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -1003,7 +1097,7 @@ impl CoreDb {
         match search {
             Some(q) if !q.is_empty() => {
                 let pattern = format!("%{}%", q);
-                tracing::debug!("[db] ==> SELECT DISTINCT name,config_snapshot_id FROM config_snapshots WHERE is_active=1 AND name LIKE ? ORDER BY name");
+                trace_sql!("SELECT DISTINCT name,config_snapshot_id FROM config_snapshots WHERE is_active=1 AND name LIKE ? ORDER BY name", search = q);
                 let rows = sqlx::query_as::<_, ConfigNameItem>(
                     "SELECT DISTINCT name, config_snapshot_id AS version FROM config_snapshots WHERE is_active = 1 AND name LIKE ? ORDER BY name",
                 )
@@ -1013,7 +1107,7 @@ impl CoreDb {
                 Ok(rows)
             }
             _ => {
-                tracing::debug!("[db] ==> SELECT DISTINCT name,config_snapshot_id FROM config_snapshots WHERE is_active=1 ORDER BY name");
+                trace_sql!("SELECT DISTINCT name,config_snapshot_id FROM config_snapshots WHERE is_active=1 ORDER BY name");
                 let rows = sqlx::query_as::<_, ConfigNameItem>(
                     "SELECT DISTINCT name, config_snapshot_id AS version FROM config_snapshots WHERE is_active = 1 ORDER BY name",
                 )
@@ -1025,6 +1119,7 @@ impl CoreDb {
     }
 
     pub async fn get_active_snapshot_id_for_config_name(&self, config_name: &str) -> Result<Option<String>> {
+        trace_sql!("SELECT config_snapshot_id FROM config_snapshots WHERE name = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1", config_name = config_name);
         sqlx::query_scalar(
             "SELECT config_snapshot_id FROM config_snapshots WHERE name = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1"
         )
@@ -1048,12 +1143,15 @@ impl CoreDb {
         fact_memory_total: Option<f64>,
         heartbeat_interval: Option<i32>,
         is_core: bool,
+        agent_alias: Option<&str>,
+        deploy_dir: &str,
     ) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("INSERT INTO agent_info(agent_id, agent_name, agent_ip, port, version, agent_alias, ...) ON CONFLICT(agent_id) DO UPDATE ...", agent_id = agent_id, agent_name = agent_name, agent_ip = agent_ip, port = port, version = version, agent_alias = agent_alias);
         sqlx::query(
             r#"
-            INSERT INTO agent_info(agent_id, agent_name, agent_ip, port, version, cpu_total, memory_total, disk_total, max_thread_num, fact_memory_total, heartbeat_interval, is_core, registered_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agent_info(agent_id, agent_name, agent_ip, port, version, cpu_total, memory_total, disk_total, max_thread_num, fact_memory_total, heartbeat_interval, is_core, agent_alias, registered_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET
                 agent_name=excluded.agent_name,
                 agent_ip=excluded.agent_ip,
@@ -1066,6 +1164,7 @@ impl CoreDb {
                 fact_memory_total=COALESCE(excluded.fact_memory_total, agent_info.fact_memory_total),
                 heartbeat_interval=COALESCE(excluded.heartbeat_interval, agent_info.heartbeat_interval),
                 is_core=excluded.is_core,
+                agent_alias=COALESCE(excluded.agent_alias, agent_info.agent_alias),
                 registered_at=excluded.registered_at
             "#,
         )
@@ -1081,10 +1180,36 @@ impl CoreDb {
         .bind(fact_memory_total)
         .bind(heartbeat_interval)
         .bind(is_core as i32)
+        .bind(agent_alias)
         .bind(&now)
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// 计算 agent 别名：{ip第三段}.{ip第四段}.{该IP已有agent数+1:02d}
+    pub async fn compute_alias(&self, agent_ip: &str) -> Option<String> {
+        let parts: Vec<&str> = agent_ip.split('.').collect();
+        if parts.len() != 4 { return None; }
+        let prefix = format!("{}.{}", parts[2], parts[3]);
+        trace_sql!("SELECT COUNT(DISTINCT agent_name) FROM agent_info WHERE agent_ip = ?", agent_ip = agent_ip);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(DISTINCT agent_name) FROM agent_info WHERE agent_ip = ?")
+            .bind(agent_ip)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        Some(format!("{}.{:02}", prefix, count + 1))
+    }
+
+    /// 查询已有别名，避免重启时重新生成
+    pub async fn get_agent_alias(&self, agent_id: i64) -> Option<String> {
+        trace_sql!("SELECT agent_alias FROM agent_info WHERE agent_id = ?", agent_id = agent_id);
+        sqlx::query_scalar::<_, String>("SELECT agent_alias FROM agent_info WHERE agent_id = ?")
+            .bind(agent_id)
+            .fetch_optional(&self.pool)
+            .await
+            .ok()?
+            .filter(|s| !s.is_empty())
     }
 
     pub async fn update_agent_heartbeat(
@@ -1097,6 +1222,7 @@ impl CoreDb {
         thread_num: Option<i32>,
     ) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("UPDATE agent_status SET status=?, cpu_load=?, memory_load=?, disk_load=?, thread_num=?, heartbeat_time=? WHERE agent_id=?", agent_id = agent_id, status = status, cpu_load = cpu_load, memory_load = memory_load, disk_load = disk_load, thread_num = thread_num);
         sqlx::query(
             r#"
             UPDATE agent_status SET status=?, cpu_load=?, memory_load=?, disk_load=?, thread_num=?, heartbeat_time=?
@@ -1124,6 +1250,7 @@ impl CoreDb {
         thread_num: Option<i32>,
     ) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("INSERT INTO agent_status_his(agent_id, cpu_load, memory_load, disk_load, thread_num, heartbeat_time) VALUES (?, ?, ?, ?, ?, ?)", agent_id = agent_id, cpu_load = cpu_load, memory_load = memory_load, disk_load = disk_load, thread_num = thread_num);
         sqlx::query(
             r#"
             INSERT INTO agent_status_his(agent_id, cpu_load, memory_load, disk_load, thread_num, heartbeat_time)
@@ -1143,6 +1270,7 @@ impl CoreDb {
 
     pub async fn mark_agent_offline(&self, agent_id: i64) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("UPDATE agent_status SET status='OFFLINE', heartbeat_time=? WHERE agent_id=?", agent_id = agent_id);
         sqlx::query(
             "UPDATE agent_status SET status='OFFLINE', heartbeat_time=? WHERE agent_id=?",
         )
@@ -1155,6 +1283,7 @@ impl CoreDb {
 
     pub async fn upsert_agent_status(&self, agent_id: i64, status: &str) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("INSERT INTO agent_status(agent_id, status, heartbeat_time) VALUES (?, ?, ?) ON CONFLICT(agent_id) DO UPDATE SET status=excluded.status, heartbeat_time=excluded.heartbeat_time", agent_id = agent_id, status = status);
         sqlx::query(
             r#"
             INSERT INTO agent_status(agent_id, status, heartbeat_time)
@@ -1173,6 +1302,7 @@ impl CoreDb {
     }
 
     pub async fn list_agents_with_status(&self) -> Result<Vec<AgentInfoRow>> {
+        trace_sql!("SELECT ai.*, ast.* FROM agent_info ai LEFT JOIN agent_status ast ON ast.agent_id = ai.agent_id ORDER BY ai.time_stamp DESC");
         sqlx::query_as::<_, AgentInfoRow>(
             r#"
             SELECT ai.*, ast.status as current_status, ast.cpu_load, ast.memory_load, ast.disk_load,
@@ -1188,6 +1318,7 @@ impl CoreDb {
     }
 
     pub async fn get_agent_detail(&self, agent_id: i64) -> Result<Option<AgentInfoRow>> {
+        trace_sql!("SELECT ai.*, ast.* FROM agent_info ai LEFT JOIN agent_status ast ON ast.agent_id = ai.agent_id WHERE ai.agent_id = ?", agent_id = agent_id);
         sqlx::query_as::<_, AgentInfoRow>(
             r#"
             SELECT ai.*, ast.status as current_status, ast.cpu_load, ast.memory_load, ast.disk_load,
@@ -1244,6 +1375,7 @@ impl CoreDb {
         sql.push_str(&set_parts.join(","));
         sql.push_str(" WHERE agent_id = ?");
         params.push(agent_id.to_string());
+        tracing::info!("[db] ==> {}  Parameters: {:?}", sql, params);
 
         let mut query = sqlx::query(&sql);
         for p in params {
@@ -1254,11 +1386,13 @@ impl CoreDb {
     }
 
     pub async fn list_agent_status(&self) -> Result<Vec<AgentStatusRow>> {
+        trace_sql!("SELECT ast.*, ai.agent_name, ai.agent_alias FROM agent_status ast JOIN agent_info ai ON ai.agent_id = ast.agent_id WHERE ai.agent_isuse_flag = 1 ORDER BY ast.heartbeat_time DESC");
         sqlx::query_as::<_, AgentStatusRow>(
             r#"
-            SELECT ast.*, ai.agent_name
+            SELECT ast.*, ai.agent_name, ai.agent_alias
             FROM agent_status ast
             JOIN agent_info ai ON ai.agent_id = ast.agent_id
+            WHERE ai.agent_isuse_flag = 1
             ORDER BY ast.heartbeat_time DESC
             "#,
         )
@@ -1268,6 +1402,7 @@ impl CoreDb {
     }
 
     pub async fn get_status_history(&self, agent_id: i64, limit: i32) -> Result<Vec<AgentStatusHisRow>> {
+        trace_sql!("SELECT * FROM agent_status_his WHERE agent_id = ? ORDER BY heartbeat_time DESC LIMIT ?", agent_id = agent_id, limit = limit);
         sqlx::query_as::<_, AgentStatusHisRow>(
             r#"
             SELECT * FROM agent_status_his WHERE agent_id = ?
@@ -1282,6 +1417,7 @@ impl CoreDb {
     }
 
     pub async fn list_agent_groups(&self) -> Result<Vec<AgentGroupRow>> {
+        trace_sql!("SELECT group_id, group_name, agent_ids, description, time_stamp FROM agent_group ORDER BY time_stamp DESC");
         sqlx::query_as::<_, AgentGroupRow>(
             "SELECT group_id, group_name, agent_ids, description, time_stamp FROM agent_group ORDER BY time_stamp DESC",
         )
@@ -1292,23 +1428,24 @@ impl CoreDb {
 
     pub async fn create_agent_group(&self, name: &str, agent_ids: &str, description: Option<&str>) -> Result<i64> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let group_id = crate::crc64::crc64_ecma(name);
+        trace_sql!("INSERT OR REPLACE INTO agent_group(group_id, group_name, agent_ids, description, time_stamp) VALUES (?, ?, ?, ?, ?)", group_id = group_id, name = name, agent_ids = agent_ids, description = description);
         sqlx::query(
-            "INSERT INTO agent_group(group_name, agent_ids, description, time_stamp) VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO agent_group(group_id, group_name, agent_ids, description, time_stamp) VALUES (?, ?, ?, ?, ?)",
         )
+        .bind(group_id)
         .bind(name)
         .bind(agent_ids)
         .bind(description)
         .bind(&now)
         .execute(&self.pool)
         .await?;
-        let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
-            .fetch_one(&self.pool)
-            .await?;
-        Ok(id)
+        Ok(group_id)
     }
 
     pub async fn update_agent_group(&self, group_id: i64, name: &str, agent_ids: &str, description: Option<&str>) -> Result<()> {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("UPDATE agent_group SET group_name = ?, agent_ids = ?, description = ?, time_stamp = ? WHERE group_id = ?", group_id = group_id, name = name, agent_ids = agent_ids, description = description);
         sqlx::query(
             "UPDATE agent_group SET group_name = ?, agent_ids = ?, description = ?, time_stamp = ? WHERE group_id = ?",
         )
@@ -1323,6 +1460,7 @@ impl CoreDb {
     }
 
     pub async fn delete_agent_group(&self, group_id: i64) -> Result<bool> {
+        trace_sql!("DELETE FROM agent_group WHERE group_id = ?", group_id = group_id);
         let result = sqlx::query("DELETE FROM agent_group WHERE group_id = ?")
             .bind(group_id)
             .execute(&self.pool)
@@ -1331,7 +1469,7 @@ impl CoreDb {
     }
 
     pub async fn tables_for_config(&self, config_name: &str) -> Result<Vec<String>> {
-        tracing::debug!("[db] ==> SELECT DISTINCT ct.table_name FROM config_tables ct INNER JOIN config_snapshots cs ON ct.config_snapshot_id = cs.config_snapshot_id WHERE cs.name = ? AND cs.is_active = 1 ORDER BY ct.table_name");
+        trace_sql!("SELECT DISTINCT ct.table_name FROM config_tables ct INNER JOIN config_snapshots cs ON ct.config_snapshot_id = cs.config_snapshot_id WHERE cs.name = ? AND cs.is_active = 1 ORDER BY ct.table_name", config_name = config_name);
         let rows: Vec<String> = sqlx::query_scalar(
             "SELECT DISTINCT ct.table_name FROM config_tables ct \
              INNER JOIN config_snapshots cs ON ct.config_snapshot_id = cs.config_snapshot_id \
@@ -1374,18 +1512,18 @@ mod tests {
     #[tokio::test]
     async fn registers_agent_and_reuses_existing_agent_id() {
         let db = db().await;
-        let agent_id = compute_agent_id("127.0.0.1", 18081);
-        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        let agent_id = compute_agent_id("127.0.0.1", "/test");
+        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
         db.upsert_agent_status(agent_id, "ONLINE").await.unwrap();
         // Re-register (upsert) should succeed without error
-        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
     }
 
     #[tokio::test]
     async fn stores_task_result_rows() {
         let db = db().await;
-        let agent_id_i64 = compute_agent_id("127.0.0.1", 18081);
-        db.upsert_agent_info(agent_id_i64, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        let agent_id_i64 = compute_agent_id("127.0.0.1", "/test");
+        db.upsert_agent_info(agent_id_i64, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
         db.upsert_agent_status(agent_id_i64, "ONLINE").await.unwrap();
         let agent_id = agent_id_i64.to_string();
         db.insert_config_snapshot(&ConfigSnapshotResponse {
@@ -1456,8 +1594,8 @@ mod tests {
     #[tokio::test]
     async fn lists_online_agents() {
         let db = db().await;
-        let agent_id = compute_agent_id("127.0.0.1", 18081);
-        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        let agent_id = compute_agent_id("127.0.0.1", "/test");
+        db.upsert_agent_info(agent_id, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
         db.upsert_agent_status(agent_id, "ONLINE").await.unwrap();
         let agents = db.list_agents_with_status().await.unwrap();
         assert_eq!(agents.len(), 1);
@@ -1483,9 +1621,10 @@ mod tests {
     #[tokio::test]
     async fn data_collector_unit_crud() {
         let db = db().await;
+        let expected_id = crate::crc64::crc64_ecma("test-unit");
 
         let id = db.next_unit_id().await.unwrap();
-        assert_eq!(id, 1);
+        assert_eq!(id, 0);
 
         let save = DataCollectorUnitSaveRequest {
             unit_name: "test-unit".to_string(),
@@ -1518,7 +1657,7 @@ mod tests {
             db_database: None,
             db_table_name_case: None,
         };
-        let result = db.upsert_data_collector_unit(1, &save).await;
+        let result = db.upsert_data_collector_unit(expected_id, &save).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found or not active"));
 
@@ -1537,17 +1676,15 @@ mod tests {
         db.insert_config_snapshot_meta("v_test", "sha256:test", "v_test", 1, "test-config", &["t1".to_string()]).await.unwrap();
         db.activate_config_snapshot("v_test").await.unwrap();
 
-        db.upsert_data_collector_unit(1, &save).await.unwrap();
-
-        let id2 = db.next_unit_id().await.unwrap();
-        assert_eq!(id2, 2);
+        db.upsert_data_collector_unit(expected_id, &save).await.unwrap();
 
         let list = db.list_data_collector_units().await.unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].unit_name, "test-unit");
+        assert_eq!(list[0].id, expected_id);
         assert_eq!(list[0].password, "******");
 
-        let deleted = db.delete_data_collector_unit(1).await.unwrap();
+        let deleted = db.delete_data_collector_unit(expected_id).await.unwrap();
         assert!(deleted);
         let list = db.list_data_collector_units().await.unwrap();
         assert_eq!(list.len(), 0);
@@ -1606,15 +1743,15 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_agent_info() {
         let db = CoreDb::open(":memory:").await.unwrap();
-        let id = compute_agent_id("10.0.0.1", 9997);
+        let id = compute_agent_id("10.0.0.1", "/test");
 
-        db.upsert_agent_info(id, "agent-01", "10.0.0.1", 9997, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_info(id, "agent-01", "10.0.0.1", 9997, "1.0.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
 
         let row: (String,) = sqlx::query_as("SELECT agent_name FROM agent_info WHERE agent_id = ?")
             .bind(id).fetch_one(&db.pool).await.unwrap();
         assert_eq!(row.0, "agent-01");
 
-        db.upsert_agent_info(id, "agent-01-v2", "10.0.0.1", 9997, "1.0.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_info(id, "agent-01-v2", "10.0.0.1", 9997, "1.0.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
 
         let row: (String,) = sqlx::query_as("SELECT agent_name FROM agent_info WHERE agent_id = ?")
             .bind(id).fetch_one(&db.pool).await.unwrap();
@@ -1624,7 +1761,7 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_agent_status() {
         let db = CoreDb::open(":memory:").await.unwrap();
-        let id = compute_agent_id("10.0.0.1", 9997);
+        let id = compute_agent_id("10.0.0.1", "/test");
 
         db.upsert_agent_status(id, "ONLINE").await.unwrap();
 
@@ -1728,8 +1865,8 @@ mod tests {
     #[tokio::test]
     async fn test_update_agent_heartbeat() {
         let db = CoreDb::open(":memory:").await.unwrap();
-        let id = compute_agent_id("10.0.0.1", 9997);
-        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        let id = compute_agent_id("10.0.0.1", "/test");
+        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
         db.upsert_agent_status(id, "ONLINE").await.unwrap();
 
         db.update_agent_heartbeat(id, "ONLINE", Some(45.5), Some(60.0), Some(30.0), Some(8)).await.unwrap();
@@ -1745,8 +1882,8 @@ mod tests {
     #[tokio::test]
     async fn test_insert_status_his() {
         let db = CoreDb::open(":memory:").await.unwrap();
-        let id = compute_agent_id("10.0.0.1", 9997);
-        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        let id = compute_agent_id("10.0.0.1", "/test");
+        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
 
         db.insert_status_his(id, Some(50.0), Some(70.0), Some(20.0), Some(5)).await.unwrap();
         db.insert_status_his(id, Some(60.0), Some(65.0), Some(25.0), Some(6)).await.unwrap();
@@ -1759,8 +1896,8 @@ mod tests {
     #[tokio::test]
     async fn test_mark_agent_offline() {
         let db = CoreDb::open(":memory:").await.unwrap();
-        let id = compute_agent_id("10.0.0.1", 9997);
-        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        let id = compute_agent_id("10.0.0.1", "/test");
+        db.upsert_agent_info(id, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
         db.upsert_agent_status(id, "ONLINE").await.unwrap();
 
         db.mark_agent_offline(id).await.unwrap();
@@ -1773,13 +1910,13 @@ mod tests {
     #[tokio::test]
     async fn test_select_online_agent() {
         let db = CoreDb::open(":memory:").await.unwrap();
-        let id1 = compute_agent_id("10.0.0.1", 9997);
-        let id2 = compute_agent_id("10.0.0.2", 9997);
+        let id1 = compute_agent_id("10.0.0.1", "/test");
+        let id2 = compute_agent_id("10.0.0.2", "/test");
 
-        db.upsert_agent_info(id1, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_info(id1, "a1", "10.0.0.1", 9997, "1.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
         db.upsert_agent_status(id1, "ONLINE").await.unwrap();
 
-        db.upsert_agent_info(id2, "a2", "10.0.0.2", 9997, "1.0", None, None, None, None, None, None, false).await.unwrap();
+        db.upsert_agent_info(id2, "a2", "10.0.0.2", 9997, "1.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
         db.upsert_agent_status(id2, "ONLINE").await.unwrap();
 
         let (aid, power) = db.select_online_agent().await.unwrap();

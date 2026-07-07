@@ -89,7 +89,7 @@ Use `--input <file-or-dir>` instead of `--source-config`; they are mutually excl
 
 ## Database Logging
 
-All database interaction methods in `src/core/db.rs` (CRUD, queries, upserts) must log their SQL and key parameters via `tracing::debug!` or `tracing::info!`. This applies to both new methods and modifications to existing ones — no silent DB writes/reads without a trace log.
+All database interaction methods in `src/core/db.rs` (CRUD, queries, upserts) must log their SQL and key parameters via `tracing::info!` (INFO level, not DEBUG). Use the `trace_sql!` macro for static-SQL calls — it automatically outputs both the SQL and a `Parameters:` line. For dynamic-SQL methods (e.g. `update_strategy`, `list_strategies`), use `tracing::info!` directly. This applies to both new methods and modifications to existing ones — no silent DB writes/reads without a trace log.
 
 ## After Rust Changes
 

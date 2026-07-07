@@ -14,19 +14,13 @@ const statusConfig: Record<string, { color: string; label: string }> = {
 
 const columns = [
   {
-    title: 'Agent ID',
-    dataIndex: 'agent_id',
-    key: 'agent_id',
-    render: (v: number) => <span className="mono">{v}</span>,
-  },
-  {
-    title: '名称',
-    dataIndex: 'agent_name',
-    key: 'agent_name',
-    render: (v: string) => (
+    title: '采集机别名',
+    dataIndex: 'agent_alias',
+    key: 'agent_alias',
+    render: (v: string, r: AgentStatusRow) => (
       <Space>
         <CloudServerOutlined style={{ color: '#64748B' }} />
-        <span>{v}</span>
+        <span>{v || r.agent_name}</span>
       </Space>
     ),
   },
@@ -102,14 +96,17 @@ export default function AgentStatusPage() {
             </Space>
           }
         >
-          <Table<AgentStatusRow>
-            className="data-table"
-            rowKey="agent_id"
-            dataSource={list}
-            columns={columns}
-            loading={isLoading}
-            pagination={false}
-          />
+          <div className="table-scroll-wrap with-card-head">
+            <Table<AgentStatusRow>
+              className="data-table"
+              rowKey="agent_id"
+              dataSource={list}
+              columns={columns}
+              loading={isLoading}
+              pagination={false}
+              scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}
+            />
+          </div>
         </Card>
       </div>
     </div>

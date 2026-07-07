@@ -35,8 +35,14 @@ struct TcpConfig {
 
 #[derive(Deserialize)]
 struct HeartbeatConfig {
+    #[serde(default = "default_cleanup_interval")]
+    cleanup_interval_seconds: u64,
+    #[serde(default = "default_timeout_ms")]
     timeout_ms: u64,
 }
+
+fn default_cleanup_interval() -> u64 { 30 }
+fn default_timeout_ms() -> u64 { 150_000 }
 
 #[derive(Deserialize)]
 struct DatabaseConfig {
@@ -72,6 +78,9 @@ async fn main() -> Result<()> {
         config_storage.versions_dir()
     );
 
-    wy_gnb_pm_parser::core::server::run_core_server(http_addr, tcp_addr, db_path, config_storage)
-        .await
+    wy_gnb_pm_parser::core::server::run_core_server(
+        http_addr, tcp_addr, db_path, config_storage,
+        config.heartbeat.cleanup_interval_seconds,
+        config.heartbeat.timeout_ms,
+    ).await
 }

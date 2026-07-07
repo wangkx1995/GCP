@@ -1,43 +1,31 @@
-import { Table, Tag, Card, Typography, Space, Switch } from 'antd';
+import { Table, Tag, Card, Space, Switch } from 'antd';
 import { CloudServerOutlined, WifiOutlined } from '@ant-design/icons';
 import { useAgentList } from '../../api/hooks';
 import type { AgentInfoRow } from '../../types/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { updateAgent } from '../../api/agents';
 
-const { Text } = Typography;
 
 export default function AgentsPage() {
-  const { data: agents, isLoading } = useAgentList();
+  const {data: agents, isLoading} = useAgentList();
   const queryClient = useQueryClient();
 
   const toggleIsuse = useMutation({
-    mutationFn: ({ id, flag }: { id: number; flag: number }) =>
-      updateAgent(id, { agent_isuse_flag: flag }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agent-list'] }),
+    mutationFn: ({id, flag}: { id: string; flag: number }) =>
+      updateAgent(id, {agent_isuse_flag: flag}),
+    onSuccess: () => queryClient.invalidateQueries({queryKey: ['agent-list']}),
   });
 
   const columns = [
     {
-      title: 'ID',
-      dataIndex: 'agent_id',
-      key: 'agent_id',
-      width: 160,
-      render: (v: number) => <span className="mono">{v.toLocaleString()}</span>,
-    },
-    {
       title: '名称',
       key: 'name',
+      dataIndex: 'agent_name',
       width: 180,
-      render: (_: unknown, record: AgentInfoRow) => (
+      render: (v: string) => (
         <Space>
-          <CloudServerOutlined style={{ fontSize: 18, color: '#64748B' }} />
-          <div>
-            <div style={{ fontWeight: 600 }}>{record.agent_name}</div>
-            {record.agent_alias && (
-              <Text type="secondary" style={{ fontSize: 12 }}>{record.agent_alias}</Text>
-            )}
-          </div>
+          <CloudServerOutlined style={{color: '#64748B'}}/>
+          <div className="mono">{v}</div>
         </Space>
       ),
     },
@@ -55,7 +43,7 @@ export default function AgentsPage() {
       width: 150,
       render: (v: string) => (
         <Space>
-          <WifiOutlined style={{ color: '#94A3B8' }} />
+          <WifiOutlined style={{color: '#94A3B8'}}/>
           <span className="mono">{v}</span>
         </Space>
       ),
@@ -120,13 +108,6 @@ export default function AgentsPage() {
       render: (v: number | undefined) => v != null ? `${v}%` : '—',
     },
     {
-      title: '心跳间隔',
-      dataIndex: 'heartbeat_interval',
-      key: 'heartbeat_interval',
-      width: 100,
-      render: (v: number | undefined) => v ? `${v}s` : '—',
-    },
-    {
       title: '启用',
       dataIndex: 'agent_isuse_flag',
       key: 'agent_isuse_flag',
@@ -135,7 +116,7 @@ export default function AgentsPage() {
         <Switch
           checked={flag === 1}
           onChange={(checked) =>
-            toggleIsuse.mutate({ id: record.agent_id, flag: checked ? 1 : 0 })
+            toggleIsuse.mutate({id: record.agent_id, flag: checked ? 1 : 0})
           }
         />
       ),
@@ -171,7 +152,7 @@ export default function AgentsPage() {
         <p>已注册的采集机节点（启动时自动注册）</p>
       </div>
       <div className="page-body">
-        <Card className="content-card" styles={{ body: { padding: 0 } }}>
+        <Card className="content-card" styles={{body: {padding: 0}}}>
           <div className="table-scroll-wrap">
             <Table<AgentInfoRow>
               className="data-table"
@@ -180,7 +161,7 @@ export default function AgentsPage() {
               columns={columns}
               loading={isLoading}
               pagination={false}
-              scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}
+              scroll={{x: 'max-content', y: 'var(--table-scroll-y)'}}
             />
           </div>
         </Card>

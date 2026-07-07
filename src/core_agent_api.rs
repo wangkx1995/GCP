@@ -1,5 +1,30 @@
 use serde::{Deserialize, Serialize};
 
+pub mod serde_i64 {
+    use serde::{Serializer, Deserializer};
+
+    pub fn serialize<S: Serializer>(value: &i64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+        use serde::de::Error;
+        struct I64Visitor;
+        impl<'de> serde::de::Visitor<'de> for I64Visitor {
+            type Value = i64;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a number or string-encoded i64")
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<i64, E> { Ok(v) }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<i64, E> { Ok(v as i64) }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<i64, E> {
+                v.parse().map_err(E::custom)
+            }
+        }
+        deserializer.deserialize_any(I64Visitor)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AgentStatus {
@@ -55,13 +80,13 @@ pub struct AgentRegisterRequest {
     pub fact_memory_total: Option<f64>,
     pub heartbeat_interval: Option<i32>,
     pub is_core: Option<bool>,
+    pub deploy_dir: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AgentRegisterResponse {
     pub agent_id: String,
-    pub heartbeat_interval_seconds: u64,
-    pub task_report_interval_seconds: u64,
+    pub result: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -114,6 +139,7 @@ pub struct AgentInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AgentInfoRow {
+    #[serde(with = "serde_i64")]
     pub agent_id: i64,
     pub agent_name: String,
     pub agent_ip: String,
@@ -143,6 +169,7 @@ pub struct AgentInfoRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AgentStatusRow {
+    #[serde(with = "serde_i64")]
     pub agent_id: i64,
     pub agent_name: String,
     pub status: String,
@@ -151,10 +178,12 @@ pub struct AgentStatusRow {
     pub disk_load: Option<f64>,
     pub heartbeat_time: String,
     pub thread_num: Option<i32>,
+    pub agent_alias: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AgentStatusHisRow {
+    #[serde(with = "serde_i64")]
     pub agent_id: i64,
     pub cpu_load: Option<f64>,
     pub memory_load: Option<f64>,
@@ -166,6 +195,7 @@ pub struct AgentStatusHisRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AgentGroupRow {
+    #[serde(with = "serde_i64")]
     pub group_id: i64,
     pub group_name: String,
     pub agent_ids: String,
@@ -185,6 +215,7 @@ where
 
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DataCollectorUnitRow {
+    #[serde(with = "serde_i64")]
     pub id: i64,
     pub unit_name: String,
     pub config_name: String,
@@ -257,8 +288,10 @@ pub struct DataCollectorUnitSaveRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CollectionStrategyRow {
+    #[serde(with = "serde_i64")]
     pub id: i64,
     pub collector_name: String,
+    #[serde(with = "serde_i64")]
     pub collector_id: i64,
     pub table_name: String,
     pub status: String,
@@ -277,6 +310,7 @@ pub struct CollectionStrategyRow {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CollectionStrategyCreateRequest {
+    #[serde(with = "serde_i64")]
     pub collector_id: i64,
     pub collector_name: String,
     pub table_names: Vec<String>,

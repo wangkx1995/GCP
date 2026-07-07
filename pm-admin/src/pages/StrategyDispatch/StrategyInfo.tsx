@@ -11,7 +11,7 @@ export default function StrategyInfoPage() {
   const { data: strategies, isLoading, refetch } = useStrategies();
   const suspendMutation = useBatchSuspend();
   const activateMutation = useBatchActivate();
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const handleBatchSuspend = useCallback(async () => {
     if (selectedIds.length === 0) return;
@@ -42,7 +42,6 @@ export default function StrategyInfoPage() {
   }
 
   const columns: ColumnsType<CollectionStrategy> = [
-    { title: '策略Id', dataIndex: 'id', key: 'id', width: 70 },
     { title: '采集单元', dataIndex: 'collector_name', key: 'collector_name' },
     { title: '表名', dataIndex: 'table_name', key: 'table_name' },
     {
@@ -147,30 +146,32 @@ export default function StrategyInfoPage() {
           </Space>
         }
       >
-        <Table<CollectionStrategy>
-          className="data-table"
-          rowKey="id"
-          dataSource={strategies}
-          columns={columns}
-          loading={isLoading}
-          pagination={false}
-          size="small"
-          scroll={{ x: 'max-content' }}
-          locale={{ emptyText: <Empty description="暂无策略数据" /> }}
-          rowSelection={{
-            selectedRowKeys: selectedIds,
-            onChange: (keys) => setSelectedIds(keys as number[]),
-            getCheckboxProps: (record) => ({ disabled: record.strategy_type === 'immediate' }),
-          }}
-          onRow={(record) => ({
-            onClick: () => {
-              if (record.strategy_type !== 'immediate') {
-                navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`);
-              }
-            },
-            style: { cursor: record.strategy_type === 'immediate' ? 'default' : 'pointer' },
-          })}
-        />
+        <div className="table-scroll-wrap with-card-head">
+          <Table<CollectionStrategy>
+            className="data-table"
+            rowKey="id"
+            dataSource={strategies}
+            columns={columns}
+            loading={isLoading}
+            pagination={false}
+            size="small"
+            scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}
+            locale={{ emptyText: <Empty description="暂无策略数据" /> }}
+            rowSelection={{
+              selectedRowKeys: selectedIds,
+              onChange: (keys) => setSelectedIds(keys as string[]),
+              getCheckboxProps: (record) => ({ disabled: record.strategy_type === 'immediate' }),
+            }}
+            onRow={(record) => ({
+              onClick: () => {
+                if (record.strategy_type !== 'immediate') {
+                  navigate(`/strategy-dispatch/${record.strategy_type}/${record.id}/edit`);
+                }
+              },
+              style: { cursor: record.strategy_type === 'immediate' ? 'default' : 'pointer' },
+            })}
+          />
+        </div>
       </Card>
       </div>
     </div>

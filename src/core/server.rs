@@ -556,9 +556,10 @@ async fn list_data_collector_units(
 
 async fn upsert_data_collector_unit(
     axum::extract::State(state): axum::extract::State<CoreState>,
-    axum::extract::Path(id): axum::extract::Path<i64>,
+    _id: axum::extract::Path<i64>,
     Json(data): Json<DataCollectorUnitSaveRequest>,
 ) -> Response {
+    let id = crate::crc64::crc64_ecma(&data.unit_name);
     match state.db.upsert_data_collector_unit(id, &data).await {
         Ok(_) => ok_response(serde_json::json!({"id": id}), "保存成功").into_response(),
         Err(e) => {
@@ -829,6 +830,8 @@ pub async fn run_core_server(
     tcp_addr: SocketAddr,
     db_path: PathBuf,
     storage: ConfigStorage,
+    cleanup_interval_seconds: u64,
+    heartbeat_timeout_ms: u64,
 ) -> Result<()> {
     let db = CoreDb::open(db_path).await?;
 
@@ -858,7 +861,7 @@ pub async fn run_core_server(
 
     // Cleanup loop — unregisters timed-out agents
     let db_for_cleanup = db.clone();
-    tokio::spawn(tcp_cleanup_loop(registry.clone(), db_for_cleanup));
+    tokio::spawn(tcp_cleanup_loop(registry.clone(), db_for_cleanup, cleanup_interval_seconds, heartbeat_timeout_ms));
 
     // HTTP server — management APIs
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
@@ -889,14 +892,20 @@ async fn tcp_dispatch_loop(
                 tracing::info!(%agent_id, task_id = %event.event_id, status = ?event.status, phase = ?event.phase, "TaskEvent");
             }
             InternalMessage::AgentRegister(mut req) => {
-                let agent_id = compute_agent_id(&req.host, req.port);
+                let deploy_dir = req.deploy_dir.as_deref().unwrap_or("");
+                let agent_id = compute_agent_id(&req.host, deploy_dir);
                 req.agent_id = Some(agent_id.to_string());
+
+                let alias = match db.get_agent_alias(agent_id).await {
+                    Some(a) => Some(a),
+                    None => db.compute_alias(&req.host).await,
+                };
 
                 if let Err(e) = db.upsert_agent_info(
                     agent_id, &req.agent_name, &req.host, req.port, &req.version,
                     req.cpu_total.as_deref(), req.memory_total, req.disk_total,
                     req.max_thread_num, req.fact_memory_total, req.heartbeat_interval,
-                    req.is_core.unwrap_or(false),
+                    req.is_core.unwrap_or(false), alias.as_deref(), deploy_dir,
                 ).await {
                     tracing::warn!(%agent_id, error = %e, "upsert agent_info failed");
                 }
@@ -925,6 +934,13 @@ async fn tcp_dispatch_loop(
                     tracing::warn!(%agent_id, error = %e, "insert status_his failed");
                 }
             }
+            InternalMessage::AgentDisconnected => {
+                if let Ok(agent_id_i64) = agent_id.parse::<i64>() {
+                    if let Err(e) = db.mark_agent_offline(agent_id_i64).await {
+                        tracing::warn!(%agent_id, error = %e, "mark agent offline on disconnect failed");
+                    }
+                }
+            }
             _ => {
                 tracing::warn!(%agent_id, "dispatch_loop: 未处理消息类型");
             }
@@ -943,11 +959,11 @@ async fn tcp_sender_loop(
     }
 }
 
-async fn tcp_cleanup_loop(registry: ConnectionRegistry, db: CoreDb) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+async fn tcp_cleanup_loop(registry: ConnectionRegistry, db: CoreDb, cleanup_interval_seconds: u64, heartbeat_timeout_ms: u64) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(cleanup_interval_seconds));
     loop {
         interval.tick().await;
-        let timed_out = registry.check_timeouts(std::time::Duration::from_secs(150)).await;
+        let timed_out = registry.check_timeouts(std::time::Duration::from_millis(heartbeat_timeout_ms)).await;
         for agent_id in timed_out {
             tracing::warn!(%agent_id, "心跳超时，注销");
             registry.unregister(&agent_id).await;

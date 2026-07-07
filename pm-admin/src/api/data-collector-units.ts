@@ -15,11 +15,11 @@ export function nextUnitId() {
   return http.post<NextIdResponse>('/data-collector-units/next-id').then(r => r.data);
 }
 
-export function saveDataCollectorUnit(id: number, data: DataCollectorUnitSaveRequest) {
+export function saveDataCollectorUnit(id: string, data: DataCollectorUnitSaveRequest) {
   return http.put<{ id: number }>(`/data-collector-units/${id}`, data).then(r => r.data);
 }
 
-export function deleteDataCollectorUnit(id: number) {
+export function deleteDataCollectorUnit(id: string) {
   return http.delete<{ deleted: boolean }>(`/data-collector-units/${id}`).then(r => r.data);
 }
 

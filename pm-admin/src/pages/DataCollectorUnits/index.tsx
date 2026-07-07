@@ -9,9 +9,9 @@ export default function DataCollectorUnitsPage() {
   const navigate = useNavigate();
   const { data: units, isLoading } = useDataCollectorUnits();
   const deleteMutation = useDeleteDataCollectorUnit();
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const handleDelete = useCallback(async (id: number) => {
+  const handleDelete = useCallback(async (id: string) => {
     setDeletingId(id);
     try {
       await deleteMutation.mutateAsync(id);
@@ -24,7 +24,6 @@ export default function DataCollectorUnitsPage() {
   }, [deleteMutation]);
 
   const columns = [
-    { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     { title: '单元名称', dataIndex: 'unit_name', key: 'unit_name' },
     { title: '适配器名称', dataIndex: 'config_name', key: 'config_name' },
     { title: '适配器版本', dataIndex: 'config_version', key: 'config_version' },
@@ -66,21 +65,23 @@ export default function DataCollectorUnitsPage() {
           </Button>
         }
       >
-        <Table<DataCollectorUnit>
-          className="data-table"
-          rowKey="id"
-          dataSource={units}
-          columns={columns}
-          loading={isLoading}
-          pagination={false}
-          size="small"
-          locale={{ emptyText: <Empty description="暂无采集单元，点击右上角新建" /> }}
-          scroll={{ x: 'max-content' }}
-          onRow={(record) => ({
-            onClick: () => navigate(`/data-collector-units/${record.id}/edit`),
-            style: { cursor: 'pointer' },
-          })}
-        />
+        <div className="table-scroll-wrap with-card-head">
+          <Table<DataCollectorUnit>
+            className="data-table"
+            rowKey="id"
+            dataSource={units}
+            columns={columns}
+            loading={isLoading}
+            pagination={false}
+            size="small"
+            locale={{ emptyText: <Empty description="暂无采集单元，点击右上角新建" /> }}
+            scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}
+            onRow={(record) => ({
+              onClick: () => navigate(`/data-collector-units/${record.id}/edit`),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        </div>
       </Card>
       </div>
     </div>

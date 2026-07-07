@@ -17,6 +17,7 @@ pub async fn run_agent_server(
     config_dir: Option<PathBuf>,
     reconnect_interval_ms: u64,
     reconnect_max_delay_ms: u64,
+    heartbeat_interval_seconds: u64,
 ) -> Result<()> {
     let store = AgentStore::new(data_dir.clone(), config_dir, core_api_base.clone())?;
 
@@ -29,6 +30,7 @@ pub async fn run_agent_server(
         core_port,
         reconnect_interval_ms,
         reconnect_max_delay_ms,
+        heartbeat_interval_seconds,
         msg_tx: tcp_msg_tx,
         msg_rx: send_to_tcp_rx,
     };
@@ -54,7 +56,9 @@ pub async fn run_agent_server(
                 let http = http.clone();
                 tokio::spawn(async move {
                     if store.ensure_config_async(&request.config_snapshot_id, &http).await.is_ok() {
-                        if let Err(e) = runner.run_task(&store, request, task_dir).await {
+                        if let Err(e) = store.persist_task(&request) {
+                            tracing::warn!("Task persist failed: {e:#}");
+                        } else if let Err(e) = runner.run_task(&store, request, task_dir).await {
                             tracing::warn!("Task failed: {e:#}");
                         }
                     } else {
