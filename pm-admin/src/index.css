@@ -134,6 +134,7 @@ code,
   min-height: 0;
   min-width: 0;
   display: flex;
+  overflow: hidden;
 }
 
 /* ─── Card fills page body ─── */
@@ -163,7 +164,6 @@ code,
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden;
 }
 
 /* ─── Data table fills card body ─── */
