@@ -195,7 +195,7 @@ export default function AgentsPage() {
             columns={columns}
             loading={isLoading}
             pagination={false}
-            scroll={{ x: 'max-content', y: tableHeight }}
+            scroll={{ x: 2400 }}
           />
         </Card>
       </div>
