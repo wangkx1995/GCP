@@ -29,6 +29,15 @@ No repo lint, formatter, clippy, or pre-commit config is wired into CI.
 - `src/tpd.rs` is the rule engine. Current hot path is `StreamingTpdEngine` / `StreamingRuleAggregator`; do not assume Polars exists or reintroduce DataFrame aggregation without an explicit requirement.
 - `src/writer.rs` writes package directories containing `<table>.csv`, `<table>.ini`, `load.ctl`, and `result.csv` grouped by `scan_start_time`.
 - `crates/remote-file-source` renders `${SCAN_START_TIME...}` templates, scans FTP/SFTP directories, downloads matches into configured `download_dir`, and supports retries/timeouts from `source.toml`.
+- `pm-admin/` is the React + Ant Design admin UI. Keep list pages consistent with the existing `page-container` / `page-body` / `content-card` layout pattern.
+
+## Frontend Table Layout Conventions
+
+- Ordinary admin list pages using Ant Design `Table` should use `className="data-table"` and be wrapped in `<div className="table-scroll-wrap">` inside the `Card` body.
+- Tables with a Card header/title/extra area should use `<div className="table-scroll-wrap with-card-head">` so the fixed scroll height accounts for the Card head.
+- Use `scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}` for ordinary list tables. This keeps horizontal scrolling in the table region and keeps the scrollbar at the fixed table-area bottom even when there is only one row.
+- Do not apply this ordinary-list pattern to special visual tables such as `pm-admin/src/pages/Results/GridTable.tsx`; that grid has its own layout behavior.
+- After frontend changes, run `npm run build` and `npm run lint` from `pm-admin/`. Current lint may report an existing `react-hooks/exhaustive-deps` warning in `DataCollectorUnits/FormPage.tsx`; treat it as unrelated unless you are modifying that file.
 
 ## Runtime Configs and Inputs
 
@@ -77,6 +86,10 @@ Use `--input <file-or-dir>` instead of `--source-config`; they are mutually excl
 - Gitignored: `/target/`, `/output/`, `/valid/`, `/downloads/`, `/rules/`, `fixtures/*.gz`, `fixtures/*.zip`.
 - `valid1/` is not ignored and is used as a checked baseline directory in local comparisons; do not overwrite or delete it casually.
 - Keep secret-bearing local config files out of commits.
+
+## Database Logging
+
+All database interaction methods in `src/core/db.rs` (CRUD, queries, upserts) must log their SQL and key parameters via `tracing::debug!` or `tracing::info!`. This applies to both new methods and modifications to existing ones — no silent DB writes/reads without a trace log.
 
 ## After Rust Changes
 
