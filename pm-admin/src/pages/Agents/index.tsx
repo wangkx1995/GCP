@@ -22,8 +22,8 @@ export default function AgentsPage() {
       title: 'ID',
       dataIndex: 'agent_id',
       key: 'agent_id',
-      width: 100,
-      render: (v: number) => <span className="mono">{v}</span>,
+      width: 160,
+      render: (v: number) => <span className="mono">{v.toLocaleString()}</span>,
     },
     {
       title: '名称',

@@ -28,6 +28,12 @@ impl AgentTcpClient {
                     tracing::info!("Agent connected to Core: {addr}");
                     retry_delay = self.reconnect_interval_ms;
 
+                    let local_host = stream
+                        .local_addr()
+                        .ok()
+                        .map(|a| a.ip().to_string())
+                        .unwrap_or_default();
+
                     let (reader, writer) = stream.into_split();
                     let framed_rx = Arc::new(Mutex::new(new_framed_read(reader)));
                     let framed_tx = Arc::new(Mutex::new(new_framed_write(writer)));
@@ -36,7 +42,7 @@ impl AgentTcpClient {
                     let req = AgentRegisterRequest {
                         agent_id: Some(self.agent_id.clone()),
                         agent_name: self.agent_id.clone(),
-                        host: String::new(),
+                        host: local_host,
                         port: self.core_port,
                         version: env!("CARGO_PKG_VERSION").to_string(),
                         capabilities: AgentCapabilities {
