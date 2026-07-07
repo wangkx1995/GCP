@@ -28,7 +28,11 @@ impl AgentTcpClient {
         sys.refresh_all();
         let memory_total = sys.total_memory();
         let disks = sysinfo::Disks::new_with_refreshed_list();
-        let disk_total: u64 = disks.iter().map(|d| d.total_space()).sum();
+        let disk_total: u64 = disks
+            .iter()
+            .find(|d| d.mount_point() == std::path::Path::new("/"))
+            .map(|d| d.total_space())
+            .unwrap_or(0);
 
         loop {
             let addr = format!("{}:{}", self.core_host, self.core_port);
