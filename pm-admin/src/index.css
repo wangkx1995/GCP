@@ -134,7 +134,6 @@ code,
   min-height: 0;
   min-width: 0;
   display: flex;
-  overflow: hidden;
 }
 
 /* ─── Card fills page body ─── */
@@ -166,18 +165,10 @@ code,
   min-width: 0;
 }
 
-/* ─── Data table fills card body ─── */
+/* ─── Table fills card body ─── */
 
-.data-table {
-  height: 100%;
-}
-
-.data-table .ant-table {
-  height: 100%;
-}
-
-.data-table .ant-table-container {
-  height: 100%;
+.table-scroll-wrap {
+  flex: 1;
 }
 
 /* ─── Table ─── */
