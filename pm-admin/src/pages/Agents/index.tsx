@@ -86,8 +86,8 @@ export default function AgentsPage() {
       key: 'memory',
       width: 120,
       render: (_: unknown, r: AgentInfoRow) => {
-        if (r.fact_memory_total) return r.fact_memory_total.toFixed(0);
-        if (r.memory_total) return r.memory_total.toFixed(0);
+        const mem = r.fact_memory_total || r.memory_total;
+        if (mem) return (mem / (1024 * 1024)).toFixed(0);
         return '—';
       },
     },
@@ -96,7 +96,7 @@ export default function AgentsPage() {
       dataIndex: 'disk_total',
       key: 'disk_total',
       width: 110,
-      render: (v: number | undefined) => v ? v.toFixed(1) : '—',
+      render: (v: number | undefined) => v ? (v / (1024 * 1024 * 1024)).toFixed(1) : '—',
     },
     {
       title: '类型',
@@ -174,12 +174,13 @@ export default function AgentsPage() {
         <Card className="content-card" styles={{ body: { padding: 0 } }}>
           <div className="table-scroll-wrap">
             <Table<AgentInfoRow>
+              className="data-table"
               rowKey="agent_id"
               dataSource={agents}
               columns={columns}
               loading={isLoading}
               pagination={false}
-              scroll={{ x: 'max-content' }}
+              scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}
             />
           </div>
         </Card>
