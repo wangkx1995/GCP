@@ -1,11 +1,14 @@
+use std::sync::Arc;
+use std::thread::available_parallelism;
+
+use anyhow::Result;
+use sysinfo::{Disks, System};
+use tokio::net::TcpStream;
+use tokio::sync::{mpsc, Mutex};
+
 use crate::core::tcp::protocol::{new_framed_read, new_framed_write, recv_message, send_message};
 use crate::core_agent_api::*;
 use crate::message::InternalMessage;
-use anyhow::Result;
-use std::sync::Arc;
-use std::thread::available_parallelism;
-use tokio::net::TcpStream;
-use tokio::sync::{mpsc, Mutex};
 
 pub struct AgentTcpClient {
     pub agent_id: String,
@@ -21,6 +24,12 @@ impl AgentTcpClient {
     pub async fn run(mut self) -> Result<()> {
         let mut retry_delay = self.reconnect_interval_ms;
 
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let memory_total = sys.total_memory();
+        let disks = Disks::new();
+        let disk_total: u64 = disks.iter().map(|d| d.total_space()).sum();
+
         loop {
             let addr = format!("{}:{}", self.core_host, self.core_port);
             match TcpStream::connect(&addr).await {
@@ -33,17 +42,23 @@ impl AgentTcpClient {
                         .ok()
                         .map(|a| a.ip().to_string())
                         .unwrap_or_default();
+                    let local_port = stream
+                        .local_addr()
+                        .ok()
+                        .map(|a| a.port())
+                        .unwrap_or(0);
 
                     let (reader, writer) = stream.into_split();
                     let framed_rx = Arc::new(Mutex::new(new_framed_read(reader)));
                     let framed_tx = Arc::new(Mutex::new(new_framed_write(writer)));
 
                     let cpu_count = available_parallelism().map(|n| n.get() as i32).unwrap_or(1);
+                    let agent_name = format!("{}:{}", local_host, local_port);
                     let req = AgentRegisterRequest {
                         agent_id: Some(self.agent_id.clone()),
-                        agent_name: self.agent_id.clone(),
+                        agent_name,
                         host: local_host,
-                        port: self.core_port,
+                        port: local_port,
                         version: env!("CARGO_PKG_VERSION").to_string(),
                         capabilities: AgentCapabilities {
                             can_collect: true,
@@ -52,10 +67,10 @@ impl AgentTcpClient {
                             supported_protocols: vec!["tcp".into()],
                         },
                         cpu_total: Some(format!("{} cores", cpu_count)),
-                        memory_total: None,
-                        disk_total: None,
+                        memory_total: Some(memory_total as f64),
+                        disk_total: Some(disk_total as f64),
                         max_thread_num: Some(cpu_count * 2),
-                        fact_memory_total: None,
+                        fact_memory_total: Some(memory_total as f64),
                         heartbeat_interval: None,
                         is_core: None,
                     };
@@ -81,15 +96,18 @@ impl AgentTcpClient {
                     let hb_tx = framed_tx.clone();
                     let thread_count = cpu_count;
                     tokio::spawn(async move {
+                        let mut hb_sys = System::new();
                         let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
                         loop {
                             interval.tick().await;
+                            hb_sys.refresh_cpu_all();
+                            hb_sys.refresh_memory();
                             let hb = AgentHeartbeatRequest {
                                 status: AgentStatus::Online,
                                 running_task_ids: vec![],
                                 disk_free_bytes: None,
-                                cpu_load: None,
-                                memory_load: None,
+                                cpu_load: Some(hb_sys.global_cpu_usage() as f64 / 100.0),
+                                memory_load: Some(hb_sys.used_memory() as f64 / memory_total as f64),
                                 disk_load: None,
                                 thread_num: Some(thread_count),
                             };
