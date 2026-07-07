@@ -1,3 +1,4 @@
+import { useRef, useState, useEffect } from 'react';
 import { Table, Tag, Card, Typography, Space, Switch } from 'antd';
 import { CloudServerOutlined, WifiOutlined } from '@ant-design/icons';
 import { useAgentList } from '../../api/hooks';
@@ -10,6 +11,21 @@ const { Text } = Typography;
 export default function AgentsPage() {
   const { data: agents, isLoading } = useAgentList();
   const queryClient = useQueryClient();
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [tableHeight, setTableHeight] = useState(500);
+
+  useEffect(() => {
+    function update() {
+      const headerEl = headerRef.current;
+      if (!headerEl) return;
+      const headerHeight = headerEl.getBoundingClientRect().height;
+      const available = window.innerHeight - headerHeight - 48;
+      setTableHeight(Math.max(200, available));
+    }
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
   const toggleIsuse = useMutation({
     mutationFn: ({ id, flag }: { id: number; flag: number }) =>
@@ -150,7 +166,7 @@ export default function AgentsPage() {
 
   return (
     <div className="page-container">
-      <div className="page-header">
+      <div className="page-header" ref={headerRef}>
         <h2>采集机信息</h2>
         <p>已注册的采集机节点（启动时自动注册）</p>
       </div>
@@ -163,7 +179,7 @@ export default function AgentsPage() {
             columns={columns}
             loading={isLoading}
             pagination={false}
-            scroll={{ x: 2200 }}
+            scroll={{ x: 2200, y: tableHeight }}
           />
         </Card>
       </div>
