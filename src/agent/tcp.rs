@@ -42,11 +42,7 @@ impl AgentTcpClient {
                         .ok()
                         .map(|a| a.ip().to_string())
                         .unwrap_or_default();
-                    let local_port = stream
-                        .local_addr()
-                        .ok()
-                        .map(|a| a.port())
-                        .unwrap_or(0);
+                    let local_port = self.core_port;
 
                     let (reader, writer) = stream.into_split();
                     let framed_rx = Arc::new(Mutex::new(new_framed_read(reader)));
