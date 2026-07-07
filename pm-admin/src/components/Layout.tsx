@@ -97,7 +97,7 @@ export default function Layout() {
           }}
         />
       </Sider>
-      <Content style={{ padding: '32px 32px 0', background: 'var(--color-bg-layout)', height: '100vh', overflowY: 'auto' }}>
+      <Content style={{ padding: '32px 32px 0', background: 'var(--color-bg-layout)', height: '100vh', overflowY: 'auto', overflowX: 'hidden' }}>
         <Outlet />
       </Content>
     </AntLayout>
