@@ -132,6 +132,7 @@ code,
 .page-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
 }
 
@@ -162,10 +163,7 @@ code,
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-.content-card > .ant-card-body .ant-table-wrapper {
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 /* ─── Data table fills card body ─── */
