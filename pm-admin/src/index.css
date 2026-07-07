@@ -169,26 +169,15 @@ code,
 /* ─── Data table fills card body ─── */
 
 .data-table {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  height: 100%;
 }
 
 .data-table .ant-table {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  height: 100%;
 }
 
 .data-table .ant-table-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.data-table .ant-table-body {
-  flex: 1;
-  overflow: auto;
+  height: 100%;
 }
 
 /* ─── Table ─── */
