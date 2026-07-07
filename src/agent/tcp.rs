@@ -27,7 +27,7 @@ impl AgentTcpClient {
         let mut sys = System::new_all();
         sys.refresh_all();
         let memory_total = sys.total_memory();
-        let disks = Disks::new();
+        let disks = sysinfo::Disks::new_with_refreshed_list();
         let disk_total: u64 = disks.iter().map(|d| d.total_space()).sum();
 
         loop {
