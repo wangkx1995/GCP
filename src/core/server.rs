@@ -1125,6 +1125,9 @@ async fn tcp_cleanup_loop(registry: ConnectionRegistry, db: CoreDb, cleanup_inte
                 if let Err(e) = db.mark_agent_offline(agent_id_i64).await {
                     tracing::error!(%agent_id, error = %e, "mark agent offline failed");
                 }
+                if let Err(e) = db.mark_active_tasks_failed_for_agent(&agent_id, "agent heartbeat timeout").await {
+                    tracing::error!(%agent_id, error = %e, "mark active tasks failed after heartbeat timeout failed");
+                }
             }
         }
     }
