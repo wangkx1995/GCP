@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use anyhow::Result;
-use chrono::Timelike;
+use chrono::{NaiveDateTime, Timelike};
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -1031,6 +1031,71 @@ async fn tcp_cleanup_loop(registry: ConnectionRegistry, db: CoreDb, cleanup_inte
     }
 }
 
+fn score_agent(agent_power: f64, running_task_count: i64, new_task_count: i64, factor: f64) -> f64 {
+    let total_task_count = (running_task_count + new_task_count).max(1) as f64;
+    (agent_power / total_task_count) * factor - running_task_count as f64
+}
+
+async fn select_agent_for_group(
+    db: &CoreDb,
+    registry: &ConnectionRegistry,
+    group: &TaskGroup,
+    new_task_count: i64,
+    heartbeat_timeout_seconds: i64,
+) -> Result<Option<String>> {
+    let mut candidate_ids = if let Some(force_agent_id) = &group.force_agent_id {
+        vec![force_agent_id.clone()]
+    } else {
+        group.candidate_ids.clone()
+    };
+
+    if candidate_ids.len() == 1 {
+        if let Ok(group_id) = candidate_ids[0].parse::<i64>() {
+            let expanded = db.expand_agent_group(group_id).await?;
+            if !expanded.is_empty() {
+                candidate_ids = expanded;
+            }
+        }
+    }
+
+    let candidates = db.list_dispatch_candidates(&candidate_ids).await?;
+    let now = chrono::Local::now().naive_local();
+    let mut best: Option<(String, f64)> = None;
+
+    for candidate in candidates {
+        if candidate.agent_isuse_flag != 1 {
+            continue;
+        }
+        let agent_id = candidate.agent_id.to_string();
+        if !registry.is_connected(&agent_id).await {
+            continue;
+        }
+        if candidate.current_status.as_deref() != Some("ONLINE") {
+            continue;
+        }
+        let Some(last_heartbeat_time) = candidate.last_heartbeat_time.as_deref() else { continue; };
+        let heartbeat_time = NaiveDateTime::parse_from_str(last_heartbeat_time, "%Y-%m-%d %H:%M:%S")?;
+        if (now - heartbeat_time).num_seconds() > heartbeat_timeout_seconds {
+            continue;
+        }
+        let load_limit = candidate.host_load_limit.unwrap_or(90.0);
+        if candidate.cpu_load.unwrap_or(0.0) >= load_limit || candidate.memory_load.unwrap_or(0.0) >= load_limit {
+            continue;
+        }
+        let running = db.count_active_tasks_by_agent(&agent_id).await?;
+        let power = candidate.agent_power.unwrap_or(1.0).max(1.0);
+        if running + new_task_count > power.floor() as i64 {
+            continue;
+        }
+        let score = score_agent(power, running, new_task_count, 1.0);
+        if best.as_ref().map(|(_, current)| score > *current).unwrap_or(true) {
+            best = Some((agent_id, score));
+        }
+    }
+
+    Ok(best.map(|(agent_id, _)| agent_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1091,5 +1156,12 @@ mod tests {
         let a = compute_task_group_id("101", 202, "2026-07-08 10:00:00", None, &["TPD_A".to_string()]);
         let b = compute_task_group_id("101", 202, "2026-07-08 10:15:00", None, &["TPD_A".to_string()]);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn score_agent_prefers_more_available_capacity() {
+        let busy = super::score_agent(2.0, 2, 1, 1.0);
+        let idle = super::score_agent(4.0, 1, 1, 1.0);
+        assert!(idle > busy);
     }
 }

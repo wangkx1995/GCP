@@ -182,6 +182,22 @@ pub struct AgentStatusRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AgentDispatchCandidate {
+    #[serde(with = "serde_i64")]
+    pub agent_id: i64,
+    pub agent_name: String,
+    pub agent_alias: Option<String>,
+    pub agent_isuse_flag: i32,
+    pub agent_power: Option<f64>,
+    pub host_load_limit: Option<f64>,
+    pub current_status: Option<String>,
+    pub cpu_load: Option<f64>,
+    pub memory_load: Option<f64>,
+    pub current_thread_num: Option<i32>,
+    pub last_heartbeat_time: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AgentStatusHisRow {
     #[serde(with = "serde_i64")]
     pub agent_id: i64,

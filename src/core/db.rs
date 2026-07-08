@@ -5,7 +5,7 @@ use sqlx::Row;
 use sqlx::SqlitePool;
 
 use crate::core_agent_api::{
-    AgentGroupRow, AgentInfoRow,
+    AgentDispatchCandidate, AgentGroupRow, AgentInfoRow,
     AgentStatusHisRow, AgentStatusRow, CollectionStrategyCreateRequest, CollectionStrategyRow,
     CollectionStrategyUpdateRequest, ConfigNameItem, ConfigSnapshotMeta, ConfigSnapshotResponse,
     DataCollectorUnitRow, DataCollectorUnitSaveRequest, ResultRow, TaskResultReport,
@@ -1579,6 +1579,35 @@ impl CoreDb {
         .await?;
         Ok(rows)
     }
+
+    pub async fn expand_agent_group(&self, group_id: i64) -> Result<Vec<String>> {
+        trace_sql!("SELECT agent_ids FROM agent_group WHERE group_id = ?", group_id = group_id);
+        let agent_ids: Option<String> = sqlx::query_scalar("SELECT agent_ids FROM agent_group WHERE group_id = ?")
+            .bind(group_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(agent_ids) = agent_ids else { return Ok(Vec::new()); };
+        let ids = serde_json::from_str::<Vec<String>>(&agent_ids)
+            .or_else(|_| Ok::<Vec<String>, serde_json::Error>(agent_ids.split(',').map(str::trim).filter(|s| !s.is_empty()).map(ToOwned::to_owned).collect()))?;
+        Ok(ids)
+    }
+
+    pub async fn list_dispatch_candidates(&self, agent_ids: &[String]) -> Result<Vec<AgentDispatchCandidate>> {
+        if agent_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = std::iter::repeat("?").take(agent_ids.len()).collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT ai.agent_id, ai.agent_name, ai.agent_alias, ai.agent_isuse_flag, ai.agent_power, ai.host_load_limit, ast.status as current_status, ast.cpu_load, ast.memory_load, ast.thread_num as current_thread_num, ast.heartbeat_time as last_heartbeat_time FROM agent_info ai LEFT JOIN agent_status ast ON ast.agent_id = ai.agent_id WHERE ai.agent_id IN ({})",
+            placeholders
+        );
+        tracing::info!("[db] ==> {}  Parameters: {:?}", sql, agent_ids);
+        let mut query = sqlx::query_as::<_, AgentDispatchCandidate>(&sql);
+        for agent_id in agent_ids {
+            query = query.bind(agent_id.parse::<i64>().unwrap_or(0));
+        }
+        query.fetch_all(&self.pool).await.map_err(Into::into)
+    }
 }
 
 #[cfg(test)]
@@ -2110,6 +2139,23 @@ mod tests {
         assert_eq!(row.get::<i64, _>("retry_count"), 1);
         assert_eq!(row.get::<String, _>("next_retry_at"), "2026-07-08 10:01:00");
         assert_eq!(row.get::<String, _>("dispatch_error"), "no available agent");
+    }
+
+    #[tokio::test]
+    async fn expand_agent_group_returns_member_ids() {
+        let db = db().await;
+        let group_id = crate::crc64::crc64_ecma("dispatch-group");
+        sqlx::query("INSERT INTO agent_group(group_id, group_name, agent_ids, time_stamp) VALUES (?, ?, ?, ?)")
+            .bind(group_id)
+            .bind("dispatch-group")
+            .bind("[\"11\",\"22\"]")
+            .bind("2026-07-08 10:00:00")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+
+        let ids = db.expand_agent_group(group_id).await.unwrap();
+        assert_eq!(ids, vec!["11".to_string(), "22".to_string()]);
     }
 
     #[tokio::test]
