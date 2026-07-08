@@ -29,7 +29,7 @@ use crate::core_agent_api::{
     BatchStatusRequest, ConfigNamesResponse,
     CollectionStrategyCreateRequest, CollectionStrategyRow, CollectionStrategyUpdateRequest,
     DataCollectorUnitRow, DataCollectorUnitSaveRequest, NextIdResponse,
-    TablesResponse, TaskDispatchRequest,
+    TablesResponse, TaskDispatchRequest, TaskStatus,
 };
 
 #[derive(Serialize)]
@@ -1024,8 +1024,26 @@ async fn tcp_dispatch_loop(
                     tracing::error!(%agent_id, task_id = %report.task_id, error = %e, "accept_task_result 失败");
                 }
             }
+            InternalMessage::DispatchTaskAck(ack) => {
+                let status = if ack.accepted { "ACCEPTED" } else { "FAILED" };
+                if let Err(e) = db.update_task_status(&ack.task_id, status, ack.reason.as_deref()).await {
+                    tracing::warn!(%agent_id, task_id = %ack.task_id, error = %e, "update task ack status failed");
+                }
+            }
             InternalMessage::TaskEvent(event) => {
                 tracing::info!(%agent_id, task_id = %event.event_id, status = ?event.status, phase = ?event.phase, "TaskEvent");
+                let status = match event.status {
+                    TaskStatus::Running => Some("RUNNING"),
+                    TaskStatus::Failed => Some("FAILED"),
+                    TaskStatus::Timeout => Some("TIMEOUT"),
+                    TaskStatus::Cancelled => Some("CANCELLED"),
+                    _ => None,
+                };
+                if let Some(status) = status {
+                    if let Err(e) = db.update_task_status(&event.event_id, status, event.message.as_deref()).await {
+                        tracing::warn!(%agent_id, task_id = %event.event_id, error = %e, "update task event status failed");
+                    }
+                }
             }
             InternalMessage::AgentRegister(mut req) => {
                 let deploy_dir = req.deploy_dir.as_deref().unwrap_or("");

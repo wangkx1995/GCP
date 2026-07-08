@@ -573,6 +573,21 @@ impl CoreDb {
         Ok(result.rows_affected())
     }
 
+    pub async fn update_task_status(&self, task_id: &str, status: &str, error_message: Option<&str>) -> Result<u64> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("UPDATE collect_tasks SET status = ?, last_progress_at = ?, dispatch_error = ? WHERE task_id = ?", status = status, task_id = task_id, error_message = error_message);
+        let result = sqlx::query(
+            "UPDATE collect_tasks SET status = ?, last_progress_at = ?, dispatch_error = ? WHERE task_id = ?",
+        )
+        .bind(status)
+        .bind(&now)
+        .bind(error_message)
+        .bind(task_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn increment_group_retry(&self, group_id: &str, next_retry_at: &str, error_message: &str) -> Result<u64> {
         trace_sql!("UPDATE collect_tasks SET retry_count = retry_count + 1, next_retry_at = ?, dispatch_error = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", next_retry_at = next_retry_at, error_message = error_message, group_id = group_id);
         let result = sqlx::query(

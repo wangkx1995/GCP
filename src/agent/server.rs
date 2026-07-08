@@ -50,6 +50,15 @@ pub async fn run_agent_server(
         match msg {
             InternalMessage::DispatchTask(request) => {
                 tracing::info!(task_id = %request.task_id, "Received task dispatch");
+                let ack = crate::core_agent_api::TaskDispatchResponse {
+                    task_id: request.task_id.clone(),
+                    accepted: true,
+                    agent_task_state: crate::core_agent_api::TaskStatus::Accepted,
+                    reason: None,
+                };
+                if let Err(e) = send_to_tcp_tx.send(InternalMessage::DispatchTaskAck(ack)).await {
+                    tracing::warn!(task_id = %request.task_id, error = %e, "failed to send dispatch ack");
+                }
                 let task_dir = data_dir.join("tasks").join(&request.task_id);
                 let runner = runner.clone();
                 let store = store.clone();
