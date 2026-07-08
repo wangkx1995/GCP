@@ -72,6 +72,9 @@ macro_rules! trace_sql {
     }};
 }
 
+#[allow(dead_code)]
+const NON_TERMINAL_TASK_STATUS_SQL: &str = "status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')";
+
 #[derive(Clone)]
 pub struct CoreDb {
     pool: SqlitePool,
@@ -541,6 +544,71 @@ impl CoreDb {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn assign_group_to_agent(&self, group_id: &str, agent_id: &str) -> Result<u64> {
+        trace_sql!("UPDATE collect_tasks SET assigned_agent_id = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", agent_id = agent_id, group_id = group_id);
+        let result = sqlx::query(
+            "UPDATE collect_tasks SET assigned_agent_id = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
+        )
+        .bind(agent_id)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn update_group_status(&self, group_id: &str, status: &str, error_message: Option<&str>) -> Result<u64> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("UPDATE collect_tasks SET status = ?, dispatch_error = ?, last_progress_at = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", status = status, error_message = error_message, group_id = group_id);
+        let result = sqlx::query(
+            "UPDATE collect_tasks SET status = ?, dispatch_error = ?, last_progress_at = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
+        )
+        .bind(status)
+        .bind(error_message)
+        .bind(&now)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn increment_group_retry(&self, group_id: &str, next_retry_at: &str, error_message: &str) -> Result<u64> {
+        trace_sql!("UPDATE collect_tasks SET retry_count = retry_count + 1, next_retry_at = ?, dispatch_error = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", next_retry_at = next_retry_at, error_message = error_message, group_id = group_id);
+        let result = sqlx::query(
+            "UPDATE collect_tasks SET retry_count = retry_count + 1, next_retry_at = ?, dispatch_error = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
+        )
+        .bind(next_retry_at)
+        .bind(error_message)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn count_active_tasks_by_agent(&self, agent_id: &str) -> Result<i64> {
+        trace_sql!("SELECT COUNT(*) FROM collect_tasks WHERE assigned_agent_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", agent_id = agent_id);
+        let count = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM collect_tasks WHERE assigned_agent_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
+        )
+        .bind(agent_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    pub async fn mark_active_tasks_failed_for_agent(&self, agent_id: &str, reason: &str) -> Result<u64> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("UPDATE collect_tasks SET status = 'FAILED', finished_at = ?, dispatch_error = ? WHERE assigned_agent_id = ? AND status IN ('CREATED', 'DISPATCHING', 'ACCEPTED', 'RUNNING')", agent_id = agent_id, reason = reason);
+        let result = sqlx::query(
+            "UPDATE collect_tasks SET status = 'FAILED', finished_at = ?, dispatch_error = ? WHERE assigned_agent_id = ? AND status IN ('CREATED', 'DISPATCHING', 'ACCEPTED', 'RUNNING')",
+        )
+        .bind(&now)
+        .bind(reason)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     pub async fn accept_task_result(&self, report: &TaskResultReport) -> Result<()> {
@@ -1998,5 +2066,83 @@ mod tests {
 
         let result = db.select_online_agent().await;
         assert!(result.is_err(), "no online+enabled agent should return error");
+    }
+
+    #[tokio::test]
+    async fn group_status_and_retry_updates_all_non_terminal_tasks() {
+        let db = db().await;
+        for task_id in ["task_g1_a", "task_g1_b"] {
+            db.create_task(
+                task_id,
+                task_id,
+                "1",
+                "snapshot_1",
+                "2026-07-08 10:00:00",
+                task_id,
+                "agent_old",
+                "group_g1",
+            )
+            .await
+            .unwrap();
+        }
+
+        let assigned = db.assign_group_to_agent("group_g1", "agent_new").await.unwrap();
+        assert_eq!(assigned, 2);
+
+        let updated = db.update_group_status("group_g1", "DISPATCHING", None).await.unwrap();
+        assert_eq!(updated, 2);
+
+        let retried = db
+            .increment_group_retry("group_g1", "2026-07-08 10:01:00", "no available agent")
+            .await
+            .unwrap();
+        assert_eq!(retried, 2);
+
+        let row = sqlx::query(
+            "SELECT assigned_agent_id, status, retry_count, next_retry_at, dispatch_error FROM collect_tasks WHERE task_id = ?",
+        )
+        .bind("task_g1_a")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<String, _>("assigned_agent_id"), "agent_new");
+        assert_eq!(row.get::<String, _>("status"), "DISPATCHING");
+        assert_eq!(row.get::<i64, _>("retry_count"), 1);
+        assert_eq!(row.get::<String, _>("next_retry_at"), "2026-07-08 10:01:00");
+        assert_eq!(row.get::<String, _>("dispatch_error"), "no available agent");
+    }
+
+    #[tokio::test]
+    async fn active_task_count_and_agent_failure_ignore_terminal_tasks() {
+        let db = db().await;
+        for (task_id, status) in [("task_active_1", "CREATED"), ("task_active_2", "RUNNING"), ("task_done", "SUCCEEDED")] {
+            db.create_task(
+                task_id,
+                task_id,
+                "1",
+                "snapshot_1",
+                "2026-07-08 10:00:00",
+                task_id,
+                "agent_1",
+                "group_active",
+            )
+            .await
+            .unwrap();
+            sqlx::query("UPDATE collect_tasks SET status = ? WHERE task_id = ?")
+                .bind(status)
+                .bind(task_id)
+                .execute(&db.pool)
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(db.count_active_tasks_by_agent("agent_1").await.unwrap(), 2);
+
+        let failed = db
+            .mark_active_tasks_failed_for_agent("agent_1", "agent heartbeat timeout")
+            .await
+            .unwrap();
+        assert_eq!(failed, 2);
+        assert_eq!(db.count_active_tasks_by_agent("agent_1").await.unwrap(), 0);
     }
 }
