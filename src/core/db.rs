@@ -994,6 +994,25 @@ impl CoreDb {
         Ok(count)
     }
 
+    pub async fn list_active_periodic_strategies(&self) -> Result<Vec<CollectionStrategyRow>> {
+        trace_sql!("SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_type = 'periodic' AND status = '可用'");
+        sqlx::query_as::<_, CollectionStrategyRow>(
+            "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_type = 'periodic' AND status = '可用'",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn task_exists_by_logical_key(&self, logical_task_key: &str) -> Result<bool> {
+        trace_sql!("SELECT COUNT(*) FROM collect_tasks WHERE logical_task_key = ?", logical_task_key = logical_task_key);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collect_tasks WHERE logical_task_key = ?")
+            .bind(logical_task_key)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count > 0)
+    }
+
     pub async fn list_data_collector_units(&self) -> Result<Vec<DataCollectorUnitRow>> {
         trace_sql!("SELECT * FROM data_collector_unit ORDER BY id DESC");
         let rows = sqlx::query_as::<_, DataCollectorUnitRow>(

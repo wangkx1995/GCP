@@ -996,6 +996,9 @@ pub async fn run_core_server(
     let db_for_cleanup = db.clone();
     tokio::spawn(tcp_cleanup_loop(registry.clone(), db_for_cleanup, cleanup_interval_seconds, heartbeat_timeout_ms));
 
+    // Periodic strategy scan loop
+    tokio::spawn(periodic_strategy_scan_loop(state.clone()));
+
     // HTTP server — management APIs
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
     axum::serve(listener, router(state)).await?;
@@ -1104,6 +1107,67 @@ async fn tcp_cleanup_loop(registry: ConnectionRegistry, db: CoreDb, cleanup_inte
                 if let Err(e) = db.mark_agent_offline(agent_id_i64).await {
                     tracing::error!(%agent_id, error = %e, "mark agent offline failed");
                 }
+            }
+        }
+    }
+}
+
+async fn periodic_strategy_scan_loop(state: CoreState) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    loop {
+        interval.tick().await;
+        let strategies = match state.db.list_active_periodic_strategies().await {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!(error = %e, "periodic strategy scan failed");
+                continue;
+            }
+        };
+        for strategy in strategies {
+            let unit = match state.db.get_unit_by_id(strategy.collector_id).await {
+                Ok(Some(unit)) => unit,
+                Ok(None) => {
+                    tracing::warn!(strategy_id = %strategy.id, collector_id = %strategy.collector_id, "periodic strategy unit not found");
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic strategy unit query failed");
+                    continue;
+                }
+            };
+            let config_snapshot_id = match state.db.get_active_snapshot_id_for_config_name(&unit.config_name).await {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    tracing::warn!(strategy_id = %strategy.id, config_name = %unit.config_name, "periodic strategy active snapshot not found");
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic strategy snapshot query failed");
+                    continue;
+                }
+            };
+            let scan_start_time = chrono::Local::now().format("%Y-%m-%d %H:%M:00").to_string();
+            let logical_task_key = format!("strategy_{}:{}:{}", strategy.id, scan_start_time, strategy.table_name);
+            match state.db.task_exists_by_logical_key(&logical_task_key).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic duplicate check failed");
+                    continue;
+                }
+            }
+            let command = StrategyCommand {
+                source: StrategyCommandSource::Periodic,
+                strategy: strategy.clone(),
+                unit,
+                config_snapshot_id,
+                scan_start_time,
+                scan_end_time: strategy.data_end_time.clone(),
+                table_names: vec![strategy.table_name.clone()],
+                force_agent_id: None,
+            };
+            if let Err(e) = dispatch_strategy_command(&state, command).await {
+                tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic strategy dispatch failed");
             }
         }
     }
