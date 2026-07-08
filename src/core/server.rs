@@ -71,6 +71,61 @@ pub struct CoreState {
     pub storage: Arc<ConfigStorage>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum StrategyCommandSource {
+    Immediate,
+    Periodic,
+    Backfill,
+}
+
+#[derive(Clone, Debug)]
+struct StrategyCommand {
+    source: StrategyCommandSource,
+    strategy: CollectionStrategyRow,
+    unit: DataCollectorUnitRow,
+    config_snapshot_id: String,
+    scan_start_time: String,
+    scan_end_time: Option<String>,
+    table_names: Vec<String>,
+    force_agent_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct TaskGroup {
+    group_id: String,
+    source: StrategyCommandSource,
+    strategy_ids: Vec<String>,
+    collector_id: i64,
+    collector_name: String,
+    candidate_ids: Vec<String>,
+    scan_start_time: String,
+    scan_end_time: Option<String>,
+    table_names: Vec<String>,
+    config_snapshot_id: String,
+    force_agent_id: Option<String>,
+    retry_count: u32,
+}
+
+fn compute_task_group_id(
+    strategy_id: &str,
+    collector_id: i64,
+    scan_start_time: &str,
+    scan_end_time: Option<&str>,
+    table_names: &[String],
+) -> String {
+    let mut sorted_tables = table_names.to_vec();
+    sorted_tables.sort();
+    let input = format!(
+        "{}|{}|{}|{}|{}",
+        strategy_id,
+        collector_id,
+        scan_start_time,
+        scan_end_time.unwrap_or(""),
+        sorted_tables.join(",")
+    );
+    format!("group_{}", crate::crc64::crc64_ecma(&input))
+}
+
 pub fn router(state: CoreState) -> Router {
     Router::new()
         .route("/api/agents", get(list_agents))
@@ -1008,5 +1063,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn task_group_id_is_stable_when_table_order_changes() {
+        let a = compute_task_group_id(
+            "101",
+            202,
+            "2026-07-08 10:00:00",
+            Some("2026-07-08 10:15:00"),
+            &["TPD_B".to_string(), "TPD_A".to_string()],
+        );
+        let b = compute_task_group_id(
+            "101",
+            202,
+            "2026-07-08 10:00:00",
+            Some("2026-07-08 10:15:00"),
+            &["TPD_A".to_string(), "TPD_B".to_string()],
+        );
+
+        assert_eq!(a, b);
+        assert!(a.starts_with("group_"));
+    }
+
+    #[test]
+    fn task_group_id_changes_for_different_window() {
+        let a = compute_task_group_id("101", 202, "2026-07-08 10:00:00", None, &["TPD_A".to_string()]);
+        let b = compute_task_group_id("101", 202, "2026-07-08 10:15:00", None, &["TPD_A".to_string()]);
+        assert_ne!(a, b);
     }
 }
