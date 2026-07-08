@@ -203,12 +203,32 @@ impl CoreDb {
                 last_progress_at TEXT,
                 finished_at TEXT,
                 error_code TEXT,
-                error_message TEXT
+                error_message TEXT,
+                group_id TEXT,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                next_retry_at TEXT,
+                dispatch_error TEXT
             )
             "#,
         )
         .execute(&self.pool)
         .await?;
+        trace_sql!("ALTER TABLE collect_tasks ADD COLUMN group_id TEXT");
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN group_id TEXT")
+            .execute(&self.pool)
+            .await;
+        trace_sql!("ALTER TABLE collect_tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0");
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
+            .execute(&self.pool)
+            .await;
+        trace_sql!("ALTER TABLE collect_tasks ADD COLUMN next_retry_at TEXT");
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN next_retry_at TEXT")
+            .execute(&self.pool)
+            .await;
+        trace_sql!("ALTER TABLE collect_tasks ADD COLUMN dispatch_error TEXT");
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN dispatch_error TEXT")
+            .execute(&self.pool)
+            .await;
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS collect_result_cells (
@@ -500,13 +520,14 @@ impl CoreDb {
         scan_start_time: &str,
         collect_id: &str,
         assigned_agent_id: &str,
+        group_id: &str,
     ) -> Result<()> {
         let now = chrono::Local::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
-        trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = task_id, logical_task_key = logical_task_key, strategy_id = strategy_id, config_snapshot_id = config_snapshot_id, scan_start_time = scan_start_time, collect_id = collect_id, assigned_agent_id = assigned_agent_id);
+        trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, group_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = task_id, logical_task_key = logical_task_key, strategy_id = strategy_id, config_snapshot_id = config_snapshot_id, scan_start_time = scan_start_time, collect_id = collect_id, assigned_agent_id = assigned_agent_id, group_id = group_id);
         sqlx::query(
-            "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
+            "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, group_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
         )
         .bind(task_id)
         .bind(logical_task_key)
@@ -515,6 +536,7 @@ impl CoreDb {
         .bind(scan_start_time)
         .bind(collect_id)
         .bind(assigned_agent_id)
+        .bind(group_id)
         .bind(&now)
         .execute(&self.pool)
         .await?;
@@ -1557,6 +1579,7 @@ mod tests {
             "2026-06-17 15:15:00",
             "collect_1",
             &agent_id,
+            "group_test",
         )
         .await
         .unwrap();
@@ -1584,6 +1607,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stored_status.0, "SUCCEEDED");
+    }
+
+    #[tokio::test]
+    async fn create_task_persists_group_metadata() {
+        let db = db().await;
+        db.create_task(
+            "task_grouped_1",
+            "strategy_1:2026-07-08 10:00:00",
+            "1",
+            "snapshot_1",
+            "2026-07-08 10:00:00",
+            "collect_1",
+            "agent_1",
+            "group_123",
+        )
+        .await
+        .unwrap();
+
+        let row = sqlx::query(
+            "SELECT group_id, retry_count, next_retry_at, dispatch_error FROM collect_tasks WHERE task_id = ?",
+        )
+        .bind("task_grouped_1")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+
+        assert_eq!(row.get::<String, _>("group_id"), "group_123");
+        assert_eq!(row.get::<i64, _>("retry_count"), 0);
+        assert!(row.get::<Option<String>, _>("next_retry_at").is_none());
+        assert!(row.get::<Option<String>, _>("dispatch_error").is_none());
     }
 
     #[tokio::test]

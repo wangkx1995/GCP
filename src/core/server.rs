@@ -507,6 +507,7 @@ async fn dispatch_task(
             &request.scan_start_time,
             &request.collect_id,
             &agent_id,
+            &request.task_id,
         )
         .await
     {
@@ -771,6 +772,7 @@ async fn dispatch_for_strategy(
         task_id: task_id.clone(),
         logical_task_key,
         strategy_id,
+        group_id: Some(task_id.clone()),
         config_snapshot_id: config_snapshot_id.to_string(),
         scan_start_time,
         collect_id,
@@ -810,6 +812,7 @@ async fn dispatch_for_strategy(
         &request.scan_start_time,
         &request.collect_id,
         &agent_id,
+        &task_id,
     ).await?;
 
     if !state.registry.is_connected(&agent_id).await {

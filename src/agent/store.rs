@@ -221,6 +221,7 @@ mod tests {
             task_id: "task_1".to_string(),
             logical_task_key: "strategy:time:cfg".to_string(),
             strategy_id: "strategy".to_string(),
+            group_id: None,
             config_snapshot_id: "cfg".to_string(),
             scan_start_time: "2026-06-17 15:15:00".to_string(),
             collect_id: "collect_1".to_string(),
