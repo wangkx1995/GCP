@@ -914,6 +914,21 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
         retry_count: 0,
     };
 
+    let Some(agent_id) = select_agent_for_group(&state.db, &state.registry, &group, group.table_names.len() as i64, 150).await? else {
+        let pending_groups = state.db.list_pending_retry_groups().await?;
+        let current_retry_count = pending_groups.iter()
+            .find(|(gid, _)| gid == &group_id)
+            .map(|(_, rc)| *rc)
+            .unwrap_or(0);
+        if current_retry_count >= 9 {
+            state.db.update_group_status(&group.group_id, "FAILED", Some("max retries exceeded")).await?;
+            tracing::warn!(group_id = %group.group_id, retry_count = current_retry_count, "group exceeded max retries, marked FAILED");
+            return Ok(false);
+        }
+        state.db.increment_group_retry(&group.group_id, &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), "no available agent").await?;
+        return Ok(false);
+    };
+
     let now = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
     let mut requests = Vec::new();
     for table_name in &group.table_names {
@@ -945,17 +960,116 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
         requests.push(request);
     }
 
-    let Some(agent_id) = select_agent_for_group(&state.db, &state.registry, &group, requests.len() as i64, 150).await? else {
-        state.db.increment_group_retry(&group.group_id, &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), "no available agent").await?;
-        return Ok(false);
-    };
-
     state.db.assign_group_to_agent(&group.group_id, &agent_id).await?;
     state.db.update_group_status(&group.group_id, "DISPATCHING", None).await?;
     for request in requests {
         state.to_tcp.send((agent_id.clone(), InternalMessage::DispatchTask(request))).await?;
     }
     Ok(true)
+}
+
+async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i64) -> Result<()> {
+    let tasks = state.db.get_group_task_rows(group_id).await?;
+    if tasks.is_empty() {
+        anyhow::bail!("no tasks found for group {}", group_id);
+    }
+
+    let strategy_id_str = &tasks[0].2;
+    let strategy_id: i64 = strategy_id_str.parse()?;
+    let strategy = state.db.get_strategy(strategy_id).await?.ok_or_else(|| anyhow::anyhow!("strategy not found"))?;
+    let unit = state.db.get_unit_by_id(strategy.collector_id).await?.ok_or_else(|| anyhow::anyhow!("unit not found"))?;
+
+    let scan_start_time = tasks[0].4.clone();
+    let config_snapshot_id = tasks[0].3.clone();
+
+    let mut candidate_ids = parse_candidate_ids(&strategy.agent_ids)?;
+    if candidate_ids.is_empty() {
+        candidate_ids = parse_candidate_ids(&unit.agent_ids)?;
+    }
+    if candidate_ids.is_empty() {
+        anyhow::bail!("no candidate agents");
+    }
+
+    let mut table_names = Vec::new();
+    for task in &tasks {
+        let sid: i64 = task.2.parse()?;
+        if let Some(s) = state.db.get_strategy(sid).await? {
+            if !table_names.contains(&s.table_name) {
+                table_names.push(s.table_name.clone());
+            }
+        }
+    }
+
+    let group = TaskGroup {
+        group_id: group_id.to_string(),
+        source: StrategyCommandSource::Immediate,
+        strategy_ids: tasks.iter().map(|t| t.2.clone()).collect(),
+        collector_id: unit.id,
+        collector_name: unit.unit_name.clone(),
+        candidate_ids,
+        scan_start_time,
+        scan_end_time: None,
+        table_names,
+        config_snapshot_id: config_snapshot_id.clone(),
+        force_agent_id: None,
+        retry_count: retry_count as u32,
+    };
+
+    let Some(agent_id) = select_agent_for_group(&state.db, &state.registry, &group, tasks.len() as i64, 150).await? else {
+        if retry_count >= 9 {
+            state.db.update_group_status(group_id, "FAILED", Some("max retries exceeded")).await?;
+            tracing::warn!(group_id = %group_id, retry_count, "retry group exceeded max retries, marked FAILED");
+            return Ok(());
+        }
+        let next_retry = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        state.db.increment_group_retry(group_id, &next_retry, "no available agent").await?;
+        return Ok(());
+    };
+
+    state.db.assign_group_to_agent(group_id, &agent_id).await?;
+    state.db.update_group_status(group_id, "DISPATCHING", None).await?;
+
+    for task in &tasks {
+        let sid: i64 = task.2.parse()?;
+        let task_strategy = state.db.get_strategy(sid).await?.ok_or_else(|| anyhow::anyhow!("strategy not found"))?;
+        let request = build_task_dispatch_request(
+            &task_strategy,
+            &unit,
+            &task.3,
+            group_id,
+            task.0.clone(),
+            task.5.clone(),
+            task.1.clone(),
+            task.4.clone(),
+        );
+        state.to_tcp.send((agent_id.clone(), InternalMessage::DispatchTask(request))).await?;
+    }
+
+    Ok(())
+}
+
+async fn retry_dispatch_loop(state: CoreState) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    loop {
+        interval.tick().await;
+        let pending = match state.db.list_pending_retry_groups().await {
+            Ok(groups) => groups,
+            Err(e) => {
+                tracing::warn!(error = %e, "retry dispatch query failed");
+                continue;
+            }
+        };
+        for (group_id, retry_count) in pending {
+            if retry_count >= 10 {
+                let _ = state.db.update_group_status(&group_id, "FAILED", Some("max retries exceeded")).await;
+                tracing::warn!(%group_id, retry_count, "group exceeded max retries, marked FAILED");
+                continue;
+            }
+            if let Err(e) = retry_group_dispatch(&state, &group_id, retry_count).await {
+                tracing::warn!(%group_id, error = %e, "retry group dispatch failed");
+            }
+        }
+    }
 }
 
 pub async fn run_core_server(
@@ -998,6 +1112,9 @@ pub async fn run_core_server(
 
     // Periodic strategy scan loop
     tokio::spawn(periodic_strategy_scan_loop(state.clone()));
+
+    // Retry dispatch loop
+    tokio::spawn(retry_dispatch_loop(state.clone()));
 
     // HTTP server — management APIs
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
@@ -1237,7 +1354,10 @@ async fn select_agent_for_group(
             continue;
         }
         let Some(last_heartbeat_time) = candidate.last_heartbeat_time.as_deref() else { continue; };
-        let heartbeat_time = NaiveDateTime::parse_from_str(last_heartbeat_time, "%Y-%m-%d %H:%M:%S")?;
+        let Ok(heartbeat_time) = NaiveDateTime::parse_from_str(last_heartbeat_time, "%Y-%m-%d %H:%M:%S") else {
+            tracing::warn!(agent_id = %candidate.agent_id, last_heartbeat_time, "select_agent_for_group: failed to parse heartbeat time");
+            continue;
+        };
         if (now - heartbeat_time).num_seconds() > heartbeat_timeout_seconds {
             continue;
         }

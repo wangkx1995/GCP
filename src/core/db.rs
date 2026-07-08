@@ -72,9 +72,6 @@ macro_rules! trace_sql {
     }};
 }
 
-#[allow(dead_code)]
-const NON_TERMINAL_TASK_STATUS_SQL: &str = "status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')";
-
 #[derive(Clone)]
 pub struct CoreDb {
     pool: SqlitePool,
@@ -232,6 +229,8 @@ impl CoreDb {
         let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN dispatch_error TEXT")
             .execute(&self.pool)
             .await;
+        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_collect_tasks_logical_key ON collect_tasks(logical_task_key)")
+            .execute(&self.pool).await;
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS collect_result_cells (
@@ -1638,9 +1637,37 @@ impl CoreDb {
         tracing::info!("[db] ==> {}  Parameters: {:?}", sql, agent_ids);
         let mut query = sqlx::query_as::<_, AgentDispatchCandidate>(&sql);
         for agent_id in agent_ids {
-            query = query.bind(agent_id.parse::<i64>().unwrap_or(0));
+            let aid = match agent_id.parse::<i64>() {
+                Ok(id) => id,
+                Err(_) => {
+                    tracing::warn!("[db] list_dispatch_candidates: invalid agent_id '{}', using 0", agent_id);
+                    0
+                }
+            };
+            query = query.bind(aid);
         }
         query.fetch_all(&self.pool).await.map_err(Into::into)
+    }
+
+    pub async fn list_pending_retry_groups(&self) -> Result<Vec<(String, i64)>> {
+        trace_sql!("SELECT group_id, MAX(retry_count) FROM collect_tasks WHERE status IN ('CREATED','DISPATCHING') AND next_retry_at IS NOT NULL AND next_retry_at <= datetime('now','localtime') GROUP BY group_id");
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT group_id, MAX(retry_count) FROM collect_tasks WHERE status IN ('CREATED','DISPATCHING') AND next_retry_at IS NOT NULL AND next_retry_at <= datetime('now','localtime') GROUP BY group_id"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn get_group_task_rows(&self, group_id: &str) -> Result<Vec<(String, String, String, String, String, String)>> {
+        trace_sql!("SELECT task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id FROM collect_tasks WHERE group_id = ?", group_id = group_id);
+        let rows = sqlx::query_as::<_, (String, String, String, String, String, String)>(
+            "SELECT task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id FROM collect_tasks WHERE group_id = ?"
+        )
+        .bind(group_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 }
 
