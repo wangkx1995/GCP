@@ -1,15 +1,24 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Card, Button, message, Popconfirm, Empty, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
-import { useDataCollectorUnits, useDeleteDataCollectorUnit } from '../../api/hooks';
+import { useDataCollectorUnits, useDeleteDataCollectorUnit, useAgents, useAgentGroupList } from '../../api/hooks';
 import type { DataCollectorUnit } from '../../types/api';
 
 export default function DataCollectorUnitsPage() {
   const navigate = useNavigate();
   const { data: units, isLoading } = useDataCollectorUnits();
+  const { data: agents } = useAgents();
+  const { data: groups } = useAgentGroupList();
   const deleteMutation = useDeleteDataCollectorUnit();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const agentGroupMap = useMemo(() => {
+    const m = new Map<string, string>();
+    (agents ?? []).forEach(a => m.set(String(a.agent_id), a.agent_alias || a.agent_name));
+    (groups ?? []).forEach(g => m.set(String(g.group_id), `${g.group_name} [机组]`));
+    return m;
+  }, [agents, groups]);
 
   const handleDelete = useCallback(async (id: string) => {
     setDeletingId(id);
@@ -28,7 +37,7 @@ export default function DataCollectorUnitsPage() {
     { title: '适配器名称', dataIndex: 'config_name', key: 'config_name' },
     { title: '适配器版本', dataIndex: 'config_version', key: 'config_version' },
     { title: '可采集表', key: 'tables', render: (_: unknown, r: DataCollectorUnit) => r.table_names.join(', ') },
-    { title: '采集机', key: 'agents', render: (_: unknown, r: DataCollectorUnit) => r.agent_ids.join(', ') },
+    { title: '采集机', key: 'agents', render: (_: unknown, r: DataCollectorUnit) => r.agent_ids.map(id => agentGroupMap.get(id) ?? id).join(', ') },
     { title: '数据源', dataIndex: 'source_type', key: 'source_type' },
     {
       title: '操作', key: 'action', width: 120,

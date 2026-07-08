@@ -1,6 +1,6 @@
-import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Card, Form, Input, InputNumber, Select, Button, message, Divider, Collapse, Spin } from 'antd';
+import { Card, Form, Input, InputNumber, Select, Button, message, Divider, Collapse } from 'antd';
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import {
   useDataCollectorUnits,
@@ -46,29 +46,12 @@ export default function DataCollectorUnitFormPage() {
       opts.push({ label: `${a.agent_alias} [采集机]`, value: String(a.agent_id) });
     }
     for (const g of groups ?? []) {
-      opts.push({ label: `${g.group_name} [机组]`, value: `g:${g.group_id}` });
+      opts.push({ label: `${g.group_name} [机组]`, value: String(g.group_id) });
     }
     return opts;
   }, [agents, groups]);
 
   const selectedUnit = editId ? units?.find(u => u.id === editId) : null;
-
-  const [idLoading, setIdLoading] = useState(false);
-
-  const idInitRef = useRef(false);
-
-  if (isNew && !idInitRef.current) {
-    idInitRef.current = true;
-    setIdLoading(true);
-    fetch('/api/data-collector-units/next-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      .then(r => r.json())
-      .then(data => {
-        const id = data?.data?.id;
-        if (id) form.setFieldsValue({ id });
-      })
-      .catch(() => message.error('获取ID失败'))
-      .finally(() => setIdLoading(false));
-  }
 
   useEffect(() => {
     if (selectedUnit) {
@@ -85,23 +68,11 @@ export default function DataCollectorUnitFormPage() {
   const handleSave = useCallback(async () => {
     try {
       const values = await form.validateFields();
-      const rawAgentIds = (values.agent_ids ?? []) as string[];
-      const groupMap = new Map(groups?.map(g => [g.group_id, g.agent_ids.split(',').filter(Boolean)]) ?? []);
-      const expandedIds: string[] = [];
-      for (const v of rawAgentIds) {
-        if (v.startsWith('g:')) {
-          const gid = v.slice(2);
-          const members = groupMap.get(gid);
-          if (members) expandedIds.push(...members);
-        } else {
-          expandedIds.push(v);
-        }
-      }
       const data: DataCollectorUnitSaveRequest = {
         unit_name: values.unit_name,
         config_name: values.config_name,
         table_names: JSON.stringify(values.table_names || []),
-        agent_ids: JSON.stringify([...new Set(expandedIds)]),
+        agent_ids: JSON.stringify(values.agent_ids || []),
         data_interval_seconds: values.data_interval_seconds,
         collector_interval: values.collector_interval,
         task_timeout_seconds: values.task_timeout_seconds,
@@ -128,7 +99,7 @@ export default function DataCollectorUnitFormPage() {
         db_database: values.db_database,
         db_table_name_case: values.db_table_name_case,
       };
-      await saveMutation.mutateAsync({ id: values.id, data });
+      await saveMutation.mutateAsync(data);
       message.success('保存成功');
       navigate('/data-collector-units');
     } catch (e: unknown) {
@@ -137,7 +108,7 @@ export default function DataCollectorUnitFormPage() {
       }
       if (e instanceof Error) message.error(e.message);
     }
-  }, [form, saveMutation, navigate, groups]);
+  }, [form, saveMutation, navigate]);
 
 return (
     <div className="page-container">
@@ -155,7 +126,7 @@ return (
       }}>
         <div>
           <Button type="text" icon={<ArrowLeftOutlined />} aria-label="返回" onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }} />
-          <h2 style={{ display: 'inline' }}>{idLoading ? '加载中...' : (isNew || !editId ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`)}</h2>
+          <h2 style={{ display: 'inline' }}>{isNew || !editId ? '新建采集单元' : `编辑 ${watchedUnitName || `采集单元 #${editId}`}`}</h2>
         </div>
         <div>
           <Button onClick={() => navigate('/data-collector-units')} style={{ marginRight: 8 }}>取消</Button>
@@ -164,8 +135,7 @@ return (
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        <Spin spinning={idLoading} tip="正在获取ID...">
-          <Card className="content-card">
+        <Card className="content-card">
           <Form form={form} layout="vertical" initialValues={{
             collector_interval: 900,
             data_interval_seconds: 900,
@@ -305,7 +275,6 @@ return (
             />
           </Form>
         </Card>
-        </Spin>
       </div>
     </div>
   );

@@ -55,7 +55,7 @@ export default function PeriodicStrategyPage() {
     return units.find(u => u.id === watchedCollectorId) || null;
   }, [watchedCollectorId, units]);
 
-  const agentNameMap = useMemo(() => new Map(agents?.map(a => [String(a.agent_id), a.agent_name]) ?? []), [agents]);
+  const agentNameMap = useMemo(() => new Map(agents?.map(a => [String(a.agent_id), a.agent_alias || a.agent_name]) ?? []), [agents]);
   const availableTables = selectedUnit?.table_names ?? [];
 
   useEffect(() => {

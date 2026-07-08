@@ -705,7 +705,7 @@ impl CoreDb {
     }
 
     pub async fn next_unit_id(&self) -> Result<i64> {
-        Ok(0)
+        Ok(1)
     }
 
     pub async fn next_strategy_id(&self) -> Result<i64> {
@@ -971,7 +971,16 @@ impl CoreDb {
             .fetch_one(&self.pool)
             .await? != 0;
             if !agent_exists {
-                anyhow::bail!("agent_id '{}' not found", aid);
+                trace_sql!("SELECT COUNT(*) FROM agent_group WHERE group_id = ?", group_id = aid);
+                let group_exists: bool = sqlx::query_scalar::<_, i32>(
+                    "SELECT COUNT(*) FROM agent_group WHERE group_id = ?",
+                )
+                .bind(aid)
+                .fetch_one(&self.pool)
+                .await? != 0;
+                if !group_exists {
+                    anyhow::bail!("agent_id '{}' not found", aid);
+                }
             }
         }
 
@@ -1624,7 +1633,7 @@ mod tests {
         let expected_id = crate::crc64::crc64_ecma("test-unit");
 
         let id = db.next_unit_id().await.unwrap();
-        assert_eq!(id, 0);
+        assert_eq!(id, 1);
 
         let save = DataCollectorUnitSaveRequest {
             unit_name: "test-unit".to_string(),

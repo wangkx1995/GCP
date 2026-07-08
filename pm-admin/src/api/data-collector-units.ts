@@ -15,8 +15,8 @@ export function nextUnitId() {
   return http.post<NextIdResponse>('/data-collector-units/next-id').then(r => r.data);
 }
 
-export function saveDataCollectorUnit(id: string, data: DataCollectorUnitSaveRequest) {
-  return http.put<{ id: number }>(`/data-collector-units/${id}`, data).then(r => r.data);
+export function saveDataCollectorUnit(data: DataCollectorUnitSaveRequest) {
+  return http.put<{ id: string }>('/data-collector-units', data).then(r => r.data);
 }
 
 export function deleteDataCollectorUnit(id: string) {

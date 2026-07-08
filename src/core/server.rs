@@ -86,9 +86,7 @@ pub fn router(state: CoreState) -> Router {
         .route("/api/config-snapshots/:id", get(get_config_snapshot_handler))
         .route("/api/tasks/dispatch", post(dispatch_task))
         .route("/api/results/grid", get(result_grid))
-        .route("/api/data-collector-units/next-id", post(next_unit_id))
-        .route("/api/data-collector-units", get(list_data_collector_units))
-        .route("/api/data-collector-units/:id", put(upsert_data_collector_unit))
+        .route("/api/data-collector-units", get(list_data_collector_units).put(upsert_data_collector_unit))
         .route("/api/data-collector-units/:id", delete(delete_data_collector_unit_handler))
         .route("/api/data-collector-units/config-names", get(search_config_names))
         .route("/api/data-collector-units/tables", get(tables_for_config_handler))
@@ -556,7 +554,6 @@ async fn list_data_collector_units(
 
 async fn upsert_data_collector_unit(
     axum::extract::State(state): axum::extract::State<CoreState>,
-    _id: axum::extract::Path<i64>,
     Json(data): Json<DataCollectorUnitSaveRequest>,
 ) -> Response {
     let id = crate::crc64::crc64_ecma(&data.unit_name);

@@ -99,8 +99,8 @@ export function useNextUnitId() {
 export function useSaveDataCollectorUnit() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: DataCollectorUnitSaveRequest }) =>
-      saveDataCollectorUnit(id, data),
+    mutationFn: (data: DataCollectorUnitSaveRequest) =>
+      saveDataCollectorUnit(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['data-collector-units'] });
     },

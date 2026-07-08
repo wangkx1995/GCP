@@ -29,7 +29,7 @@ export default function ImmediateStrategyPage() {
 
   const agentOptions = useMemo(() => {
     const m = new Map<string, string>();
-    (agents ?? []).forEach(a => m.set(String(a.agent_id), a.agent_name));
+    (agents ?? []).forEach(a => m.set(String(a.agent_id), a.agent_alias || a.agent_name));
     return m;
   }, [agents]);
   const availableTables = selectedUnit?.table_names ?? [];
