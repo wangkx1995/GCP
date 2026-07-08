@@ -717,9 +717,19 @@ async fn create_strategies(
         };
 
         for row in &rows {
-            match dispatch_for_strategy(&state, row, &unit, &config_snapshot_id).await {
+            let command = StrategyCommand {
+                source: StrategyCommandSource::Immediate,
+                strategy: row.clone(),
+                unit: unit.clone(),
+                config_snapshot_id: config_snapshot_id.clone(),
+                scan_start_time: row.data_start_time.clone().unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+                scan_end_time: row.data_end_time.clone(),
+                table_names: vec![row.table_name.clone()],
+                force_agent_id: None,
+            };
+            match dispatch_strategy_command(&state, command).await {
                 Ok(true) => tracing::info!("[create_strategies] dispatched strategy_id={}", row.id),
-                Ok(false) => tracing::warn!("[create_strategies] agent rejected strategy_id={}", row.id),
+                Ok(false) => tracing::warn!("[create_strategies] queued retry for strategy_id={}", row.id),
                 Err(e) => tracing::error!("[create_strategies] dispatch failed for strategy_id={}: {e}", row.id),
             }
         }
@@ -809,25 +819,36 @@ async fn batch_activate(
     }
 }
 
-async fn dispatch_for_strategy(
-    state: &CoreState,
+fn parse_candidate_ids(raw: &str) -> Result<Vec<String>> {
+    if raw.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    match serde_json::from_str::<Vec<String>>(raw) {
+        Ok(ids) => Ok(ids),
+        Err(_) => Ok(raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .collect()),
+    }
+}
+
+fn build_task_dispatch_request(
     strategy: &CollectionStrategyRow,
     unit: &DataCollectorUnitRow,
     config_snapshot_id: &str,
-) -> Result<bool> {
-    let now = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
-    let strategy_id = strategy.id.to_string();
-    let scan_start_time = strategy.data_start_time.clone()
-        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-    let task_id = format!("task_immediate_{}_{}", strategy_id, now);
-    let collect_id = format!("collect_immediate_{}_{}", strategy_id, now);
-    let logical_task_key = format!("strategy_{}:{}", strategy_id, scan_start_time);
-
-    let request = TaskDispatchRequest {
-        task_id: task_id.clone(),
+    group_id: &str,
+    task_id: String,
+    collect_id: String,
+    logical_task_key: String,
+    scan_start_time: String,
+) -> TaskDispatchRequest {
+    TaskDispatchRequest {
+        task_id,
         logical_task_key,
-        strategy_id,
-        group_id: Some(task_id.clone()),
+        strategy_id: strategy.id.to_string(),
+        group_id: Some(group_id.to_string()),
         config_snapshot_id: config_snapshot_id.to_string(),
         scan_start_time,
         collect_id,
@@ -855,28 +876,85 @@ async fn dispatch_for_strategy(
         db_password: unit.db_password.clone(),
         db_database: unit.db_database.clone(),
         db_table_name_case: unit.db_table_name_case.clone(),
-    };
+    }
+}
 
-    let (agent_id_i64, _agent_power) = state.db.select_online_agent().await?;
-    let agent_id = agent_id_i64.to_string();
-    state.db.create_task(
-        &task_id,
-        &request.logical_task_key,
-        &request.strategy_id,
-        &request.config_snapshot_id,
-        &request.scan_start_time,
-        &request.collect_id,
-        &agent_id,
-        &task_id,
-    ).await?;
-
-    if !state.registry.is_connected(&agent_id).await {
-        tracing::warn!(%agent_id, "Agent not connected via TCP");
-        return Ok(false);
+async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) -> Result<bool> {
+    if command.table_names.is_empty() {
+        anyhow::bail!("strategy command has no table names");
+    }
+    let mut candidate_ids = parse_candidate_ids(&command.strategy.agent_ids)?;
+    if candidate_ids.is_empty() {
+        candidate_ids = parse_candidate_ids(&command.unit.agent_ids)?;
+    }
+    if candidate_ids.is_empty() {
+        anyhow::bail!("strategy command has no candidate agents");
     }
 
-    let msg = InternalMessage::DispatchTask(request);
-    state.registry.send(&agent_id, &msg).await?;
+    let strategy_id = command.strategy.id.to_string();
+    let group_id = compute_task_group_id(
+        &strategy_id,
+        command.unit.id,
+        &command.scan_start_time,
+        command.scan_end_time.as_deref(),
+        &command.table_names,
+    );
+    let group = TaskGroup {
+        group_id: group_id.clone(),
+        source: command.source.clone(),
+        strategy_ids: vec![strategy_id.clone()],
+        collector_id: command.unit.id,
+        collector_name: command.unit.unit_name.clone(),
+        candidate_ids,
+        scan_start_time: command.scan_start_time.clone(),
+        scan_end_time: command.scan_end_time.clone(),
+        table_names: command.table_names.clone(),
+        config_snapshot_id: command.config_snapshot_id.clone(),
+        force_agent_id: command.force_agent_id.clone(),
+        retry_count: 0,
+    };
+
+    let now = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+    let mut requests = Vec::new();
+    for table_name in &group.table_names {
+        let mut strategy = command.strategy.clone();
+        strategy.table_name = table_name.clone();
+        let task_id = format!("task_{}_{}_{}", strategy_id, table_name, now);
+        let collect_id = format!("collect_{}_{}_{}", strategy_id, table_name, now);
+        let logical_task_key = format!("strategy_{}:{}:{}", strategy_id, group.scan_start_time, table_name);
+        let request = build_task_dispatch_request(
+            &strategy,
+            &command.unit,
+            &group.config_snapshot_id,
+            &group.group_id,
+            task_id.clone(),
+            collect_id.clone(),
+            logical_task_key.clone(),
+            group.scan_start_time.clone(),
+        );
+        state.db.create_task(
+            &task_id,
+            &logical_task_key,
+            &strategy_id,
+            &group.config_snapshot_id,
+            &group.scan_start_time,
+            &collect_id,
+            "",
+            &group.group_id,
+        ).await?;
+        requests.push(request);
+    }
+
+    let Some(agent_id) = select_agent_for_group(&state.db, &state.registry, &group, requests.len() as i64, 150).await? else {
+        state.db.increment_group_retry(&group.group_id, &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), "no available agent").await?;
+        return Ok(false);
+    };
+
+    state.db.assign_group_to_agent(&group.group_id, &agent_id).await?;
+    state.db.update_group_status(&group.group_id, "DISPATCHING", None).await?;
+    for request in requests {
+        state.to_tcp.send((agent_id.clone(), InternalMessage::DispatchTask(request))).await?;
+    }
     Ok(true)
 }
 
@@ -1163,5 +1241,11 @@ mod tests {
         let busy = super::score_agent(2.0, 2, 1, 1.0);
         let idle = super::score_agent(4.0, 1, 1, 1.0);
         assert!(idle > busy);
+    }
+
+    #[test]
+    fn parse_candidate_ids_accepts_json_array() {
+        let ids = parse_candidate_ids("[\"100\",\"200\"]").unwrap();
+        assert_eq!(ids, vec!["100".to_string(), "200".to_string()]);
     }
 }
