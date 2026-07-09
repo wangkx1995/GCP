@@ -196,15 +196,25 @@ fn run_streaming_table_task(
     } else {
         let now = crate::timeutil::now();
         let op_collect_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
-        let engine = streaming_engine.borrow();
-        let counts = engine.source_table_counts();
-        let mut op_tables: Vec<&String> = counts.keys().collect();
+        let counts = streaming_engine.borrow().source_table_counts().clone();
+        let mut op_tables: Vec<String> = Vec::new();
+        for rule in &task.rules {
+            for group in &rule.groups {
+                for source in &group.source_table {
+                    let upper = source.to_ascii_uppercase();
+                    if !op_tables.contains(&upper) {
+                        op_tables.push(upper);
+                    }
+                }
+            }
+        }
         op_tables.sort();
         op_tables.iter().enumerate().map(|(idx, name)| {
+            let row_count = counts.get(name).copied().unwrap_or(0) as u64;
             CsvResultRow {
-                table_name: (*name).clone(),
+                table_name: name.clone(),
                 data_time: task.data_time.clone(),
-                row_count: *counts.get(*name).unwrap_or(&0) as u64,
+                row_count,
                 success: 1,
                 collect_time: op_collect_time.clone(),
                 task_id: format!("{}_{}", task.task_id, idx),
