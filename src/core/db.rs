@@ -742,6 +742,23 @@ impl CoreDb {
             strategy_id
         );
 
+        if report.result_rows.is_empty() {
+            let (table_name, data_time, row_count, success, collect_time) = if let Some(sst) = scan_start_time.as_ref() {
+                let is_failure = terminal_status == "FAILED" || terminal_status == "TIMEOUT" || terminal_status == "CANCELLED";
+                (None::<String>, Some(sst.clone()), 0i64, if is_failure { 0 } else { 1 }, None::<String>)
+            } else {
+                (None::<String>, None::<String>, 0i64, 0, None::<String>)
+            };
+            sqlx::query(
+                "UPDATE collect_tasks SET status = ?, finished_at = ?, table_name = COALESCE(?, table_name), data_time = COALESCE(?, data_time), row_count = ?, success = ?, collect_time = ? WHERE task_id = ?"
+            )
+            .bind(terminal_status).bind(&now)
+            .bind(&table_name).bind(&data_time)
+            .bind(row_count).bind(success).bind(&collect_time)
+            .bind(&report.task_id)
+            .execute(&self.pool).await?;
+        }
+
         for row in &report.result_rows {
             if row.task_id == report.task_id {
                 tracing::info!(
@@ -762,7 +779,7 @@ impl CoreDb {
                 .bind(&row.task_id)
                 .execute(&self.pool)
                 .await?;
-            } else {
+            } else if row.task_id.starts_with(&format!("{}_", report.task_id)) {
                 let logical_task_key = format!("strategy_{}:{}:{}", strategy_id, row.data_time, row.table_name);
                 tracing::info!(
                     "[core-db]   OP row: table={} data_time={} rows={} success={} -> INSERT key={}",
@@ -794,6 +811,8 @@ impl CoreDb {
                 .bind(&row.group_id)
                 .execute(&self.pool)
                 .await?;
+            } else {
+                tracing::warn!("[core-db] unexpected task_id {} in result report for task {}, skipping", row.task_id, report.task_id);
             }
         }
         tracing::info!("[core-db] accept_task_result done: status={terminal_status}");
