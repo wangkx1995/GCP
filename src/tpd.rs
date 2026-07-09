@@ -9,6 +9,7 @@ use chrono::NaiveDateTime;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer};
 
+use crate::core_agent_api::CsvResultRow;
 use crate::util::*;
 use crate::writer::StreamingTableWriter;
 use crate::{load_config::LoadConfig, LoadType};
@@ -88,6 +89,10 @@ pub struct StreamingFinishOptions<'a> {
     pub collector_name: &'a str,
     pub load_type: LoadType,
     pub load_config: &'a LoadConfig,
+    pub task_id: &'a str,
+    pub strategy_id: &'a str,
+    pub group_id: &'a str,
+    pub op_rows: Vec<CsvResultRow>,
 }
 
 impl<'a> StreamingTpdEngine<'a> {
@@ -555,6 +560,10 @@ impl<'a> StreamingRuleAggregator<'a> {
                 options.collector_name,
                 options.load_type,
                 options.load_config,
+                options.task_id,
+                options.strategy_id,
+                options.group_id,
+                options.op_rows.clone(),
             )?;
             headers_by_plan.push(headers);
             writers.push(writer);

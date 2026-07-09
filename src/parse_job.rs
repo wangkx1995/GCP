@@ -109,9 +109,6 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
         options.load_type,
         &load_config,
         &options.log_file,
-        task_id,
-        strategy_id,
-        group_id,
     )?;
 
     Ok(ParseJobSummary { task_count })
@@ -196,6 +193,10 @@ fn run_streaming_table_task(
         collector_name,
         load_type,
         load_config,
+        task_id: &task.task_id,
+        strategy_id: &task.strategy_id,
+        group_id: &task.group_id,
+        op_rows: Vec::new(),
     };
     let mut tables = TableRows::new();
     streaming_engine
@@ -213,9 +214,6 @@ fn run_streaming_table_tasks(
     load_type: LoadType,
     load_config: &LoadConfig,
     log_file: &Option<PathBuf>,
-    task_id: &str,
-    strategy_id: &str,
-    group_id: &str,
 ) -> Result<()> {
     let parallel = effective_streaming_parallelism(tasks.len());
     let mut pending = tasks.into_iter();

@@ -121,22 +121,11 @@ impl AgentRunner {
                 store.update_task_state(&task.task_id, TaskStatus::Succeeded)?;
                 tracing::info!("[agent] state -> SUCCEEDED");
 
-                let rows = read_result_rows(&output_dir).unwrap_or_else(|e| {
+                let csv_rows = read_result_rows(&output_dir).unwrap_or_else(|e| {
                     tracing::error!("[agent] read result.csv failed: {e:#}");
                     Vec::new()
                 });
-                tracing::info!("[agent] result.csv rows: {}", rows.len());
-
-                let csv_rows: Vec<CsvResultRow> = rows.into_iter().map(|r| CsvResultRow {
-                    table_name: r.table_name,
-                    data_time: r.data_time,
-                    row_count: r.row_count,
-                    success: r.success,
-                    collect_time: r.collect_time,
-                    task_id: task.task_id.clone(),
-                    strategy_id: task.strategy_id.clone(),
-                    group_id: task.group_id.clone().unwrap_or_default(),
-                }).collect();
+                tracing::info!("[agent] result.csv rows: {}", csv_rows.len());
 
                 (TaskStatus::Succeeded, csv_rows)
             }

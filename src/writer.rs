@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 
+use crate::core_agent_api::CsvResultRow;
 use crate::load_config::LoadConfig;
 use crate::LoadType;
 use tracing::info;
@@ -24,6 +25,10 @@ pub struct StreamingTableWriter<'a> {
     headers: Vec<String>,
     packages: HashMap<String, StreamingPackage>,
     total_rows: usize,
+    task_id: String,
+    strategy_id: String,
+    group_id: String,
+    op_rows: Vec<CsvResultRow>,
 }
 
 struct StreamingPackage {
@@ -42,6 +47,10 @@ impl<'a> StreamingTableWriter<'a> {
         collector_name: &'a str,
         load_type: LoadType,
         load_config: &'a LoadConfig,
+        task_id: &str,
+        strategy_id: &str,
+        group_id: &str,
+        op_rows: Vec<CsvResultRow>,
     ) -> Result<Self> {
         Ok(Self {
             options: WriteOptions {
@@ -55,6 +64,10 @@ impl<'a> StreamingTableWriter<'a> {
             headers,
             packages: HashMap::new(),
             total_rows: 0,
+            task_id: task_id.to_string(),
+            strategy_id: strategy_id.to_string(),
+            group_id: group_id.to_string(),
+            op_rows,
         })
     }
 
@@ -94,11 +107,23 @@ impl<'a> StreamingTableWriter<'a> {
         for mut package in packages {
             package.writer.flush()?;
             let result_path = package.package_dir.join("result.csv");
+
+            if !self.op_rows.is_empty() {
+                write_result_csv(&result_path, &self.op_rows, true)?;
+            }
             write_result_csv(
                 &result_path,
-                &self.table,
-                &package.scan_start.value,
-                package.row_count,
+                &[CsvResultRow {
+                    table_name: self.table.clone(),
+                    data_time: package.scan_start.value.clone(),
+                    row_count: package.row_count as u64,
+                    success: 1,
+                    collect_time: crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    task_id: self.task_id.clone(),
+                    strategy_id: self.strategy_id.clone(),
+                    group_id: self.group_id.clone(),
+                }],
+                false,
             )?;
             info!(
                 "[write] {} -> {} ({} rows)",
@@ -214,18 +239,29 @@ fn write_load_ctl(
     Ok(())
 }
 
-fn write_result_csv(path: &Path, table: &str, data_time: &str, row_count: usize) -> Result<()> {
-    let collect_time = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let row_count = row_count.to_string();
-    let mut writer = csv::WriterBuilder::new().from_path(path)?;
-    writer.write_record([
-        "table_name",
-        "data_time",
-        "row_count",
-        "success",
-        "collect_time",
-    ])?;
-    writer.write_record([table, data_time, &row_count, "1", &collect_time])?;
+fn write_result_csv(path: &Path, rows: &[CsvResultRow], create: bool) -> Result<()> {
+    let should_write_header = create || !path.exists();
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(create)
+        .append(!create)
+        .truncate(create)
+        .open(path)?;
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(should_write_header)
+        .from_writer(file);
+    for row in rows {
+        writer.write_record([
+            &row.table_name,
+            &row.data_time,
+            &row.row_count.to_string(),
+            &row.success.to_string(),
+            &row.collect_time,
+            &row.task_id,
+            &row.strategy_id,
+            &row.group_id,
+        ])?;
+    }
     writer.flush()?;
     Ok(())
 }
@@ -322,6 +358,10 @@ mod tests {
             "test-unit",
             LoadType::Clickhouse,
             &load_config,
+            "task_123",
+            "strat_abc",
+            "group_xyz",
+            Vec::new(),
         )
         .unwrap();
 
