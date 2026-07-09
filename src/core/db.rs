@@ -397,6 +397,9 @@ impl CoreDb {
             )
             .execute(&self.pool).await?;
         }
+        // Ensure delay_period column exists for databases created before this field was added.
+        let _ = sqlx::query("ALTER TABLE collection_strategy ADD COLUMN delay_period INTEGER NOT NULL DEFAULT 0")
+            .execute(&self.pool).await;
         Ok(())
     }
 
