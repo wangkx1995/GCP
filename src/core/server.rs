@@ -14,6 +14,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tracing::info;
 
 use std::collections::HashMap;
@@ -996,6 +997,20 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
             table_name,
             previous_rows,
         ).await.ok();
+        // 加载 TPD rule 解析 OP 表，为每个 OP 表也建壳
+        if let Some(op_tables) = load_op_tables_from_rule(&state.storage, &group.config_snapshot_id, table_name) {
+            for op_table in &op_tables {
+                let op_previous = state.db.get_previous_rows_num(collector_name, op_table, &group.scan_start_time).await.unwrap_or(0);
+                state.db.insert_integrity_shell(
+                    &group.scan_start_time,
+                    scan_end_time,
+                    period,
+                    collector_name,
+                    op_table,
+                    op_previous,
+                ).await.ok();
+            }
+        }
         requests.push(request);
     }
 
@@ -1005,6 +1020,40 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
         state.to_tcp.send((agent_id.clone(), InternalMessage::DispatchTask(request))).await?;
     }
     Ok(true)
+}
+
+fn load_op_tables_from_rule(storage: &ConfigStorage, snapshot_id: &str, table_name: &str) -> Option<Vec<String>> {
+    let rule_path = storage.version_dir(snapshot_id).join("rules").join(format!("{table_name}.json"));
+    let content = std::fs::read_to_string(&rule_path).ok()?;
+    let value: Value = serde_json::from_str(&content).ok()?;
+    let groups = match value.get("groups").and_then(|g| g.as_array()) {
+        Some(g) => g,
+        None => return None,
+    };
+    let mut op_tables: Vec<String> = Vec::new();
+    for group in groups {
+        let Some(source_tables) = group.get("source_table") else { continue };
+        match source_tables {
+            Value::String(s) => {
+                let upper = s.to_ascii_uppercase();
+                if !op_tables.contains(&upper) {
+                    op_tables.push(upper);
+                }
+            }
+            Value::Array(arr) => {
+                for v in arr {
+                    if let Some(s) = v.as_str() {
+                        let upper = s.to_ascii_uppercase();
+                        if !op_tables.contains(&upper) {
+                            op_tables.push(upper);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if op_tables.is_empty() { None } else { Some(op_tables) }
 }
 
 async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i64) -> Result<()> {
