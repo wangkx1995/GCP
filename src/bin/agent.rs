@@ -48,6 +48,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "debug".parse().unwrap()),
         )
+        .with_timer(wy_gnb_pm_parser::timeutil::East8Timer)
         .init();
 
     tracing::info!(

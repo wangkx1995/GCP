@@ -4,7 +4,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use chrono::{Local, NaiveDateTime};
+use chrono::NaiveDateTime;
 
 use crate::load_config::LoadConfig;
 use crate::LoadType;
@@ -13,7 +13,7 @@ use tracing::info;
 struct WriteOptions<'a> {
     output_dir: &'a Path,
     delimiter: u8,
-    collect_id: &'a str,
+    collector_name: &'a str,
     load_type: LoadType,
     load_config: &'a LoadConfig,
 }
@@ -39,7 +39,7 @@ impl<'a> StreamingTableWriter<'a> {
         table: &str,
         output_dir: &'a Path,
         delimiter: u8,
-        collect_id: &'a str,
+        collector_name: &'a str,
         load_type: LoadType,
         load_config: &'a LoadConfig,
     ) -> Result<Self> {
@@ -47,7 +47,7 @@ impl<'a> StreamingTableWriter<'a> {
             options: WriteOptions {
                 output_dir,
                 delimiter,
-                collect_id,
+                collector_name,
                 load_type,
                 load_config,
             },
@@ -125,7 +125,7 @@ fn create_streaming_package(
     let table_dir = options
         .output_dir
         .join(format!("{}_{}", table_lower, scan_start.hour_key));
-    let package_dir = table_dir.join(format!("{}_{}", options.collect_id, scan_start.minute_key));
+    let package_dir = table_dir.join(format!("{}_{}", options.collector_name, scan_start.minute_key));
     fs::create_dir_all(&package_dir)?;
 
     let csv_name = format!("{}.csv", table_lower);
@@ -215,7 +215,7 @@ fn write_load_ctl(
 }
 
 fn write_result_csv(path: &Path, table: &str, data_time: &str, row_count: usize) -> Result<()> {
-    let collect_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let collect_time = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let row_count = row_count.to_string();
     let mut writer = csv::WriterBuilder::new().from_path(path)?;
     writer.write_record([
@@ -319,7 +319,7 @@ mod tests {
             "TPD_TEST",
             dir.path(),
             b'|',
-            "collect_1",
+            "test-unit",
             LoadType::Clickhouse,
             &load_config,
         )
@@ -336,7 +336,7 @@ mod tests {
         let csv_path = dir
             .path()
             .join("tpd_test_2026061715")
-            .join("collect_1_202606171515")
+            .join("test-unit_202606171515")
             .join("tpd_test.csv");
         let text = std::fs::read_to_string(csv_path).unwrap();
         assert_eq!(text.trim_end(), "2026-06-17 15:15:00|cell-1");

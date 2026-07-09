@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use ahash::RandomState;
 use anyhow::{bail, Context, Result};
-use chrono::{Local, NaiveDateTime};
+use chrono::NaiveDateTime;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer};
 
@@ -84,7 +84,7 @@ pub struct StreamingTpdEngine<'a> {
 pub struct StreamingFinishOptions<'a> {
     pub output_dir: &'a Path,
     pub delimiter: u8,
-    pub collect_id: &'a str,
+    pub collector_name: &'a str,
     pub load_type: LoadType,
     pub load_config: &'a LoadConfig,
 }
@@ -544,7 +544,7 @@ impl<'a> StreamingRuleAggregator<'a> {
                 &plan.rule.table_name.to_ascii_uppercase(),
                 options.output_dir,
                 options.delimiter,
-                options.collect_id,
+                options.collector_name,
                 options.load_type,
                 options.load_config,
             )?;
@@ -1236,7 +1236,7 @@ impl CompiledExpr {
                 .to_string())),
             Self::Literal(value) | Self::Env(value) => Some(Ok(value.clone())),
             Self::CurrentTimestamp => {
-                Some(Ok(Local::now().format("%Y-%m-%d %H:%M:%S").to_string()))
+                Some(Ok(crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string()))
             }
             Self::FieldIndex { field, idx } => Some(
                 get_eval_context_value(context, output, field)
@@ -1598,7 +1598,7 @@ fn eval_expression(
         return Ok(String::new());
     }
     if lower == "current_timestamp" {
-        return Ok(Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        return Ok(crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string());
     }
     if let Some(value) = parse_quoted_env(expr) {
         return Ok(value);

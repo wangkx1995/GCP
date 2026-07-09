@@ -5,7 +5,6 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::Parser;
 use tracing::info;
-use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -27,8 +26,6 @@ struct Cli {
     config_dir: PathBuf,
     #[arg(long)]
     output_dir: PathBuf,
-    #[arg(long)]
-    collect_id: String,
     #[arg(long, value_enum)]
     load_type: LoadType,
     #[arg(long, default_value = "load.toml")]
@@ -58,12 +55,13 @@ fn main() -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into());
 
+    use wy_gnb_pm_parser::timeutil::East8Timer;
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
                 .with_target(false)
                 .with_ansi(false)
-                .with_timer(ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string()))
+                .with_timer(East8Timer)
                 .with_writer(std::io::stderr)
                 .with_filter(filter.clone()),
         )
@@ -71,7 +69,7 @@ fn main() -> Result<()> {
             tracing_subscriber::fmt::layer()
                 .with_target(false)
                 .with_ansi(false)
-                .with_timer(ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_string()))
+                .with_timer(East8Timer)
                 .with_writer(non_blocking)
                 .with_filter(filter),
         )
@@ -89,7 +87,7 @@ fn main() -> Result<()> {
         scan_start_time: cli.scan_start_time,
         config_dir: cli.config_dir,
         output_dir: cli.output_dir,
-        collect_id: cli.collect_id,
+        collector_name: "cli".to_string(),
         load_type: cli.load_type,
         load_config,
         output_delimiter: cli.output_delimiter,
@@ -97,6 +95,7 @@ fn main() -> Result<()> {
         recursive: cli.recursive,
         rule_files: cli.rule_files,
         rules_dir: cli.rules_dir,
+        log_file: None,
     })?;
     info!("[done] {} streaming destination table task(s)", summary.task_count);
 

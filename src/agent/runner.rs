@@ -41,6 +41,9 @@ impl AgentRunner {
     }
 
     async fn run_parse_and_report(&self, store: &AgentStore, task: TaskDispatchRequest, task_dir: PathBuf, config_dir: PathBuf, output_dir: PathBuf) -> Result<()> {
+        fs::create_dir_all(task_dir.join("logs"))?;
+        let log_path = task_dir.join("logs").join("agent.log");
+
         let load_type = match task.load_type.to_ascii_lowercase().as_str() {
             "clickhouse" => LoadType::Clickhouse,
             "postgresql" => LoadType::Postgresql,
@@ -96,7 +99,7 @@ impl AgentRunner {
             scan_start_time: Some(task.scan_start_time.clone()),
             config_dir: config_dir.clone(),
             output_dir: output_dir.clone(),
-            collect_id: task.collect_id.clone(),
+            collector_name: task.collector_name.clone(),
             load_type,
             load_config,
             output_delimiter: task.output_delimiter.clone(),
@@ -104,6 +107,7 @@ impl AgentRunner {
             recursive: false,
             rule_files: rule_files_for_table(&config_dir, &task.table_name),
             rules_dir: None,
+            log_file: Some(log_path),
         };
         tracing::info!("[agent] run_parse_job input={:?} config={:?} output={:?}", opts.input, opts.config_dir, opts.output_dir);
 

@@ -11,7 +11,7 @@ interface FormValues {
   strategy_id: string;
   config_snapshot_id: string;
   scan_start_time: string;
-  collect_id: string;
+  collector_name: string;
   load_type: string;
   encoding: string;
   output_delimiter: string;
@@ -140,6 +140,9 @@ export default function TasksPage() {
                 format="YYYY-MM-DD HH:mm:ss"
                 style={{ width: '100%' }}
               />
+            </Form.Item>
+            <Form.Item name="collector_name" label="采集单元" style={{ flex: 1 }}>
+              <Input placeholder="例: NR_GNB_DX_PM" />
             </Form.Item>
           </Space>
 

@@ -2,18 +2,20 @@ import { useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, Form, Input, InputNumber, Select, Button, message } from 'antd';
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
-import { useDataCollectorUnits, useCreateStrategies, useStrategy, useUpdateStrategy, useAgents } from '../../api/hooks';
+import { useDataCollectorUnits, useCreateStrategies, useStrategy, useUpdateStrategy, useAgents, useAgentGroupList } from '../../api/hooks';
 import type { CollectionStrategyCreateRequest, CollectionStrategyUpdateRequest } from '../../types/api';
 
 function isValidCron(expr: string): boolean {
   const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
+  if (parts.length !== 7) return false;
   const ranges = [
+    { min: 0, max: 59 },
     { min: 0, max: 59 },
     { min: 0, max: 23 },
     { min: 1, max: 31 },
     { min: 1, max: 12 },
     { min: 0, max: 7 },
+    { min: 1970, max: 2099 },
   ];
   return parts.every((part, i) => {
     if (part === '*') return true;
@@ -43,6 +45,7 @@ export default function PeriodicStrategyPage() {
 
   const { data: units } = useDataCollectorUnits();
   const { data: agents } = useAgents();
+  const { data: groups } = useAgentGroupList();
   const { data: editData } = useStrategy(editId);
   const createMutation = useCreateStrategies();
   const updateMutation = useUpdateStrategy();
@@ -55,7 +58,16 @@ export default function PeriodicStrategyPage() {
     return units.find(u => u.id === watchedCollectorId) || null;
   }, [watchedCollectorId, units]);
 
-  const agentNameMap = useMemo(() => new Map(agents?.map(a => [String(a.agent_id), a.agent_alias || a.agent_name]) ?? []), [agents]);
+  const agentOptions = useMemo(() => {
+    const opts: { label: string; value: string }[] = [];
+    for (const a of agents ?? []) {
+      opts.push({ label: `${a.agent_alias} [采集机]`, value: String(a.agent_id) });
+    }
+    for (const g of groups ?? []) {
+      opts.push({ label: `${g.group_name} [机组]`, value: String(g.group_id) });
+    }
+    return opts;
+  }, [agents, groups]);
   const availableTables = selectedUnit?.table_names ?? [];
 
   useEffect(() => {
@@ -148,11 +160,11 @@ export default function PeriodicStrategyPage() {
             <Form.Item name="table_names" label="指标组(表名)" rules={[{ required: true }]}>
               <Select mode="multiple" placeholder="选择表名" options={availableTables.map(t => ({ label: t, value: t }))} disabled={!isNew} />
             </Form.Item>
-            <Form.Item name="cron_expression" label="采集时间(Crontab)" rules={[{ required: true, validator: (_, value) => !value || isValidCron(value) ? Promise.resolve() : Promise.reject(new Error('Crontab 格式无效，需 5 段 (分 时 日 月 周)')) }]}>
-              <Input placeholder="0 0 * * *" />
+            <Form.Item name="cron_expression" label="采集时间(Crontab)" rules={[{ required: true, validator: (_, value) => !value || isValidCron(value) ? Promise.resolve() : Promise.reject(new Error('Crontab 格式无效，需 7 段 (秒 分 时 日 月 周 年)')) }]}>
+              <Input placeholder="0 */5 * * * * *" />
             </Form.Item>
             <Form.Item name="agent_ids" label="采集机" rules={[{ required: true }]}>
-              <Select mode="multiple" placeholder="选择采集机" options={(units ?? []).find(u => u.id === watchedCollectorId)?.agent_ids.map(a => ({ label: agentNameMap.get(String(a)) ?? String(a), value: a })) ?? []} />
+              <Select mode="multiple" placeholder="选择采集机或机组" options={agentOptions} />
             </Form.Item>
             {!isNew && (
               <Form.Item name="status" label="状态">

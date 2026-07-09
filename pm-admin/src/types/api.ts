@@ -60,7 +60,7 @@ export interface TaskDispatchRequest {
   strategy_id: string;
   config_snapshot_id: string;
   scan_start_time: string;
-  collect_id: string;
+  collector_name: string;
   load_type: string;
   encoding: string;
   output_delimiter: string;
@@ -171,6 +171,7 @@ export interface DataCollectorUnit {
 }
 
 export interface DataCollectorUnitSaveRequest {
+  original_id?: string;
   unit_name: string;
   config_name: string;
   table_names: string;

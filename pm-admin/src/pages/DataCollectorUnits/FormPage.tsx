@@ -69,6 +69,7 @@ export default function DataCollectorUnitFormPage() {
     try {
       const values = await form.validateFields();
       const data: DataCollectorUnitSaveRequest = {
+        original_id: editId ?? undefined,
         unit_name: values.unit_name,
         config_name: values.config_name,
         table_names: JSON.stringify(values.table_names || []),

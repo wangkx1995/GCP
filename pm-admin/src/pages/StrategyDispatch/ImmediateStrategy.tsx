@@ -2,7 +2,7 @@ import { useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card, Form, Input, InputNumber, Select, Button, message, DatePicker } from 'antd';
 import { SaveOutlined, ArrowLeftOutlined } from '@ant-design/icons';
-import { useDataCollectorUnits, useCreateStrategies, useStrategy, useUpdateStrategy, useAgents } from '../../api/hooks';
+import { useDataCollectorUnits, useCreateStrategies, useStrategy, useUpdateStrategy, useAgents, useAgentGroupList } from '../../api/hooks';
 import type { CollectionStrategyCreateRequest, CollectionStrategyUpdateRequest } from '../../types/api';
 import dayjs from 'dayjs';
 
@@ -15,6 +15,7 @@ export default function ImmediateStrategyPage() {
 
   const { data: units } = useDataCollectorUnits();
   const { data: agents } = useAgents();
+  const { data: groups } = useAgentGroupList();
   const { data: editData } = useStrategy(editId);
   const createMutation = useCreateStrategies();
   const updateMutation = useUpdateStrategy();
@@ -28,10 +29,15 @@ export default function ImmediateStrategyPage() {
   }, [watchedCollectorId, units]);
 
   const agentOptions = useMemo(() => {
-    const m = new Map<string, string>();
-    (agents ?? []).forEach(a => m.set(String(a.agent_id), a.agent_alias || a.agent_name));
-    return m;
-  }, [agents]);
+    const opts: { label: string; value: string }[] = [];
+    for (const a of agents ?? []) {
+      opts.push({ label: `${a.agent_alias} [采集机]`, value: String(a.agent_id) });
+    }
+    for (const g of groups ?? []) {
+      opts.push({ label: `${g.group_name} [机组]`, value: String(g.group_id) });
+    }
+    return opts;
+  }, [agents, groups]);
   const availableTables = selectedUnit?.table_names ?? [];
 
   // Auto-fill when unit selected
@@ -131,7 +137,7 @@ export default function ImmediateStrategyPage() {
               <Select mode="multiple" placeholder="选择表名" options={availableTables.map(t => ({ label: t, value: t }))} disabled={!isNew} />
             </Form.Item>
             <Form.Item name="agent_ids" label="采集机" rules={[{ required: true }]}>
-              <Select mode="multiple" placeholder="选择采集机" options={(units ?? []).find(u => u.id === watchedCollectorId)?.agent_ids.map(a => ({ label: agentOptions.get(String(a)) ?? String(a), value: a })) ?? []} />
+              <Select mode="multiple" placeholder="选择采集机或机组" options={agentOptions} />
             </Form.Item>
             <div style={{ display: 'flex', gap: 16 }}>
               <div style={{ flex: 1 }}><Form.Item name="data_start_time" label="数据开始时间"><DatePicker showTime style={{ width: '100%' }} /></Form.Item></div>

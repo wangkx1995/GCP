@@ -21,7 +21,7 @@ pub struct ParseJobOptions {
     pub scan_start_time: Option<String>,
     pub config_dir: PathBuf,
     pub output_dir: PathBuf,
-    pub collect_id: String,
+    pub collector_name: String,
     pub load_type: LoadType,
     pub load_config: LoadConfig,
     pub output_delimiter: String,
@@ -29,6 +29,7 @@ pub struct ParseJobOptions {
     pub recursive: bool,
     pub rule_files: Vec<PathBuf>,
     pub rules_dir: Option<PathBuf>,
+    pub log_file: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +46,15 @@ pub fn parse_delimiter(value: &str) -> Result<u8> {
 }
 
 pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
+    let _log_guard = options.log_file.as_ref().and_then(|path| {
+        let file = std::fs::OpenOptions::new().create(true).append(true).open(path).ok()?;
+        let (nb, wg) = tracing_appender::non_blocking(file);
+        let guard = tracing::subscriber::set_default(
+            tracing_subscriber::fmt().with_writer(nb).with_ansi(false).finish()
+        );
+        Some((wg, guard))
+    });
+
     let mapping_path = options.config_dir.join("mapping_dx.ini");
     let output_delimiter = parse_delimiter(&options.output_delimiter)?;
     let load_config = &options.load_config;
@@ -85,9 +95,10 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
         &ctx,
         &options.output_dir,
         output_delimiter,
-        &options.collect_id,
+        &options.collector_name,
         options.load_type,
         &load_config,
+        &options.log_file,
     )?;
 
     Ok(ParseJobSummary { task_count })
@@ -121,7 +132,7 @@ fn run_streaming_table_task(
     ctx: &ContextData,
     output_dir: &Path,
     output_delimiter: u8,
-    collect_id: &str,
+    collector_name: &str,
     load_type: LoadType,
     load_config: &LoadConfig,
 ) -> Result<()> {
@@ -166,7 +177,7 @@ fn run_streaming_table_task(
     let streaming_finish_options = tpd::StreamingFinishOptions {
         output_dir,
         delimiter: output_delimiter,
-        collect_id,
+        collector_name,
         load_type,
         load_config,
     };
@@ -182,9 +193,10 @@ fn run_streaming_table_tasks(
     ctx: &ContextData,
     output_dir: &Path,
     output_delimiter: u8,
-    collect_id: &str,
+    collector_name: &str,
     load_type: LoadType,
     load_config: &LoadConfig,
+    log_file: &Option<PathBuf>,
 ) -> Result<()> {
     let parallel = effective_streaming_parallelism(tasks.len());
     let mut pending = tasks.into_iter();
@@ -196,14 +208,23 @@ fn run_streaming_table_tasks(
         let results = std::thread::scope(|scope| {
             let mut handles = Vec::with_capacity(batch.len());
             for task in batch {
+                let log_file = log_file.clone();
                 handles.push(scope.spawn(move || {
+                    let _guard = log_file.as_ref().and_then(|path| {
+                        let f = std::fs::OpenOptions::new().create(true).append(true).open(path).ok()?;
+                        let (nb, wg) = tracing_appender::non_blocking(f);
+                        let g = tracing::subscriber::set_default(
+                            tracing_subscriber::fmt().with_writer(nb).with_ansi(false).finish()
+                        );
+                        Some((wg, g))
+                    });
                     let dest_table = task.dest_table.clone();
                     let result = run_streaming_table_task(
                         task,
                         ctx,
                         output_dir,
                         output_delimiter,
-                        collect_id,
+                        collector_name,
                         load_type,
                         load_config,
                     )

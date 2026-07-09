@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| "debug".parse().unwrap())
                 .add_directive("sqlx=info".parse().unwrap()),
         )
+        .with_timer(wy_gnb_pm_parser::timeutil::East8Timer)
         .init();
 
     let http_addr: SocketAddr = format!("{}:{}", config.http.host, config.http.port).parse()?;
