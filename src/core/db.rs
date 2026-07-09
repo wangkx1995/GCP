@@ -808,32 +808,16 @@ impl CoreDb {
                     row.table_name, row.data_time, row.row_count, row.success, logical_task_key
                 );
                 sqlx::query(
-                    "INSERT OR IGNORE INTO collect_tasks(\
-                     task_id, logical_task_key, strategy_id, config_snapshot_id, \
-                     scan_start_time, scan_end_time, collect_interval, \
-                     collector_name, assigned_agent_id, status, \
-                     created_at, finished_at, table_name, data_time, row_count, \
-                     success, collect_time, group_id) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    "UPDATE collect_tasks SET status = ?, finished_at = ?, \
+                     row_count = ?, success = ?, collect_time = ? \
+                     WHERE task_id = ?"
                 )
-                .bind(&row.task_id)
-                .bind(&logical_task_key)
-                .bind(&strategy_id)
-                .bind(&config_snapshot_id)
-                .bind(scan_start_time.as_deref().unwrap_or(""))
-                .bind(&task_scan_end_time)
-                .bind(task_collect_interval)
-                .bind(&task_collector_name)
-                .bind(&task_agent_id)
                 .bind(terminal_status)
                 .bind(&now)
-                .bind(&now)
-                .bind(&row.table_name)
-                .bind(&row.data_time)
                 .bind(row.row_count as i64)
                 .bind(row.success)
                 .bind(&row.collect_time)
-                .bind(&row.group_id)
+                .bind(&row.task_id)
                 .execute(&self.pool)
                 .await?;
                 if let (Some(sst), cname, set) = (&scan_start_time, &task_collector_name, &task_scan_end_time) {
@@ -1954,6 +1938,21 @@ mod tests {
             &agent_id,
             "group_test",
             "TPD_A",
+            "",
+            0i64,
+        )
+        .await
+        .unwrap();
+        db.create_task(
+            "task_1_OP_B",
+            "strategy_1:2026-06-17 15:15:00:OP_B",
+            "strategy_1",
+            "cfg_1",
+            "2026-06-17 15:15:00",
+            "test-unit",
+            &agent_id,
+            "group_test",
+            "OP_B",
             "",
             0i64,
         )

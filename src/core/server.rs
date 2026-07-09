@@ -997,9 +997,9 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
             table_name,
             previous_rows,
         ).await.ok();
-        // 加载 TPD rule 解析 OP 表，为每个 OP 表也建壳
+        // 加载 TPD rule 解析 OP 表，为每个 OP 表建壳 + 预建 collect_tasks 行
         if let Some(op_tables) = load_op_tables_from_rule(&state.storage, &group.config_snapshot_id, table_name) {
-            for op_table in &op_tables {
+            for (idx, op_table) in op_tables.iter().enumerate() {
                 let op_previous = state.db.get_previous_rows_num(collector_name, op_table, &group.scan_start_time).await.unwrap_or(0);
                 state.db.insert_integrity_shell(
                     &group.scan_start_time,
@@ -1008,6 +1008,21 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
                     collector_name,
                     op_table,
                     op_previous,
+                ).await.ok();
+                let op_task_id = format!("{}_{}", task_id, idx);
+                let op_logical_key = format!("strategy_{}:{}:{}", strategy_id, group.scan_start_time, op_table);
+                state.db.create_task(
+                    &op_task_id,
+                    &op_logical_key,
+                    &strategy_id,
+                    &group.config_snapshot_id,
+                    &group.scan_start_time,
+                    collector_name,
+                    "",
+                    &group.group_id,
+                    op_table,
+                    scan_end_time,
+                    period,
                 ).await.ok();
             }
         }
