@@ -97,6 +97,9 @@ fn main() -> Result<()> {
         rule_files: cli.rule_files,
         rules_dir: cli.rules_dir,
         log_file: None,
+        task_id: None,
+        strategy_id: None,
+        group_id: None,
     })?;
     info!("[done] {} streaming destination table task(s)", summary.task_count);
 

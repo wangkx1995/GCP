@@ -42,12 +42,15 @@ mod tests {
             task_id: "test-task".into(),
             agent_id: "agent-01".into(),
             status: TaskStatus::Succeeded,
-            result_rows: vec![ResultRow {
+            result_rows: vec![CsvResultRow {
                 table_name: "TPD_A".into(),
                 data_time: "2026-06-17 15:15:00".into(),
                 row_count: 100,
                 success: 1,
                 collect_time: "2026-07-02 15:35:00".into(),
+                task_id: "test-task".into(),
+                strategy_id: "".into(),
+                group_id: "".into(),
             }],
         };
         let msg = InternalMessage::TaskResult(task_result.clone());

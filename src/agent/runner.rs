@@ -6,7 +6,7 @@ use remote_file_source::config::{ConnectionConfig, SourceConfig, SourceKind, Sou
 
 use crate::agent::result_csv::read_result_rows;
 use crate::agent::store::AgentStore;
-use crate::core_agent_api::{TaskDispatchRequest, TaskResultReport, TaskStatus};
+use crate::core_agent_api::{CsvResultRow, TaskDispatchRequest, TaskResultReport, TaskStatus};
 use crate::load_config::LoadConfig;
 use crate::message::InternalMessage;
 use crate::parse_job::{run_parse_job, ParseJobOptions};
@@ -109,6 +109,9 @@ impl AgentRunner {
             rule_files: rule_files_for_table(&config_dir, &task.table_name),
             rules_dir: None,
             log_file: Some(log_path),
+            task_id: Some(task.task_id.clone()),
+            strategy_id: Some(task.strategy_id.clone()),
+            group_id: task.group_id.clone(),
         };
         tracing::info!("[agent] run_parse_job input={:?} config={:?} output={:?}", opts.input, opts.config_dir, opts.output_dir);
 
@@ -124,7 +127,18 @@ impl AgentRunner {
                 });
                 tracing::info!("[agent] result.csv rows: {}", rows.len());
 
-                (TaskStatus::Succeeded, rows)
+                let csv_rows: Vec<CsvResultRow> = rows.into_iter().map(|r| CsvResultRow {
+                    table_name: r.table_name,
+                    data_time: r.data_time,
+                    row_count: r.row_count,
+                    success: r.success,
+                    collect_time: r.collect_time,
+                    task_id: task.task_id.clone(),
+                    strategy_id: task.strategy_id.clone(),
+                    group_id: task.group_id.clone().unwrap_or_default(),
+                }).collect();
+
+                (TaskStatus::Succeeded, csv_rows)
             }
             Err(e) => {
                 tracing::error!("[agent] parse_job failed: {e:#}");
@@ -140,7 +154,7 @@ impl AgentRunner {
     }
 }
 
-async fn report_to_core(tcp_tx: &mpsc::Sender<InternalMessage>, task_id: &str, agent_id: &str, status: TaskStatus, result_rows: Vec<crate::core_agent_api::ResultRow>) {
+async fn report_to_core(tcp_tx: &mpsc::Sender<InternalMessage>, task_id: &str, agent_id: &str, status: TaskStatus, result_rows: Vec<CsvResultRow>) {
     let report = TaskResultReport {
         task_id: task_id.to_string(),
         agent_id: agent_id.to_string(),

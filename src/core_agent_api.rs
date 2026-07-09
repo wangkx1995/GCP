@@ -455,11 +455,23 @@ pub struct ResultRow {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CsvResultRow {
+    pub table_name: String,
+    pub data_time: String,
+    pub row_count: u64,
+    pub success: i32,
+    pub collect_time: String,
+    pub task_id: String,
+    pub strategy_id: String,
+    pub group_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TaskResultReport {
     pub task_id: String,
     pub agent_id: String,
     pub status: TaskStatus,
-    pub result_rows: Vec<ResultRow>,
+    pub result_rows: Vec<CsvResultRow>,
 }
 
 #[cfg(test)]
@@ -478,12 +490,15 @@ mod tests {
             task_id: "task_1".to_string(),
             agent_id: "agent_1".to_string(),
             status: TaskStatus::Succeeded,
-            result_rows: vec![ResultRow {
+            result_rows: vec![CsvResultRow {
                 table_name: "TPD_A".to_string(),
                 data_time: "2026-06-17 15:15:00".to_string(),
                 row_count: 100,
                 success: 1,
                 collect_time: "2026-07-02 15:35:00".to_string(),
+                task_id: "task_1".to_string(),
+                strategy_id: "".to_string(),
+                group_id: "".to_string(),
             }],
         };
         let json = serde_json::to_string(&report).unwrap();

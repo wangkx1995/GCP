@@ -1694,7 +1694,7 @@ mod tests {
 
     use super::*;
     use crate::core::agent_id::compute_agent_id;
-    use crate::core_agent_api::{RuleFile, TaskStatus};
+    use crate::core_agent_api::{CsvResultRow, RuleFile, TaskStatus};
     use tempfile::{tempdir, TempDir};
 
     struct TestDb {
@@ -1763,12 +1763,15 @@ mod tests {
             task_id: "task_1".to_string(),
             agent_id,
             status: TaskStatus::Succeeded,
-            result_rows: vec![ResultRow {
+            result_rows: vec![CsvResultRow {
                 table_name: "TPD_A".to_string(),
                 data_time: "2026-06-17 15:15:00".to_string(),
                 row_count: 123,
                 success: 1,
                 collect_time: "2026-07-02 15:35:00".to_string(),
+                task_id: "task_1".to_string(),
+                strategy_id: "strategy_1".to_string(),
+                group_id: "group_test".to_string(),
             }],
         })
         .await

@@ -31,6 +31,9 @@ pub struct ParseJobOptions {
     pub rule_files: Vec<PathBuf>,
     pub rules_dir: Option<PathBuf>,
     pub log_file: Option<PathBuf>,
+    pub task_id: Option<String>,
+    pub strategy_id: Option<String>,
+    pub group_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,10 +88,16 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
         },
         |remote_file| route_remote_file(remote_file, &ctx, &dest_tables_by_source),
     )?;
+    let task_id = options.task_id.as_deref().unwrap_or("");
+    let strategy_id = options.strategy_id.as_deref().unwrap_or("");
+    let group_id = options.group_id.as_deref().unwrap_or("");
     let tasks = build_streaming_table_tasks(
         &rules,
         &routed_inputs.groups,
         &routed_inputs.representative_files,
+        task_id,
+        strategy_id,
+        group_id,
     )?;
     let task_count = tasks.len();
     run_streaming_table_tasks(
@@ -100,6 +109,9 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
         options.load_type,
         &load_config,
         &options.log_file,
+        task_id,
+        strategy_id,
+        group_id,
     )?;
 
     Ok(ParseJobSummary { task_count })
@@ -126,6 +138,9 @@ struct StreamingTableTask {
     dest_table: String,
     rules: Vec<tpd::TpdRule>,
     inputs: Vec<PathBuf>,
+    task_id: String,
+    strategy_id: String,
+    group_id: String,
 }
 
 fn run_streaming_table_task(
@@ -198,6 +213,9 @@ fn run_streaming_table_tasks(
     load_type: LoadType,
     load_config: &LoadConfig,
     log_file: &Option<PathBuf>,
+    task_id: &str,
+    strategy_id: &str,
+    group_id: &str,
 ) -> Result<()> {
     let parallel = effective_streaming_parallelism(tasks.len());
     let mut pending = tasks.into_iter();
@@ -324,6 +342,9 @@ fn build_streaming_table_tasks(
     rules: &[tpd::TpdRule],
     routed_groups: &[remote_file_source::RoutedInputGroup],
     fallback_inputs: &[PathBuf],
+    task_id: &str,
+    strategy_id: &str,
+    group_id: &str,
 ) -> Result<Vec<StreamingTableTask>> {
     let mut dest_order = Vec::new();
     let mut rules_by_dest: HashMap<String, Vec<tpd::TpdRule>> = HashMap::new();
@@ -368,6 +389,9 @@ fn build_streaming_table_tasks(
             dest_table,
             rules,
             inputs,
+            task_id: task_id.to_string(),
+            strategy_id: strategy_id.to_string(),
+            group_id: group_id.to_string(),
         });
     }
     Ok(tasks)
@@ -416,11 +440,14 @@ mod tests {
             },
         ];
 
-        let tasks = build_streaming_table_tasks(&rules, &groups, &[]).unwrap();
+        let tasks = build_streaming_table_tasks(&rules, &groups, &[], "t1", "s1", "g1").unwrap();
 
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].dest_table, "TPD_A");
         assert_eq!(tasks[0].rules.len(), 1);
+        assert_eq!(tasks[0].task_id, "t1");
+        assert_eq!(tasks[0].strategy_id, "s1");
+        assert_eq!(tasks[0].group_id, "g1");
         assert_eq!(
             tasks[0].inputs,
             vec![PathBuf::from("downloads/tpd_a/a.csv.gz")]
@@ -441,10 +468,11 @@ mod tests {
             files: vec![PathBuf::from("downloads/tpd_a/a.csv.gz")],
         }];
 
-        let tasks = build_streaming_table_tasks(&rules, &groups, &[]).unwrap();
+        let tasks = build_streaming_table_tasks(&rules, &groups, &[], "t1", "s1", "g1").unwrap();
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].dest_table, "TPD_A");
+        assert_eq!(tasks[0].task_id, "t1");
     }
 
     #[test]
@@ -452,7 +480,7 @@ mod tests {
         let rules = vec![test_rule("TPD_A", "OP_A"), test_rule("TPD_B", "OP_B")];
         let fallback_inputs = vec![PathBuf::from("local/a.csv.gz")];
 
-        let tasks = build_streaming_table_tasks(&rules, &[], &fallback_inputs).unwrap();
+        let tasks = build_streaming_table_tasks(&rules, &[], &fallback_inputs, "t1", "s1", "g1").unwrap();
 
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].inputs, fallback_inputs);
