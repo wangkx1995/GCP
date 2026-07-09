@@ -628,6 +628,27 @@ impl CoreDb {
         Ok(result.rows_affected())
     }
 
+    pub async fn update_sibling_op_tasks_status(&self, task_id: &str, status: &str) -> Result<u64> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT group_id FROM collect_tasks WHERE task_id = ?")
+            .bind(task_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some((group_id,)) = row else { return Ok(0) };
+        if group_id.is_empty() { return Ok(0) }
+        let prefix = format!("{}_%", task_id);
+        trace_sql!("UPDATE collect_tasks SET status = ? WHERE group_id = ? AND task_id LIKE ? AND task_id != ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", task_id = task_id, status = status, group_id = group_id);
+        let result = sqlx::query(
+            "UPDATE collect_tasks SET status = ? WHERE group_id = ? AND task_id LIKE ? AND task_id != ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
+        )
+        .bind(status)
+        .bind(&group_id)
+        .bind(&prefix)
+        .bind(task_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn update_task_status(&self, task_id: &str, status: &str, error_message: Option<&str>) -> Result<u64> {
         let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("UPDATE collect_tasks SET status = ?, last_progress_at = ?, dispatch_error = ? WHERE task_id = ?", status = status, task_id = task_id, error_message = error_message);

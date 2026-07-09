@@ -1247,6 +1247,7 @@ async fn tcp_dispatch_loop(
                 if let Err(e) = db.update_task_status(&ack.task_id, status, ack.reason.as_deref()).await {
                     tracing::warn!(%agent_id, task_id = %ack.task_id, error = %e, "update task ack status failed");
                 }
+                db.update_sibling_op_tasks_status(&ack.task_id, status).await.ok();
             }
             InternalMessage::TaskEvent(event) => {
                 tracing::info!(%agent_id, task_id = %event.event_id, status = ?event.status, phase = ?event.phase, "TaskEvent");
@@ -1261,6 +1262,7 @@ async fn tcp_dispatch_loop(
                     if let Err(e) = db.update_task_status(&event.event_id, status, event.message.as_deref()).await {
                         tracing::warn!(%agent_id, task_id = %event.event_id, error = %e, "update task event status failed");
                     }
+                    db.update_sibling_op_tasks_status(&event.event_id, status).await.ok();
                 }
             }
             InternalMessage::AgentRegister(mut req) => {
