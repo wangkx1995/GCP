@@ -9,6 +9,7 @@ use tempfile::TempDir;
 use tracing::{info, warn};
 
 use crate::config::ContextData;
+use crate::core_agent_api::CsvResultRow;
 use crate::load_config::LoadConfig;
 use crate::tpd;
 use crate::TableRows;
@@ -187,6 +188,28 @@ fn run_streaming_table_task(
         )
         .with_context(|| format!("failed to parse {}", input.display()))?;
     }
+    let op_rows: Vec<CsvResultRow> = if task.task_id.is_empty() {
+        Vec::new()
+    } else {
+        let now = crate::timeutil::now();
+        let op_phase_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+        let engine = streaming_engine.borrow();
+        let counts = engine.source_table_counts();
+        let mut op_tables: Vec<&String> = counts.keys().collect();
+        op_tables.sort();
+        op_tables.iter().enumerate().map(|(idx, name)| {
+            CsvResultRow {
+                table_name: (*name).clone(),
+                data_time: op_phase_time.clone(),
+                row_count: *counts.get(*name).unwrap_or(&0) as u64,
+                success: 1,
+                collect_time: op_phase_time.clone(),
+                task_id: format!("{}_{}", task.task_id, idx),
+                strategy_id: task.strategy_id.clone(),
+                group_id: task.group_id.clone(),
+            }
+        }).collect()
+    };
     let streaming_finish_options = tpd::StreamingFinishOptions {
         output_dir,
         delimiter: output_delimiter,
@@ -196,7 +219,7 @@ fn run_streaming_table_task(
         task_id: &task.task_id,
         strategy_id: &task.strategy_id,
         group_id: &task.group_id,
-        op_rows: Vec::new(),
+        op_rows,
     };
     let mut tables = TableRows::new();
     streaming_engine
