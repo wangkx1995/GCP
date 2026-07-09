@@ -686,15 +686,15 @@ impl CoreDb {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
-        trace_sql!("SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval, assigned_agent_id FROM collect_tasks WHERE task_id = ?", task_id = report.task_id);
+        trace_sql!("SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval, assigned_agent_id, group_id FROM collect_tasks WHERE task_id = ?", task_id = report.task_id);
         let task_row = sqlx::query(
-            "SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval, assigned_agent_id FROM collect_tasks WHERE task_id = ?",
+            "SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval, assigned_agent_id, group_id FROM collect_tasks WHERE task_id = ?",
         )
         .bind(&report.task_id)
         .fetch_optional(&self.pool)
         .await?;
 
-        let (strategy_id, config_snapshot_id, scan_start_time, task_collector_name, task_scan_end_time, task_collect_interval, task_agent_id) = match task_row {
+        let (strategy_id, config_snapshot_id, scan_start_time, task_collector_name, task_scan_end_time, task_collect_interval, task_agent_id, task_group_id) = match task_row {
             Some(row) => {
                 let sid: String = row.get(0);
                 let cid: String = row.get(1);
@@ -704,6 +704,7 @@ impl CoreDb {
                 let set: String = row.get(5);
                 let ci: i64 = row.get(6);
                 let aid: String = row.get(7);
+                let gid: String = row.get(8);
                 tracing::info!(
                     "[core-db] accept_task_result: existing task status={status} strategy={sid}"
                 );
@@ -717,7 +718,7 @@ impl CoreDb {
                     }
                     _ => {}
                 }
-                (sid, cid, Some(sst), cname, set, ci, aid)
+                (sid, cid, Some(sst), cname, set, ci, aid, gid)
             }
             None => {
                 tracing::info!(
@@ -741,7 +742,7 @@ impl CoreDb {
                 .bind(&now)
         .execute(&self.pool)
         .await?;
-                (sid, cid, None, String::new(), String::new(), 0i64, report.agent_id.clone())
+                (sid, cid, None, String::new(), String::new(), 0i64, report.agent_id.clone(), String::new())
             }
         };
 
@@ -827,6 +828,20 @@ impl CoreDb {
             } else {
                 tracing::warn!("[core-db] unexpected task_id {} in result report for task {}, skipping", row.task_id, report.task_id);
             }
+        }
+        // 补完未上报的预建 OP 行（agent 零数据时不产 OP 行，但 Core 已预建了）
+        if !task_group_id.is_empty() {
+            let prefix = format!("{}_", report.task_id);
+            trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status = 'CREATED'", task_id = report.task_id, group_id = task_group_id);
+            sqlx::query(
+                "UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status = 'CREATED'",
+            )
+            .bind(terminal_status)
+            .bind(&now)
+            .bind(&task_group_id)
+            .bind(format!("{}%", prefix))
+            .execute(&self.pool)
+            .await?;
         }
         tracing::info!("[core-db] accept_task_result done: status={terminal_status}");
         Ok(())
