@@ -1332,12 +1332,23 @@ async fn periodic_strategy_scan_loop(state: CoreState) {
                 }
             };
             let now = crate::timeutil::now();
-            let interval = strategy.data_interval.max(60);
-            let ts = now.timestamp();
-            let rem = ts % interval;
-            let scan_start_time = chrono::DateTime::from_timestamp(ts - rem - interval, 0)
-                .map(|t| t.naive_utc().format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| now.format("%Y-%m-%d %H:%M:%S").to_string());
+            let fire_time_ms = now.timestamp_millis();
+            let period_sec = strategy.data_interval.max(60);
+            let delay_sec = strategy.delay_period.max(0);
+            let (scan_start_ms, scan_end_ms) = match crate::scan_window::get_scan_scope(fire_time_ms, period_sec, delay_sec) {
+                Some(v) => v,
+                None => {
+                    tracing::warn!(strategy_id = %strategy.strategy_id, period = period_sec, "invalid period, skip periodic strategy");
+                    continue;
+                }
+            };
+            let fmt = |ms: i64| {
+                chrono::DateTime::from_timestamp_millis(ms)
+                    .map(|t| t.with_timezone(&crate::timeutil::offset()).format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| now.format("%Y-%m-%d %H:%M:%S").to_string())
+            };
+            let scan_start_time = fmt(scan_start_ms);
+            let scan_end_time = Some(fmt(scan_end_ms));
             let logical_task_key = format!("strategy_{}:{}:{}", strategy.strategy_id, scan_start_time, strategy.table_name);
             match state.db.task_exists_by_logical_key(&logical_task_key).await {
                 Ok(true) => continue,
@@ -1353,7 +1364,7 @@ async fn periodic_strategy_scan_loop(state: CoreState) {
                 unit,
                 config_snapshot_id,
                 scan_start_time,
-                scan_end_time: strategy.data_end_time.clone(),
+                scan_end_time,
                 table_names: vec![strategy.table_name.clone()],
                 force_agent_id: None,
                 force_group_id: None,

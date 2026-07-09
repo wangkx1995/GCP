@@ -1,6 +1,6 @@
 use chrono::{DateTime, FixedOffset};
 
-fn offset() -> FixedOffset {
+pub fn offset() -> FixedOffset {
     FixedOffset::east_opt(8 * 3600).unwrap()
 }
 
