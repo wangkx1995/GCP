@@ -271,6 +271,7 @@ pub struct DataCollectorUnitRow {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DataCollectorUnitSaveRequest {
+    pub original_id: Option<String>,
     pub unit_name: String,
     pub config_name: String,
     pub table_names: String,
@@ -304,8 +305,9 @@ pub struct DataCollectorUnitSaveRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CollectionStrategyRow {
-    #[serde(with = "serde_i64")]
-    pub id: i64,
+    #[serde(rename = "id")]
+    #[sqlx(rename = "strategy_id")]
+    pub strategy_id: String,
     pub collector_name: String,
     #[serde(with = "serde_i64")]
     pub collector_id: i64,
@@ -314,6 +316,7 @@ pub struct CollectionStrategyRow {
     pub cron_expression: String,
     pub collect_interval: i64,
     pub data_interval: i64,
+    pub delay_period: i64,
     pub data_start_time: Option<String>,
     pub data_end_time: Option<String>,
     pub execute_time: Option<String>,
@@ -333,6 +336,7 @@ pub struct CollectionStrategyCreateRequest {
     pub cron_expression: Option<String>,
     pub collect_interval: i64,
     pub data_interval: i64,
+    pub delay_period: i64,
     pub data_start_time: Option<String>,
     pub data_end_time: Option<String>,
     pub execute_time: Option<String>,
@@ -345,6 +349,7 @@ pub struct CollectionStrategyUpdateRequest {
     pub cron_expression: Option<String>,
     pub collect_interval: Option<i64>,
     pub data_interval: Option<i64>,
+    pub delay_period: Option<i64>,
     pub data_start_time: Option<String>,
     pub data_end_time: Option<String>,
     pub execute_time: Option<String>,
@@ -354,12 +359,7 @@ pub struct CollectionStrategyUpdateRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BatchStatusRequest {
-    pub ids: Vec<i64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NextIdResponse {
-    pub id: i64,
+    pub ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -398,7 +398,7 @@ pub struct TaskDispatchRequest {
     pub group_id: Option<String>,
     pub config_snapshot_id: String,
     pub scan_start_time: String,
-    pub collect_id: String,
+    pub collector_name: String,
     pub load_type: String,
     pub encoding: String,
     pub output_delimiter: String,

@@ -193,7 +193,7 @@ impl CoreDb {
                 strategy_id TEXT NOT NULL,
                 config_snapshot_id TEXT NOT NULL,
                 scan_start_time TEXT NOT NULL,
-                collect_id TEXT NOT NULL,
+                collector_name TEXT NOT NULL DEFAULT '',
                 assigned_agent_id TEXT NOT NULL,
                 attempt_no INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL,
@@ -207,7 +207,12 @@ impl CoreDb {
                 group_id TEXT,
                 retry_count INTEGER NOT NULL DEFAULT 0,
                 next_retry_at TEXT,
-                dispatch_error TEXT
+                dispatch_error TEXT,
+                table_name TEXT,
+                data_time TEXT,
+                row_count INTEGER NOT NULL DEFAULT 0,
+                success INTEGER NOT NULL DEFAULT 0,
+                collect_time TEXT
             )
             "#,
         )
@@ -229,36 +234,24 @@ impl CoreDb {
         let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN dispatch_error TEXT")
             .execute(&self.pool)
             .await;
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN table_name TEXT")
+            .execute(&self.pool).await;
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN data_time TEXT")
+            .execute(&self.pool).await;
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0")
+            .execute(&self.pool).await;
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN success INTEGER NOT NULL DEFAULT 0")
+            .execute(&self.pool).await;
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN collect_time TEXT")
+            .execute(&self.pool).await;
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN collector_name TEXT NOT NULL DEFAULT ''")
+            .execute(&self.pool).await;
         let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_collect_tasks_logical_key ON collect_tasks(logical_task_key)")
             .execute(&self.pool).await;
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS collect_result_cells (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id TEXT NOT NULL,
-                strategy_id TEXT NOT NULL,
-                agent_id TEXT NOT NULL,
-                config_snapshot_id TEXT NOT NULL,
-                table_name TEXT NOT NULL,
-                data_time TEXT NOT NULL,
-                row_count INTEGER NOT NULL,
-                success INTEGER NOT NULL,
-                collect_time TEXT NOT NULL,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-        sqlx::query(
-            r#"CREATE INDEX IF NOT EXISTS idx_collect_result_day ON collect_result_cells(strategy_id, data_time, table_name)"#,
-        )
-        .execute(&self.pool)
-        .await
-        .ok();
+        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_collect_tasks_grid ON collect_tasks(strategy_id, data_time)")
+            .execute(&self.pool).await;
+        let _ = sqlx::query("ALTER TABLE collect_tasks DROP COLUMN collect_id")
+            .execute(&self.pool).await;
 
         let _ = sqlx::query("ALTER TABLE config_snapshots ADD COLUMN version_label TEXT")
             .execute(&self.pool)
@@ -341,29 +334,69 @@ impl CoreDb {
             .execute(&self.pool).await.ok();
         sqlx::query("ALTER TABLE data_collector_unit ADD COLUMN db_table_name_case TEXT NOT NULL DEFAULT 'lower'")
             .execute(&self.pool).await.ok();
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS collection_strategy (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                collector_name TEXT NOT NULL,
-                collector_id INTEGER NOT NULL,
-                table_name TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT '可用',
-                cron_expression TEXT NOT NULL DEFAULT '',
-                collect_interval INTEGER NOT NULL,
-                data_interval INTEGER NOT NULL,
-                data_start_time TEXT,
-                data_end_time TEXT,
-                execute_time TEXT,
-                agent_ids TEXT NOT NULL DEFAULT '[]',
-                strategy_type TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+        let has_id_col: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('collection_strategy') WHERE name = 'id'"
+        ).fetch_one(&self.pool).await.unwrap_or(false);
+        if has_id_col {
+            tracing::info!("[db] migrating collection_strategy: replacing id PK with strategy_id PK");
+            let rows: Vec<(String, String, i64, String, String, String, i64, i64, Option<String>, Option<String>, Option<String>, String, String, String, String)> = sqlx::query_as(
+                "SELECT strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy"
+            ).fetch_all(&self.pool).await.unwrap_or_default();
+            sqlx::query("DROP TABLE IF EXISTS collection_strategy").execute(&self.pool).await?;
+            sqlx::query(
+                r#"CREATE TABLE collection_strategy (
+                    strategy_id TEXT PRIMARY KEY NOT NULL,
+                    collector_name TEXT NOT NULL,
+                    collector_id INTEGER NOT NULL,
+                    table_name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT '可用',
+                    cron_expression TEXT NOT NULL DEFAULT '',
+                    collect_interval INTEGER NOT NULL,
+                    data_interval INTEGER NOT NULL,
+                    delay_period INTEGER NOT NULL DEFAULT 0,
+                    data_start_time TEXT,
+                    data_end_time TEXT,
+                    execute_time TEXT,
+                    agent_ids TEXT NOT NULL DEFAULT '[]',
+                    strategy_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"#,
+            ).execute(&self.pool).await?;
+            for (sid, cn, ci, tn, st, cr, ci2, di, dst, det, et, aids, stt, ca, ua) in rows {
+                let sid = if sid.is_empty() {
+                    crate::crc64::crc64_ecma(&format!("{}_{}_{}", cn, tn, ca)).to_string()
+                } else { sid };
+                sqlx::query(
+                    "INSERT INTO collection_strategy(strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                ).bind(&sid).bind(&cn).bind(ci).bind(&tn).bind(&st).bind(&cr).bind(ci2).bind(di).bind(0i64).bind(&dst).bind(&det).bind(&et).bind(&aids).bind(&stt).bind(&ca).bind(&ua)
+                .execute(&self.pool).await?;
+            }
+        } else {
+            sqlx::query(
+                r#"
+                CREATE TABLE IF NOT EXISTS collection_strategy (
+                    strategy_id TEXT PRIMARY KEY NOT NULL,
+                    collector_name TEXT NOT NULL,
+                    collector_id INTEGER NOT NULL,
+                    table_name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT '可用',
+                    cron_expression TEXT NOT NULL DEFAULT '',
+                    collect_interval INTEGER NOT NULL,
+                    data_interval INTEGER NOT NULL,
+                    delay_period INTEGER NOT NULL DEFAULT 0,
+                    data_start_time TEXT,
+                    data_end_time TEXT,
+                    execute_time TEXT,
+                    agent_ids TEXT NOT NULL DEFAULT '[]',
+                    strategy_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                "#,
             )
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
+            .execute(&self.pool).await?;
+        }
         Ok(())
     }
 
@@ -387,7 +420,7 @@ impl CoreDb {
     }
 
     pub async fn insert_config_snapshot(&self, snapshot: &ConfigSnapshotResponse) -> Result<()> {
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         trace_sql!("INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, snapshot_json, created_at) VALUES (?, ?, ?, ?)", config_snapshot_id = snapshot.config_snapshot_id, content_hash = snapshot.content_hash);
@@ -412,7 +445,7 @@ impl CoreDb {
         name: &str,
         table_names: &[String],
     ) -> Result<()> {
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         trace_sql!("INSERT OR REPLACE INTO config_snapshots(config_snapshot_id, content_hash, version_label, is_active, file_count, name, snapshot_json, created_at, activated_at) VALUES (?, ?, ?, 0, ?, ?, '{{}}', ?, NULL)", snapshot_id = snapshot_id, content_hash = content_hash, version_label = version_label, file_count = file_count, name = name);
@@ -485,7 +518,7 @@ impl CoreDb {
     }
 
     pub async fn activate_config_snapshot(&self, snapshot_id: &str) -> Result<ConfigSnapshotMeta> {
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         trace_sql!("UPDATE config_snapshots SET is_active = 0");
@@ -520,26 +553,30 @@ impl CoreDb {
         strategy_id: &str,
         config_snapshot_id: &str,
         scan_start_time: &str,
-        collect_id: &str,
+        collector_name: &str,
         assigned_agent_id: &str,
         group_id: &str,
+        table_name: &str,
     ) -> Result<()> {
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
-        trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, group_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = task_id, logical_task_key = logical_task_key, strategy_id = strategy_id, config_snapshot_id = config_snapshot_id, scan_start_time = scan_start_time, collect_id = collect_id, assigned_agent_id = assigned_agent_id, group_id = group_id);
+        let data_time = scan_start_time;
+        trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, group_id, status, created_at, table_name, data_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?)", task_id = task_id, logical_task_key = logical_task_key, strategy_id = strategy_id, config_snapshot_id = config_snapshot_id, scan_start_time = scan_start_time, collector_name = collector_name, assigned_agent_id = assigned_agent_id, group_id = group_id, table_name = table_name, data_time = data_time);
         sqlx::query(
-            "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, group_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
+            "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, group_id, status, created_at, table_name, data_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?)",
         )
         .bind(task_id)
         .bind(logical_task_key)
         .bind(strategy_id)
         .bind(config_snapshot_id)
         .bind(scan_start_time)
-        .bind(collect_id)
+        .bind(collector_name)
         .bind(assigned_agent_id)
         .bind(group_id)
         .bind(&now)
+        .bind(table_name)
+        .bind(data_time)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -558,7 +595,7 @@ impl CoreDb {
     }
 
     pub async fn update_group_status(&self, group_id: &str, status: &str, error_message: Option<&str>) -> Result<u64> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("UPDATE collect_tasks SET status = ?, dispatch_error = ?, last_progress_at = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", status = status, error_message = error_message, group_id = group_id);
         let result = sqlx::query(
             "UPDATE collect_tasks SET status = ?, dispatch_error = ?, last_progress_at = ? WHERE group_id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
@@ -573,7 +610,7 @@ impl CoreDb {
     }
 
     pub async fn update_task_status(&self, task_id: &str, status: &str, error_message: Option<&str>) -> Result<u64> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("UPDATE collect_tasks SET status = ?, last_progress_at = ?, dispatch_error = ? WHERE task_id = ?", status = status, task_id = task_id, error_message = error_message);
         let result = sqlx::query(
             "UPDATE collect_tasks SET status = ?, last_progress_at = ?, dispatch_error = ? WHERE task_id = ?",
@@ -612,7 +649,7 @@ impl CoreDb {
     }
 
     pub async fn mark_active_tasks_failed_for_agent(&self, agent_id: &str, reason: &str) -> Result<u64> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("UPDATE collect_tasks SET status = 'FAILED', finished_at = ?, dispatch_error = ? WHERE assigned_agent_id = ? AND status IN ('CREATED', 'DISPATCHING', 'ACCEPTED', 'RUNNING')", agent_id = agent_id, reason = reason);
         let result = sqlx::query(
             "UPDATE collect_tasks SET status = 'FAILED', finished_at = ?, dispatch_error = ? WHERE assigned_agent_id = ? AND status IN ('CREATED', 'DISPATCHING', 'ACCEPTED', 'RUNNING')",
@@ -626,7 +663,7 @@ impl CoreDb {
     }
 
     pub async fn accept_task_result(&self, report: &TaskResultReport) -> Result<()> {
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
@@ -638,7 +675,7 @@ impl CoreDb {
         .fetch_optional(&self.pool)
         .await?;
 
-        let (strategy_id, config_snapshot_id, scan_start_time) = match task_row {
+        let (strategy_id, _config_snapshot_id, scan_start_time) = match task_row {
             Some(row) => {
                 let sid: String = row.get(0);
                 let cid: String = row.get(1);
@@ -665,9 +702,9 @@ impl CoreDb {
                 );
                 let sid = format!("unknown_{}", report.task_id);
                 let cid = "unknown".to_string();
-                trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = report.task_id, agent_id = report.agent_id);
+                trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = report.task_id, agent_id = report.agent_id);
                 sqlx::query(
-                    "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
+                    "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
                 )
                 .bind(&report.task_id)
                 .bind("")
@@ -696,84 +733,50 @@ impl CoreDb {
         };
 
         tracing::info!(
-            "[core-db] inserting {} result cells for task {} (strategy={})",
+            "[core-db] recording {} result rows for task {} (strategy={})",
             report.result_rows.len(),
             report.task_id,
             strategy_id
         );
-        for result in &report.result_rows {
+
+        let (table_name, data_time, row_count, success, collect_time) = if let Some(result) = report.result_rows.first() {
             tracing::info!(
-                "[core-db]   cell: table={} data_time={} rows={} success={}",
-                result.table_name,
-                result.data_time,
-                result.row_count,
-                result.success
+                "[core-db]   result: table={} data_time={} rows={} success={}",
+                result.table_name, result.data_time, result.row_count, result.success
             );
-            trace_sql!("INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, ...)");
-            sqlx::query(
-                "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUCCEEDED', NULL, ?, ?)",
-            )
-            .bind(&report.task_id)
-            .bind(&strategy_id)
-            .bind(&report.agent_id)
-            .bind(&config_snapshot_id)
-            .bind(&result.table_name)
-            .bind(&result.data_time)
-            .bind(result.row_count as i64)
-            .bind(result.success)
-            .bind(&result.collect_time)
-            .bind(&now)
-            .bind(&now)
-            .execute(&self.pool)
-            .await?;
-        }
-
-        // 如果任务是失败/超时/取消状态但没有结果行，创建一条合成失败记录
-        if report.result_rows.is_empty() {
-            let sid_int: i64 = strategy_id.parse().unwrap_or(0);
-            trace_sql!("SELECT table_name FROM collection_strategy WHERE id = ?", id = sid_int);
-            let table_name: Option<String> = sqlx::query_scalar(
-                "SELECT table_name FROM collection_strategy WHERE id = ?",
-            )
-            .bind(sid_int)
-            .fetch_optional(&self.pool)
-            .await?;
-            if let Some(tn) = table_name {
-                let data_time = scan_start_time.unwrap_or_else(|| now.clone());
-                tracing::info!(
-                    "[core-db] inserting synthetic failure cell for table={} strategy={}",
-                    tn,
-                    strategy_id
-                );
-                let is_failure = terminal_status == "FAILED" || terminal_status == "TIMEOUT" || terminal_status == "CANCELLED";
-                let success = if is_failure { 0i64 } else { 1i64 };
-                let cell_status = if is_failure { "FAILED" } else { "SUCCEEDED" };
-                trace_sql!("INSERT INTO collect_result_cells(...) synthetic failure cell");
-                sqlx::query(
-                    "INSERT INTO collect_result_cells(task_id, strategy_id, agent_id, config_snapshot_id, table_name, data_time, row_count, success, collect_time, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NULL, ?, ?)",
-                )
-                .bind(&report.task_id)
-                .bind(&strategy_id)
-                .bind(&report.agent_id)
-                .bind(&config_snapshot_id)
-                .bind(&tn)
-                .bind(&data_time)
-                .bind(success)
-                .bind(&now)
-                .bind(cell_status)
-                .bind(&now)
-                .bind(&now)
-                .execute(&self.pool)
-                .await?;
+            if report.result_rows.len() > 1 {
+                tracing::warn!("[core-db] task {} has {} result rows, using first only", report.task_id, report.result_rows.len());
             }
-        }
+            (
+                Some(result.table_name.clone()),
+                Some(result.data_time.clone()),
+                result.row_count as i64,
+                result.success,
+                Some(result.collect_time.clone()),
+            )
+        } else if let Some(sst) = scan_start_time {
+            // 合成失败记录
+            let is_failure = terminal_status == "FAILED" || terminal_status == "TIMEOUT" || terminal_status == "CANCELLED";
+            tracing::info!(
+                "[core-db] synthetic failure for task {} strategy={}",
+                report.task_id, strategy_id
+            );
+            (None, Some(sst), 0i64, if is_failure { 0 } else { 1 }, None)
+        } else {
+            (None, None, 0i64, 0, None)
+        };
 
-        trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ? WHERE task_id = ?", status = terminal_status, task_id = report.task_id);
+        trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ?, table_name = COALESCE(?, table_name), data_time = COALESCE(?, data_time), row_count = ?, success = ?, collect_time = ? WHERE task_id = ?", task_id = report.task_id);
         sqlx::query(
-            "UPDATE collect_tasks SET status = ?, finished_at = ? WHERE task_id = ?",
+            "UPDATE collect_tasks SET status = ?, finished_at = ?, table_name = COALESCE(?, table_name), data_time = COALESCE(?, data_time), row_count = ?, success = ?, collect_time = ? WHERE task_id = ?",
         )
         .bind(terminal_status)
         .bind(&now)
+        .bind(&table_name)
+        .bind(&data_time)
+        .bind(row_count)
+        .bind(success)
+        .bind(&collect_time)
         .bind(&report.task_id)
         .execute(&self.pool)
         .await?;
@@ -787,9 +790,9 @@ impl CoreDb {
         day: &str,
     ) -> Result<Vec<ResultRow>> {
         let like = format!("{day}%");
-        trace_sql!("SELECT table_name, data_time, row_count, success, collect_time FROM collect_result_cells WHERE strategy_id = ? AND data_time LIKE ? ORDER BY table_name, data_time", strategy_id = strategy_id, day = day);
+        trace_sql!("SELECT table_name, data_time, row_count, success, collect_time FROM collect_tasks WHERE strategy_id = ? AND data_time LIKE ? ORDER BY table_name, data_time", strategy_id = strategy_id, day = day);
         let rows = sqlx::query(
-            "SELECT table_name, data_time, row_count, success, collect_time FROM collect_result_cells WHERE strategy_id = ? AND data_time LIKE ? ORDER BY table_name, data_time",
+            "SELECT table_name, data_time, row_count, success, collect_time FROM collect_tasks WHERE strategy_id = ? AND data_time LIKE ? ORDER BY table_name, data_time",
         )
         .bind(strategy_id)
         .bind(&like)
@@ -812,35 +815,35 @@ impl CoreDb {
         Ok(1)
     }
 
-    pub async fn next_strategy_id(&self) -> Result<i64> {
-        trace_sql!("SELECT COALESCE(MAX(id), 0) + 1 FROM collection_strategy");
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COALESCE(MAX(id), 0) + 1 FROM collection_strategy",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.0)
-    }
-
     pub async fn create_strategies(
         &self,
         req: &CollectionStrategyCreateRequest,
     ) -> Result<Vec<CollectionStrategyRow>> {
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         tracing::info!("[db] ==> INSERT INTO collection_strategy ... ({} tables)", req.table_names.len());
-        for table_name in &req.table_names {
-            trace_sql!("INSERT INTO collection_strategy (collector_name, collector_id, table_name, ...) VALUES (?, ?, ?, ...)", table_name = table_name);
+        let mut rows = Vec::new();
+        for (i, table_name) in req.table_names.iter().enumerate() {
+            let raw = format!("{}_{}_{}", req.collector_name, table_name, nanos + i as u128);
+            let strategy_id = crate::crc64::crc64_ecma(&raw).to_string();
+            trace_sql!("INSERT INTO collection_strategy (strategy_id, collector_name, collector_id, table_name, ...) VALUES (?, ?, ?, ?, ...)", strategy_id = strategy_id, table_name = table_name);
+            let delay_period = req.delay_period.max(0);
             sqlx::query(
-                "INSERT INTO collection_strategy (collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at) VALUES (?, ?, ?, '可用', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO collection_strategy (strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at) VALUES (?, ?, ?, ?, '可用', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
+            .bind(&strategy_id)
             .bind(&req.collector_name)
             .bind(req.collector_id)
             .bind(table_name)
             .bind(req.cron_expression.as_deref().unwrap_or(""))
             .bind(req.collect_interval)
             .bind(req.data_interval)
+            .bind(delay_period)
             .bind(&req.data_start_time)
             .bind(&req.data_end_time)
             .bind(&req.execute_time)
@@ -850,25 +853,32 @@ impl CoreDb {
             .bind(&now)
             .execute(&self.pool)
             .await?;
-        }
-        trace_sql!("SELECT id FROM collection_strategy ORDER BY id DESC LIMIT ?", limit = req.table_names.len());
-        let ids: Vec<i64> = sqlx::query_scalar(
-            "SELECT id FROM collection_strategy ORDER BY id DESC LIMIT ?",
-        )
-        .bind(req.table_names.len() as i64)
-        .fetch_all(&self.pool)
-        .await?;
-        let mut rows = Vec::new();
-        for id in ids.iter().rev() {
-            rows.push(self.get_strategy(*id).await?.unwrap());
+            rows.push(CollectionStrategyRow {
+                strategy_id,
+                collector_name: req.collector_name.clone(),
+                collector_id: req.collector_id,
+                table_name: table_name.clone(),
+                status: "可用".to_string(),
+                cron_expression: req.cron_expression.clone().unwrap_or_default(),
+                collect_interval: req.collect_interval,
+                data_interval: req.data_interval,
+                delay_period,
+                data_start_time: req.data_start_time.clone(),
+                data_end_time: req.data_end_time.clone(),
+                execute_time: req.execute_time.clone(),
+                agent_ids: req.agent_ids.clone(),
+                strategy_type: req.strategy_type.clone(),
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            });
         }
         Ok(rows)
     }
 
-    pub async fn get_strategy(&self, id: i64) -> Result<Option<CollectionStrategyRow>> {
-        trace_sql!("SELECT * FROM collection_strategy WHERE id = ?", id = id);
+    pub async fn get_strategy(&self, id: &str) -> Result<Option<CollectionStrategyRow>> {
+        trace_sql!("SELECT strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_id = ?", strategy_id = id);
         let row = sqlx::query_as::<_, CollectionStrategyRow>(
-            "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE id = ?"
+            "SELECT strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_id = ?"
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -887,7 +897,7 @@ impl CoreDb {
         let status = status.map(|s| s.to_string());
 
         let mut sql = String::from(
-            "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE 1=1",
+            "SELECT strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE 1=1",
         );
         tracing::info!("[db] ==> {} (collector_name={:?}, strategy_type={:?}, status={:?})", sql, collector_name, strategy_type, status);
         if collector_name.is_some() {
@@ -899,7 +909,7 @@ impl CoreDb {
         if status.is_some() {
             sql.push_str(" AND status = ?");
         }
-        sql.push_str(" ORDER BY id DESC");
+        sql.push_str(" ORDER BY rowid DESC");
 
         let mut query = sqlx::query_as::<_, CollectionStrategyRow>(&sql);
         if let Some(ref v) = collector_name {
@@ -917,13 +927,13 @@ impl CoreDb {
 
     pub async fn update_strategy(
         &self,
-        id: i64,
+        id: &str,
         req: &CollectionStrategyUpdateRequest,
     ) -> Result<bool> {
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
-        tracing::info!("[db] ==> UPDATE collection_strategy SET ... WHERE id = {}", id);
+        tracing::info!("[db] ==> UPDATE collection_strategy SET ... WHERE strategy_id = {}", id);
         let mut sql = String::from("UPDATE collection_strategy SET updated_at = ?");
         let mut values: Vec<String> = vec![now];
 
@@ -938,6 +948,10 @@ impl CoreDb {
         if let Some(v) = req.data_interval {
             sql.push_str(", data_interval = ?");
             values.push(v.to_string());
+        }
+        if let Some(v) = req.delay_period {
+            sql.push_str(", delay_period = ?");
+            values.push(v.max(0).to_string());
         }
         if let Some(ref v) = req.data_start_time {
             sql.push_str(", data_start_time = ?");
@@ -959,7 +973,7 @@ impl CoreDb {
             sql.push_str(", status = ?");
             values.push(v.clone());
         }
-        sql.push_str(" WHERE id = ?");
+        sql.push_str(" WHERE strategy_id = ?");
         values.push(id.to_string());
 
         let mut query = sqlx::query(&sql);
@@ -970,15 +984,15 @@ impl CoreDb {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn batch_suspend(&self, ids: &[i64]) -> Result<usize> {
-        let now = chrono::Local::now()
+    pub async fn batch_suspend(&self, ids: &[String]) -> Result<usize> {
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         tracing::info!("[db] ==> batch suspend {} strategies", ids.len());
         let mut count = 0;
         for id in ids {
             let r = sqlx::query(
-                "UPDATE collection_strategy SET status = '挂起', updated_at = ? WHERE id = ?",
+                "UPDATE collection_strategy SET status = '挂起', updated_at = ? WHERE strategy_id = ?",
             )
             .bind(&now)
             .bind(id)
@@ -989,15 +1003,15 @@ impl CoreDb {
         Ok(count)
     }
 
-    pub async fn batch_activate(&self, ids: &[i64]) -> Result<usize> {
-        let now = chrono::Local::now()
+    pub async fn batch_activate(&self, ids: &[String]) -> Result<usize> {
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         tracing::info!("[db] ==> batch activate {} strategies", ids.len());
         let mut count = 0;
         for id in ids {
             let r = sqlx::query(
-                "UPDATE collection_strategy SET status = '可用', updated_at = ? WHERE id = ?",
+                "UPDATE collection_strategy SET status = '可用', updated_at = ? WHERE strategy_id = ?",
             )
             .bind(&now)
             .bind(id)
@@ -1009,9 +1023,9 @@ impl CoreDb {
     }
 
     pub async fn list_active_periodic_strategies(&self) -> Result<Vec<CollectionStrategyRow>> {
-        trace_sql!("SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_type = 'periodic' AND status = '可用'");
+        trace_sql!("SELECT strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_type = 'periodic' AND status = '可用'");
         sqlx::query_as::<_, CollectionStrategyRow>(
-            "SELECT id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_type = 'periodic' AND status = '可用'",
+            "SELECT strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy WHERE strategy_type = 'periodic' AND status = '可用'",
         )
         .fetch_all(&self.pool)
         .await
@@ -1107,7 +1121,7 @@ impl CoreDb {
             }
         }
 
-        let now = chrono::Local::now()
+        let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
@@ -1196,9 +1210,9 @@ impl CoreDb {
         .bind(data.connect_retry.unwrap_or(3))
         .bind(data.download_retry.unwrap_or(3))
         .bind(data.download_parallel.unwrap_or(4))
-        .bind(data.retry_interval_secs.unwrap_or(30))
+        .bind(data.retry_interval_secs.unwrap_or(10))
         .bind(data.connect_timeout_secs.unwrap_or(30))
-        .bind(data.read_timeout_secs.unwrap_or(300))
+        .bind(data.read_timeout_secs.unwrap_or(30))
         .bind(data.cache_retention_days.unwrap_or(7))
         .bind(data.load_type.as_deref().unwrap_or("clickhouse"))
         .bind(data.output_delimiter.as_deref().unwrap_or("|"))
@@ -1278,7 +1292,7 @@ impl CoreDb {
         agent_alias: Option<&str>,
         deploy_dir: &str,
     ) -> Result<()> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("INSERT INTO agent_info(agent_id, agent_name, agent_ip, port, version, agent_alias, ...) ON CONFLICT(agent_id) DO UPDATE ...", agent_id = agent_id, agent_name = agent_name, agent_ip = agent_ip, port = port, version = version, agent_alias = agent_alias);
         sqlx::query(
             r#"
@@ -1353,7 +1367,7 @@ impl CoreDb {
         disk_load: Option<f64>,
         thread_num: Option<i32>,
     ) -> Result<()> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("UPDATE agent_status SET status=?, cpu_load=?, memory_load=?, disk_load=?, thread_num=?, heartbeat_time=? WHERE agent_id=?", agent_id = agent_id, status = status, cpu_load = cpu_load, memory_load = memory_load, disk_load = disk_load, thread_num = thread_num);
         sqlx::query(
             r#"
@@ -1381,7 +1395,7 @@ impl CoreDb {
         disk_load: Option<f64>,
         thread_num: Option<i32>,
     ) -> Result<()> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("INSERT INTO agent_status_his(agent_id, cpu_load, memory_load, disk_load, thread_num, heartbeat_time) VALUES (?, ?, ?, ?, ?, ?)", agent_id = agent_id, cpu_load = cpu_load, memory_load = memory_load, disk_load = disk_load, thread_num = thread_num);
         sqlx::query(
             r#"
@@ -1401,7 +1415,7 @@ impl CoreDb {
     }
 
     pub async fn mark_agent_offline(&self, agent_id: i64) -> Result<()> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("UPDATE agent_status SET status='OFFLINE', heartbeat_time=? WHERE agent_id=?", agent_id = agent_id);
         sqlx::query(
             "UPDATE agent_status SET status='OFFLINE', heartbeat_time=? WHERE agent_id=?",
@@ -1414,7 +1428,7 @@ impl CoreDb {
     }
 
     pub async fn upsert_agent_status(&self, agent_id: i64, status: &str) -> Result<()> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("INSERT INTO agent_status(agent_id, status, heartbeat_time) VALUES (?, ?, ?) ON CONFLICT(agent_id) DO UPDATE SET status=excluded.status, heartbeat_time=excluded.heartbeat_time", agent_id = agent_id, status = status);
         sqlx::query(
             r#"
@@ -1559,7 +1573,7 @@ impl CoreDb {
     }
 
     pub async fn create_agent_group(&self, name: &str, agent_ids: &str, description: Option<&str>) -> Result<i64> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let group_id = crate::crc64::crc64_ecma(name);
         trace_sql!("INSERT OR REPLACE INTO agent_group(group_id, group_name, agent_ids, description, time_stamp) VALUES (?, ?, ?, ?, ?)", group_id = group_id, name = name, agent_ids = agent_ids, description = description);
         sqlx::query(
@@ -1576,7 +1590,7 @@ impl CoreDb {
     }
 
     pub async fn update_agent_group(&self, group_id: i64, name: &str, agent_ids: &str, description: Option<&str>) -> Result<()> {
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("UPDATE agent_group SET group_name = ?, agent_ids = ?, description = ?, time_stamp = ? WHERE group_id = ?", group_id = group_id, name = name, agent_ids = agent_ids, description = description);
         sqlx::query(
             "UPDATE agent_group SET group_name = ?, agent_ids = ?, description = ?, time_stamp = ? WHERE group_id = ?",
@@ -1659,10 +1673,10 @@ impl CoreDb {
         Ok(rows)
     }
 
-    pub async fn get_group_task_rows(&self, group_id: &str) -> Result<Vec<(String, String, String, String, String, String)>> {
-        trace_sql!("SELECT task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id FROM collect_tasks WHERE group_id = ?", group_id = group_id);
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, String)>(
-            "SELECT task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collect_id FROM collect_tasks WHERE group_id = ?"
+    pub async fn get_group_task_rows(&self, group_id: &str) -> Result<Vec<(String, String, String, String, String)>> {
+        trace_sql!("SELECT task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time FROM collect_tasks WHERE group_id = ?", group_id = group_id);
+        let rows = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time FROM collect_tasks WHERE group_id = ?"
         )
         .bind(group_id)
         .fetch_all(&self.pool)
@@ -1735,9 +1749,10 @@ mod tests {
             "strategy_1",
             "cfg_1",
             "2026-06-17 15:15:00",
-            "collect_1",
+            "test-unit",
             &agent_id,
             "group_test",
+            "TPD_A",
         )
         .await
         .unwrap();
@@ -1776,9 +1791,10 @@ mod tests {
             "1",
             "snapshot_1",
             "2026-07-08 10:00:00",
-            "collect_1",
+            "test-unit",
             "agent_1",
             "group_123",
+            "",
         )
         .await
         .unwrap();
@@ -1847,6 +1863,7 @@ mod tests {
         assert_eq!(id, 1);
 
         let save = DataCollectorUnitSaveRequest {
+            original_id: None,
             unit_name: "test-unit".to_string(),
             config_name: "test-config".to_string(),
             table_names: "[\"t1\"]".to_string(),
@@ -2000,6 +2017,7 @@ mod tests {
         db.activate_config_snapshot("v_strat").await.unwrap();
 
         let save = DataCollectorUnitSaveRequest {
+            original_id: None,
             unit_name: "strat-unit".to_string(),
             config_name: "cfg-strat".to_string(),
             table_names: "[\"t1\",\"t2\"]".to_string(),
@@ -2036,9 +2054,10 @@ mod tests {
             collector_id: 1,
             collector_name: "strat-unit".to_string(),
             table_names: vec!["t1".to_string(), "t2".to_string()],
-            cron_expression: Some("0 0 * * *".to_string()),
+            cron_expression: Some("0 0 0 * * * *".to_string()),
             collect_interval: 900,
             data_interval: 900,
+            delay_period: 60,
             data_start_time: None,
             data_end_time: None,
             execute_time: None,
@@ -2049,37 +2068,46 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].table_name, "t1");
         assert_eq!(rows[0].status, "可用");
+        assert_eq!(rows[0].delay_period, 60);
 
         let list = db.list_strategies(None, None, None).await.unwrap();
         assert_eq!(list.len(), 2);
+        assert!(list.iter().all(|r| r.delay_period == 60));
 
-        let row = db.get_strategy(rows[0].id).await.unwrap().unwrap();
+        let periodic = db.list_active_periodic_strategies().await.unwrap();
+        assert_eq!(periodic.len(), 2);
+        assert!(periodic.iter().all(|r| r.delay_period == 60));
+
+        let row = db.get_strategy(&rows[0].strategy_id).await.unwrap().unwrap();
         assert_eq!(row.table_name, "t1");
+        assert_eq!(row.delay_period, 60);
 
         let update = CollectionStrategyUpdateRequest {
-            cron_expression: Some("0 */2 * * *".to_string()),
+            cron_expression: Some("0 0 */2 * * * *".to_string()),
             collect_interval: None,
             data_interval: None,
+            delay_period: Some(120),
             data_start_time: None,
             data_end_time: None,
             execute_time: None,
             agent_ids: None,
             status: Some("挂起".to_string()),
         };
-        let ok = db.update_strategy(rows[0].id, &update).await.unwrap();
+        let ok = db.update_strategy(&rows[0].strategy_id, &update).await.unwrap();
         assert!(ok);
-        let updated = db.get_strategy(rows[0].id).await.unwrap().unwrap();
+        let updated = db.get_strategy(&rows[0].strategy_id).await.unwrap().unwrap();
         assert_eq!(updated.status, "挂起");
-        assert_eq!(updated.cron_expression, "0 */2 * * *");
+        assert_eq!(updated.cron_expression, "0 0 */2 * * * *");
+        assert_eq!(updated.delay_period, 120);
 
-        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        let ids: Vec<String> = rows.iter().map(|r| r.strategy_id.clone()).collect();
         db.batch_suspend(&ids).await.unwrap();
-        assert_eq!(db.get_strategy(rows[0].id).await.unwrap().unwrap().status, "挂起");
-        assert_eq!(db.get_strategy(rows[1].id).await.unwrap().unwrap().status, "挂起");
+        assert_eq!(db.get_strategy(&rows[0].strategy_id).await.unwrap().unwrap().status, "挂起");
+        assert_eq!(db.get_strategy(&rows[1].strategy_id).await.unwrap().unwrap().status, "挂起");
 
         db.batch_activate(&ids).await.unwrap();
-        assert_eq!(db.get_strategy(rows[0].id).await.unwrap().unwrap().status, "可用");
-        assert_eq!(db.get_strategy(rows[1].id).await.unwrap().unwrap().status, "可用");
+        assert_eq!(db.get_strategy(&rows[0].strategy_id).await.unwrap().unwrap().status, "可用");
+        assert_eq!(db.get_strategy(&rows[1].strategy_id).await.unwrap().unwrap().status, "可用");
     }
 
     #[tokio::test]
@@ -2168,9 +2196,10 @@ mod tests {
                 "1",
                 "snapshot_1",
                 "2026-07-08 10:00:00",
-                task_id,
+                "test-unit",
                 "agent_old",
                 "group_g1",
+                "",
             )
             .await
             .unwrap();
@@ -2229,9 +2258,10 @@ mod tests {
                 "1",
                 "snapshot_1",
                 "2026-07-08 10:00:00",
-                task_id,
+                "test-unit",
                 "agent_1",
                 "group_active",
+                "",
             )
             .await
             .unwrap();
