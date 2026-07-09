@@ -686,15 +686,15 @@ impl CoreDb {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
-        trace_sql!("SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval FROM collect_tasks WHERE task_id = ?", task_id = report.task_id);
+        trace_sql!("SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval, assigned_agent_id FROM collect_tasks WHERE task_id = ?", task_id = report.task_id);
         let task_row = sqlx::query(
-            "SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval FROM collect_tasks WHERE task_id = ?",
+            "SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval, assigned_agent_id FROM collect_tasks WHERE task_id = ?",
         )
         .bind(&report.task_id)
         .fetch_optional(&self.pool)
         .await?;
 
-        let (strategy_id, config_snapshot_id, scan_start_time, task_collector_name, task_scan_end_time, task_collect_interval) = match task_row {
+        let (strategy_id, config_snapshot_id, scan_start_time, task_collector_name, task_scan_end_time, task_collect_interval, task_agent_id) = match task_row {
             Some(row) => {
                 let sid: String = row.get(0);
                 let cid: String = row.get(1);
@@ -703,6 +703,7 @@ impl CoreDb {
                 let cname: String = row.get(4);
                 let set: String = row.get(5);
                 let ci: i64 = row.get(6);
+                let aid: String = row.get(7);
                 tracing::info!(
                     "[core-db] accept_task_result: existing task status={status} strategy={sid}"
                 );
@@ -716,7 +717,7 @@ impl CoreDb {
                     }
                     _ => {}
                 }
-                (sid, cid, Some(sst), cname, set, ci)
+                (sid, cid, Some(sst), cname, set, ci, aid)
             }
             None => {
                 tracing::info!(
@@ -740,7 +741,7 @@ impl CoreDb {
                 .bind(&now)
         .execute(&self.pool)
         .await?;
-                (sid, cid, None, String::new(), String::new(), 0i64)
+                (sid, cid, None, String::new(), String::new(), 0i64, report.agent_id.clone())
             }
         };
 
@@ -809,18 +810,21 @@ impl CoreDb {
                 sqlx::query(
                     "INSERT OR IGNORE INTO collect_tasks(\
                      task_id, logical_task_key, strategy_id, config_snapshot_id, \
-                     scan_start_time, collector_name, assigned_agent_id, status, \
+                     scan_start_time, scan_end_time, collect_interval, \
+                     collector_name, assigned_agent_id, status, \
                      created_at, finished_at, table_name, data_time, row_count, \
                      success, collect_time, group_id) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 )
                 .bind(&row.task_id)
                 .bind(&logical_task_key)
                 .bind(&strategy_id)
                 .bind(&config_snapshot_id)
                 .bind(scan_start_time.as_deref().unwrap_or(""))
-                .bind("")
-                .bind(&report.agent_id)
+                .bind(&task_scan_end_time)
+                .bind(task_collect_interval)
+                .bind(&task_collector_name)
+                .bind(&task_agent_id)
                 .bind(terminal_status)
                 .bind(&now)
                 .bind(&now)
