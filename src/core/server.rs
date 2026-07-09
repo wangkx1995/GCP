@@ -566,6 +566,8 @@ async fn dispatch_task(
             &agent_id,
             &request.task_id,
             "",
+            &request.scan_end_time.as_deref().unwrap_or(""),
+            0i64,
         )
         .await
     {
@@ -953,6 +955,9 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
     };
 
     let now = crate::timeutil::now().format("%Y%m%d%H%M%S").to_string();
+    let period = command.strategy.collect_interval;
+    let collector_name = &command.unit.unit_name;
+    let scan_end_time = group.scan_end_time.as_deref().unwrap_or(&group.scan_start_time);
     let mut requests = Vec::new();
     for table_name in &group.table_names {
         let mut strategy = command.strategy.clone();
@@ -975,11 +980,22 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
             &strategy_id,
             &group.config_snapshot_id,
             &group.scan_start_time,
-            &command.unit.unit_name,
+            collector_name,
             "",
             &group.group_id,
             table_name,
+            scan_end_time,
+            period,
         ).await?;
+        let previous_rows = state.db.get_previous_rows_num(collector_name, table_name, &group.scan_start_time).await.unwrap_or(0);
+        state.db.insert_integrity_shell(
+            &group.scan_start_time,
+            scan_end_time,
+            period,
+            collector_name,
+            table_name,
+            previous_rows,
+        ).await.ok();
         requests.push(request);
     }
 

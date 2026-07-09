@@ -226,6 +226,18 @@ impl CoreDb {
         let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
             .execute(&self.pool)
             .await;
+        trace_sql!("ALTER TABLE collect_tasks ADD COLUMN scan_end_time TEXT");
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN scan_end_time TEXT")
+            .execute(&self.pool)
+            .await;
+        trace_sql!("ALTER TABLE collect_tasks ADD COLUMN collect_interval INTEGER NOT NULL DEFAULT 0");
+        let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN collect_interval INTEGER NOT NULL DEFAULT 0")
+            .execute(&self.pool)
+            .await;
+        trace_sql!("CREATE TABLE IF NOT EXISTS dal_data_integrity (scan_start_time TEXT NOT NULL, scan_end_time TEXT NOT NULL, period INTEGER NOT NULL, collector_name TEXT NOT NULL, table_name TEXT NOT NULL, rows_num INTEGER NOT NULL DEFAULT 0, expected_rows_num INTEGER NOT NULL DEFAULT 0, completion_rate REAL NOT NULL DEFAULT 0.0, task_status INTEGER NOT NULL DEFAULT 2, time_stamp TEXT NOT NULL DEFAULT (datetime('now','localtime')), insert_time TEXT NOT NULL DEFAULT (datetime('now','localtime')), instance_int_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (scan_start_time, scan_end_time, period, collector_name, table_name))");
+        let _ = sqlx::query("CREATE TABLE IF NOT EXISTS dal_data_integrity (scan_start_time TEXT NOT NULL, scan_end_time TEXT NOT NULL, period INTEGER NOT NULL, collector_name TEXT NOT NULL, table_name TEXT NOT NULL, rows_num INTEGER NOT NULL DEFAULT 0, expected_rows_num INTEGER NOT NULL DEFAULT 0, completion_rate REAL NOT NULL DEFAULT 0.0, task_status INTEGER NOT NULL DEFAULT 2, time_stamp TEXT NOT NULL DEFAULT (datetime('now','localtime')), insert_time TEXT NOT NULL DEFAULT (datetime('now','localtime')), instance_int_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (scan_start_time, scan_end_time, period, collector_name, table_name))")
+            .execute(&self.pool)
+            .await?;
         trace_sql!("ALTER TABLE collect_tasks ADD COLUMN next_retry_at TEXT");
         let _ = sqlx::query("ALTER TABLE collect_tasks ADD COLUMN next_retry_at TEXT")
             .execute(&self.pool)
@@ -560,20 +572,24 @@ impl CoreDb {
         assigned_agent_id: &str,
         group_id: &str,
         table_name: &str,
+        scan_end_time: &str,
+        collect_interval: i64,
     ) -> Result<()> {
         let now = crate::timeutil::now()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         let data_time = scan_start_time;
-        trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, group_id, status, created_at, table_name, data_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?)", task_id = task_id, logical_task_key = logical_task_key, strategy_id = strategy_id, config_snapshot_id = config_snapshot_id, scan_start_time = scan_start_time, collector_name = collector_name, assigned_agent_id = assigned_agent_id, group_id = group_id, table_name = table_name, data_time = data_time);
+        trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, scan_end_time, collect_interval, collector_name, assigned_agent_id, group_id, status, created_at, table_name, data_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?)", task_id = task_id, logical_task_key = logical_task_key, strategy_id = strategy_id, config_snapshot_id = config_snapshot_id, scan_start_time = scan_start_time, scan_end_time = scan_end_time, collect_interval = collect_interval, collector_name = collector_name, assigned_agent_id = assigned_agent_id, group_id = group_id, table_name = table_name, data_time = data_time);
         sqlx::query(
-            "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, group_id, status, created_at, table_name, data_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?)",
+            "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, scan_end_time, collect_interval, collector_name, assigned_agent_id, group_id, status, created_at, table_name, data_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?)",
         )
         .bind(task_id)
         .bind(logical_task_key)
         .bind(strategy_id)
         .bind(config_snapshot_id)
         .bind(scan_start_time)
+        .bind(scan_end_time)
+        .bind(collect_interval)
         .bind(collector_name)
         .bind(assigned_agent_id)
         .bind(group_id)
@@ -670,20 +686,23 @@ impl CoreDb {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
-        trace_sql!("SELECT strategy_id, config_snapshot_id, status, scan_start_time FROM collect_tasks WHERE task_id = ?", task_id = report.task_id);
+        trace_sql!("SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval FROM collect_tasks WHERE task_id = ?", task_id = report.task_id);
         let task_row = sqlx::query(
-            "SELECT strategy_id, config_snapshot_id, status, scan_start_time FROM collect_tasks WHERE task_id = ?",
+            "SELECT strategy_id, config_snapshot_id, status, scan_start_time, collector_name, scan_end_time, collect_interval FROM collect_tasks WHERE task_id = ?",
         )
         .bind(&report.task_id)
         .fetch_optional(&self.pool)
         .await?;
 
-        let (strategy_id, config_snapshot_id, scan_start_time) = match task_row {
+        let (strategy_id, config_snapshot_id, scan_start_time, task_collector_name, task_scan_end_time, task_collect_interval) = match task_row {
             Some(row) => {
                 let sid: String = row.get(0);
                 let cid: String = row.get(1);
                 let status: String = row.get(2);
                 let sst: String = row.get(3);
+                let cname: String = row.get(4);
+                let set: String = row.get(5);
+                let ci: i64 = row.get(6);
                 tracing::info!(
                     "[core-db] accept_task_result: existing task status={status} strategy={sid}"
                 );
@@ -697,7 +716,7 @@ impl CoreDb {
                     }
                     _ => {}
                 }
-                (sid, cid, Some(sst))
+                (sid, cid, Some(sst), cname, set, ci)
             }
             None => {
                 tracing::info!(
@@ -705,9 +724,9 @@ impl CoreDb {
                 );
                 let sid = format!("unknown_{}", report.task_id);
                 let cid = "unknown".to_string();
-                trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = report.task_id, agent_id = report.agent_id);
+                trace_sql!("INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, scan_end_time, collect_interval, collector_name, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)", task_id = report.task_id, agent_id = report.agent_id);
                 sqlx::query(
-                    "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, collector_name, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
+                    "INSERT INTO collect_tasks(task_id, logical_task_key, strategy_id, config_snapshot_id, scan_start_time, scan_end_time, collect_interval, collector_name, assigned_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
                 )
                 .bind(&report.task_id)
                 .bind("")
@@ -715,15 +734,13 @@ impl CoreDb {
                 .bind(&cid)
                 .bind("")
                 .bind("")
+                .bind(0i64)
+                .bind("")
                 .bind(&report.agent_id)
                 .bind(&now)
         .execute(&self.pool)
         .await?;
-        trace_sql!("ALTER TABLE config_tables ADD COLUMN config_snapshot_id TEXT");
-        let _ = sqlx::query("ALTER TABLE config_tables ADD COLUMN config_snapshot_id TEXT")
-            .execute(&self.pool)
-            .await;
-                (sid, cid, None)
+                (sid, cid, None, String::new(), String::new(), 0i64)
             }
         };
 
@@ -779,6 +796,10 @@ impl CoreDb {
                 .bind(&row.task_id)
                 .execute(&self.pool)
                 .await?;
+                if let (Some(sst), cname, set) = (&scan_start_time, &task_collector_name, &task_scan_end_time) {
+                    let backfill_status = if row.success > 0 { 3 } else { 4 };
+                    self.update_integrity_backfill(sst, set, task_collect_interval, cname, &row.table_name, row.row_count as i64, backfill_status).await.ok();
+                }
             } else if row.task_id.starts_with(&format!("{}_", report.task_id)) {
                 let logical_task_key = format!("strategy_{}:{}:{}", strategy_id, row.data_time, row.table_name);
                 tracing::info!(
@@ -811,11 +832,83 @@ impl CoreDb {
                 .bind(&row.group_id)
                 .execute(&self.pool)
                 .await?;
+                if let (Some(sst), cname, set) = (&scan_start_time, &task_collector_name, &task_scan_end_time) {
+                    let backfill_status = if row.success > 0 { 3 } else { 4 };
+                    self.update_integrity_backfill(sst, set, task_collect_interval, cname, &row.table_name, row.row_count as i64, backfill_status).await.ok();
+                }
             } else {
                 tracing::warn!("[core-db] unexpected task_id {} in result report for task {}, skipping", row.task_id, report.task_id);
             }
         }
         tracing::info!("[core-db] accept_task_result done: status={terminal_status}");
+        Ok(())
+    }
+
+    pub async fn insert_integrity_shell(
+        &self,
+        scan_start_time: &str,
+        scan_end_time: &str,
+        period: i64,
+        collector_name: &str,
+        table_name: &str,
+        previous_rows_num: i64,
+    ) -> Result<()> {
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("INSERT OR IGNORE INTO dal_data_integrity(scan_start_time, scan_end_time, period, collector_name, table_name, rows_num, expected_rows_num, task_status, time_stamp) VALUES (?, ?, ?, ?, ?, 0, ?, 2, ?)", scan_start_time = scan_start_time, scan_end_time = scan_end_time, period = period, collector_name = collector_name, table_name = table_name, previous_rows_num = previous_rows_num);
+        sqlx::query(
+            "INSERT OR IGNORE INTO dal_data_integrity(scan_start_time, scan_end_time, period, collector_name, table_name, rows_num, expected_rows_num, task_status, time_stamp) VALUES (?, ?, ?, ?, ?, 0, ?, 2, ?)",
+        )
+        .bind(scan_start_time)
+        .bind(scan_end_time)
+        .bind(period)
+        .bind(collector_name)
+        .bind(table_name)
+        .bind(previous_rows_num)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_previous_rows_num(&self, collector_name: &str, table_name: &str, scan_start_time: &str) -> Result<i64> {
+        trace_sql!("SELECT expected_rows_num FROM dal_data_integrity WHERE collector_name = ? AND table_name = ? AND scan_start_time < ? ORDER BY scan_start_time DESC LIMIT 1", collector_name = collector_name, table_name = table_name, scan_start_time = scan_start_time);
+        let row = sqlx::query_scalar::<_, i64>(
+            "SELECT expected_rows_num FROM dal_data_integrity WHERE collector_name = ? AND table_name = ? AND scan_start_time < ? ORDER BY scan_start_time DESC LIMIT 1",
+        )
+        .bind(collector_name)
+        .bind(table_name)
+        .bind(scan_start_time)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.unwrap_or(0))
+    }
+
+    pub async fn update_integrity_backfill(
+        &self,
+        scan_start_time: &str,
+        scan_end_time: &str,
+        period: i64,
+        collector_name: &str,
+        table_name: &str,
+        rows_num: i64,
+        task_status: i32,
+    ) -> Result<()> {
+        let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        trace_sql!("UPDATE dal_data_integrity SET rows_num = ?, completion_rate = CASE WHEN expected_rows_num > 0 THEN CAST(? AS REAL) / CAST(expected_rows_num AS REAL) ELSE 1.0 END, task_status = ?, time_stamp = ? WHERE scan_start_time = ? AND scan_end_time = ? AND period = ? AND collector_name = ? AND table_name = ?", scan_start_time = scan_start_time, scan_end_time = scan_end_time, period = period, collector_name = collector_name, table_name = table_name);
+        sqlx::query(
+            "UPDATE dal_data_integrity SET rows_num = ?, completion_rate = CASE WHEN expected_rows_num > 0 THEN CAST(? AS REAL) / CAST(expected_rows_num AS REAL) ELSE 1.0 END, task_status = ?, time_stamp = ? WHERE scan_start_time = ? AND scan_end_time = ? AND period = ? AND collector_name = ? AND table_name = ?",
+        )
+        .bind(rows_num)
+        .bind(rows_num)
+        .bind(task_status)
+        .bind(&now)
+        .bind(scan_start_time)
+        .bind(scan_end_time)
+        .bind(period)
+        .bind(collector_name)
+        .bind(table_name)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1792,6 +1885,8 @@ mod tests {
             &agent_id,
             "group_test",
             "TPD_A",
+            "",
+            0i64,
         )
         .await
         .unwrap();
@@ -1855,6 +1950,8 @@ mod tests {
             &agent_id,
             "group_test",
             "TPD_A",
+            "",
+            0i64,
         )
         .await
         .unwrap();
@@ -1915,6 +2012,8 @@ mod tests {
             "agent_1",
             "group_123",
             "",
+            "",
+            0i64,
         )
         .await
         .unwrap();
@@ -2320,6 +2419,8 @@ mod tests {
                 "agent_old",
                 "group_g1",
                 "",
+                "",
+                0i64,
             )
             .await
             .unwrap();
@@ -2382,6 +2483,8 @@ mod tests {
                 "agent_1",
                 "group_active",
                 "",
+                "",
+                0i64,
             )
             .await
             .unwrap();
