@@ -234,6 +234,7 @@ export interface CollectionStrategy {
   execute_time: string | null;
   agent_ids: string[];
   strategy_type: string;
+  delay_period?: number;
   created_at: string;
   updated_at: string;
 }
@@ -250,6 +251,7 @@ export interface CollectionStrategyCreateRequest {
   execute_time?: string;
   agent_ids: string;
   strategy_type: string;
+  delay_period?: number;
 }
 
 export interface CollectionStrategyUpdateRequest {
@@ -261,6 +263,7 @@ export interface CollectionStrategyUpdateRequest {
   execute_time?: string;
   agent_ids?: string;
   status?: string;
+  delay_period?: number;
 }
 
 export interface BatchStatusRequest {

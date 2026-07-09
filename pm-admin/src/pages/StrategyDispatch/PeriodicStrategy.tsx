@@ -92,6 +92,7 @@ export default function PeriodicStrategyPage() {
         agent_ids: editData.agent_ids,
         cron_expression: editData.cron_expression,
         status: editData.status,
+        delay_period: editData.delay_period,
       });
     }
   }, [editData, form]);
@@ -109,6 +110,7 @@ export default function PeriodicStrategyPage() {
           data_interval: values.data_interval_seconds,
           agent_ids: JSON.stringify(values.agent_ids || []),
           strategy_type: 'periodic',
+          delay_period: values.delay_period ?? 0,
         };
         await createMutation.mutateAsync(data);
         message.success('创建成功');
@@ -119,6 +121,7 @@ export default function PeriodicStrategyPage() {
           data_interval: values.data_interval_seconds,
           agent_ids: JSON.stringify(values.agent_ids || []),
           status: values.status,
+          delay_period: values.delay_period ?? 0,
         };
         await updateMutation.mutateAsync({ id: editId, data });
         message.success('更新成功');
@@ -156,6 +159,7 @@ export default function PeriodicStrategyPage() {
               <div style={{ flex: 1 }}><Form.Item name="collector_name" label="采集单元名称"><Input disabled /></Form.Item></div>
               <div style={{ flex: 1 }}><Form.Item name="collector_interval" label="采集周期(秒)"><InputNumber disabled style={{ width: '100%' }} /></Form.Item></div>
               <div style={{ flex: 1 }}><Form.Item name="data_interval_seconds" label="数据周期(秒)"><InputNumber disabled style={{ width: '100%' }} /></Form.Item></div>
+              <div style={{ flex: 1 }}><Form.Item name="delay_period" label="回溯周期（秒）" rules={[{ type: 'number', min: 0, message: '不能为负数' }]} initialValue={0}><InputNumber min={0} placeholder="0" style={{ width: '100%' }} /></Form.Item></div>
             </div>
             <Form.Item name="table_names" label="指标组(表名)" rules={[{ required: true }]}>
               <Select mode="multiple" placeholder="选择表名" options={availableTables.map(t => ({ label: t, value: t }))} disabled={!isNew} />
