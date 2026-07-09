@@ -7,6 +7,7 @@ pub mod crc64;
 pub mod load_config;
 pub mod parse_job;
 pub mod parser;
+pub mod scan_window;
 pub mod timeutil;
 pub mod tpd;
 pub mod util;
