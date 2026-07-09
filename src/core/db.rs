@@ -829,19 +829,22 @@ impl CoreDb {
                 tracing::warn!("[core-db] unexpected task_id {} in result report for task {}, skipping", row.task_id, report.task_id);
             }
         }
-        // 补完未上报的预建 OP 行（group 级别更新会把 OP 行切到 DISPATCHING 而非 CREATED）
+        // 先补完所有非终态的预建 OP 行（group 级别更新会把 OP 行状态从 CREATED 改为 DISPATCHING）
+        // 循环中的具体上报行会覆盖实际值
         if !task_group_id.is_empty() {
-            let prefix = format!("{}_", report.task_id);
-            trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", task_id = report.task_id, group_id = task_group_id);
-            sqlx::query(
-                "UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
+            let op_prefix = format!("{}_%", report.task_id);
+            tracing::info!("[core-db] clean up un-reported OP tasks: group={} prefix={}", task_group_id, op_prefix);
+            let affected = sqlx::query(
+                "UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND task_id != ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
             )
             .bind(terminal_status)
             .bind(&now)
             .bind(&task_group_id)
-            .bind(format!("{}%", prefix))
+            .bind(&op_prefix)
+            .bind(&report.task_id)
             .execute(&self.pool)
             .await?;
+            tracing::info!("[core-db] OP cleanup affected {} row(s)", affected.rows_affected());
         }
         tracing::info!("[core-db] accept_task_result done: status={terminal_status}");
         Ok(())
