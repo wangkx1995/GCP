@@ -829,12 +829,12 @@ impl CoreDb {
                 tracing::warn!("[core-db] unexpected task_id {} in result report for task {}, skipping", row.task_id, report.task_id);
             }
         }
-        // 补完未上报的预建 OP 行（agent 零数据时不产 OP 行，但 Core 已预建了）
+        // 补完未上报的预建 OP 行（group 级别更新会把 OP 行切到 DISPATCHING 而非 CREATED）
         if !task_group_id.is_empty() {
             let prefix = format!("{}_", report.task_id);
-            trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status = 'CREATED'", task_id = report.task_id, group_id = task_group_id);
+            trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')", task_id = report.task_id, group_id = task_group_id);
             sqlx::query(
-                "UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status = 'CREATED'",
+                "UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
             )
             .bind(terminal_status)
             .bind(&now)
