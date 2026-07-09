@@ -336,7 +336,7 @@ pub struct CollectionStrategyCreateRequest {
     pub cron_expression: Option<String>,
     pub collect_interval: i64,
     pub data_interval: i64,
-    pub delay_period: i64,
+    pub delay_period: Option<i64>,
     pub data_start_time: Option<String>,
     pub data_end_time: Option<String>,
     pub execute_time: Option<String>,

@@ -19,6 +19,7 @@ pub struct ParseJobOptions {
     pub input: Option<PathBuf>,
     pub source_config: Option<remote_file_source::config::SourceConfig>,
     pub scan_start_time: Option<String>,
+    pub scan_end_time: Option<String>,
     pub config_dir: PathBuf,
     pub output_dir: PathBuf,
     pub collector_name: String,

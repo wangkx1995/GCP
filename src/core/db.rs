@@ -832,7 +832,7 @@ impl CoreDb {
             let raw = format!("{}_{}_{}", req.collector_name, table_name, nanos + i as u128);
             let strategy_id = crate::crc64::crc64_ecma(&raw).to_string();
             trace_sql!("INSERT INTO collection_strategy (strategy_id, collector_name, collector_id, table_name, ...) VALUES (?, ?, ?, ?, ...)", strategy_id = strategy_id, table_name = table_name);
-            let delay_period = req.delay_period.max(0);
+            let delay_period = req.delay_period.unwrap_or(0).max(0);
             sqlx::query(
                 "INSERT INTO collection_strategy (strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at) VALUES (?, ?, ?, ?, '可用', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
@@ -2057,7 +2057,7 @@ mod tests {
             cron_expression: Some("0 0 0 * * * *".to_string()),
             collect_interval: 900,
             data_interval: 900,
-            delay_period: 60,
+            delay_period: Some(60),
             data_start_time: None,
             data_end_time: None,
             execute_time: None,

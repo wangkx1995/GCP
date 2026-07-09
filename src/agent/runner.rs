@@ -97,6 +97,7 @@ impl AgentRunner {
             input: None,
             source_config: Some(source_config),
             scan_start_time: Some(task.scan_start_time.clone()),
+            scan_end_time: task.scan_end_time.clone(),
             config_dir: config_dir.clone(),
             output_dir: output_dir.clone(),
             collector_name: task.collector_name.clone(),

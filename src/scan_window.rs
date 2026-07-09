@@ -14,80 +14,79 @@ pub fn get_scan_scope(fire_time_ms: i64, period_sec: i64, delay_sec: i64) -> Opt
     }
     let delay_sec = delay_sec.max(0);
     let fire_min = (fire_time_ms / MINUTE_MS) * MINUTE_MS;
-    let delay_ms = delay_sec * 1000;
+    let delay_ms = delay_sec.checked_mul(1000)?;
 
     if period_sec == 2_592_000 {
-        let aligned = align_month(fire_min);
-        let start = prev_month_first_day_ms(aligned) - delay_ms;
-        let end = aligned - delay_ms;
+        let aligned = align_month(fire_min)?;
+        let start = prev_month_first_day_ms(aligned)?.checked_sub(delay_ms)?;
+        let end = aligned.checked_sub(delay_ms)?;
         return Some((start, end));
     }
 
     let aligned = match period_sec {
-        3_600 => align_hour(fire_min),
-        86_400 => align_day(fire_min),
-        604_800 => align_week(fire_min),
-        _ if period_sec >= 3_600 => align_to_period_grid(fire_min, period_sec),
-        _ => align_to_period(fire_min, period_sec),
+        3_600 => align_hour(fire_min)?,
+        86_400 => align_day(fire_min)?,
+        604_800 => align_week(fire_min)?,
+        _ if period_sec >= 3_600 => align_to_period_grid(fire_min, period_sec)?,
+        _ => align_to_period(fire_min, period_sec)?,
     };
 
-    let period_ms = period_sec * 1000;
-    let end = aligned - delay_ms;
-    let start = aligned - period_ms - delay_ms;
+    let period_ms = period_sec.checked_mul(1000)?;
+    let end = aligned.checked_sub(delay_ms)?;
+    let start = aligned.checked_sub(period_ms)?.checked_sub(delay_ms)?;
     Some((start, end))
 }
 
 /// 亚小时周期：按北京时间 +8h 对齐后取模 floor
-fn align_to_period(t: i64, period_sec: i64) -> i64 {
-    let p = period_sec * 1000;
+fn align_to_period(t: i64, period_sec: i64) -> Option<i64> {
+    let p = period_sec.checked_mul(1000)?;
     let shift = BEIJING_OFFSET_SECS as i64 * 1000;
-    t - ((t + shift) % p)
+    Some(t - ((t + shift) % p))
 }
 
 /// 长周期（>=3600 非精确值）：直接按周期毫秒取模 floor
-fn align_to_period_grid(t: i64, period_sec: i64) -> i64 {
-    let p = period_sec * 1000;
-    t - (t % p)
+fn align_to_period_grid(t: i64, period_sec: i64) -> Option<i64> {
+    let p = period_sec.checked_mul(1000)?;
+    Some(t - (t % p))
 }
 
-fn align_hour(t: i64) -> i64 {
-    let dt = DateTime::from_timestamp_millis(t).unwrap().with_timezone(&beijing());
+fn align_hour(t: i64) -> Option<i64> {
+    let dt = DateTime::from_timestamp_millis(t)?.with_timezone(&beijing());
     beijing()
         .with_ymd_and_hms(dt.year(), dt.month(), dt.day(), dt.hour(), 0, 0)
-        .unwrap()
-        .timestamp_millis()
+        .single()
+        .map(|dt| dt.timestamp_millis())
 }
 
-fn align_day(t: i64) -> i64 {
-    let dt = DateTime::from_timestamp_millis(t).unwrap().with_timezone(&beijing());
+fn align_day(t: i64) -> Option<i64> {
+    let dt = DateTime::from_timestamp_millis(t)?.with_timezone(&beijing());
     beijing()
         .with_ymd_and_hms(dt.year(), dt.month(), dt.day(), 0, 0, 0)
-        .unwrap()
-        .timestamp_millis()
+        .single()
+        .map(|dt| dt.timestamp_millis())
 }
 
-fn align_week(t: i64) -> i64 {
-    let dt = DateTime::from_timestamp_millis(t).unwrap().with_timezone(&beijing());
+fn align_week(t: i64) -> Option<i64> {
+    let dt = DateTime::from_timestamp_millis(t)?.with_timezone(&beijing());
     let days_since_monday = dt.weekday().num_days_from_monday();
-    let date = NaiveDate::from_ymd_opt(dt.year(), dt.month(), dt.day()).unwrap()
+    let date = NaiveDate::from_ymd_opt(dt.year(), dt.month(), dt.day())?
         - chrono::Duration::days(days_since_monday as i64);
     beijing()
         .with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
-        .unwrap()
-        .timestamp_millis()
+        .single()
+        .map(|dt| dt.timestamp_millis())
 }
 
-fn align_month(t: i64) -> i64 {
-    let dt = DateTime::from_timestamp_millis(t).unwrap().with_timezone(&beijing());
+fn align_month(t: i64) -> Option<i64> {
+    let dt = DateTime::from_timestamp_millis(t)?.with_timezone(&beijing());
     beijing()
         .with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0)
-        .unwrap()
-        .timestamp_millis()
+        .single()
+        .map(|dt| dt.timestamp_millis())
 }
 
-fn prev_month_first_day_ms(current_month_first_ms: i64) -> i64 {
-    let dt = DateTime::from_timestamp_millis(current_month_first_ms)
-        .unwrap()
+fn prev_month_first_day_ms(current_month_first_ms: i64) -> Option<i64> {
+    let dt = DateTime::from_timestamp_millis(current_month_first_ms)?
         .with_timezone(&beijing());
     let year = dt.year();
     let month = dt.month();
@@ -98,8 +97,8 @@ fn prev_month_first_day_ms(current_month_first_ms: i64) -> i64 {
     };
     beijing()
         .with_ymd_and_hms(prev_year, prev_month, 1, 0, 0, 0)
-        .unwrap()
-        .timestamp_millis()
+        .single()
+        .map(|dt| dt.timestamp_millis())
 }
 
 #[cfg(test)]
@@ -221,5 +220,22 @@ mod tests {
         let (start, end) = get_scan_scope(ts(9, 12, 0), 86_400, 3_600).unwrap();
         assert_eq!(end, ts(0, 0, 0) - 3_600 * 1000);
         assert_eq!(start, end - 86_400 * 1000);
+    }
+
+    #[test]
+    fn overflow_period_returns_none() {
+        let huge_period = i64::MAX / 1000 + 1;
+        assert_eq!(get_scan_scope(ts(5, 0, 0), huge_period, 0), None);
+    }
+
+    #[test]
+    fn overflow_delay_returns_none() {
+        let huge_delay = i64::MAX / 1000 + 1;
+        assert_eq!(get_scan_scope(ts(5, 0, 0), 900, huge_delay), None);
+    }
+
+    #[test]
+    fn out_of_range_timestamp_returns_none() {
+        assert_eq!(get_scan_scope(i64::MAX, 3_600, 0), None);
     }
 }

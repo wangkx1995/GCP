@@ -85,6 +85,7 @@ fn main() -> Result<()> {
         input: cli.input,
         source_config,
         scan_start_time: cli.scan_start_time,
+        scan_end_time: None,
         config_dir: cli.config_dir,
         output_dir: cli.output_dir,
         collector_name: "cli".to_string(),
