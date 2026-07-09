@@ -398,6 +398,7 @@ pub struct TaskDispatchRequest {
     pub group_id: Option<String>,
     pub config_snapshot_id: String,
     pub scan_start_time: String,
+    pub scan_end_time: Option<String>,
     pub collector_name: String,
     pub load_type: String,
     pub encoding: String,

@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use anyhow::Result;
 use chrono::{NaiveDateTime, Timelike};
+use cron::Schedule;
+use std::str::FromStr;
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -28,7 +30,7 @@ use tokio::sync::mpsc;
 use crate::core_agent_api::{
     BatchStatusRequest, ConfigNamesResponse,
     CollectionStrategyCreateRequest, CollectionStrategyRow, CollectionStrategyUpdateRequest,
-    DataCollectorUnitRow, DataCollectorUnitSaveRequest, NextIdResponse,
+    DataCollectorUnitRow, DataCollectorUnitSaveRequest,
     TablesResponse, TaskDispatchRequest, TaskStatus,
 };
 
@@ -69,6 +71,7 @@ pub struct CoreState {
     pub to_tcp: mpsc::Sender<(AgentId, InternalMessage)>,
     pub http: reqwest::Client,
     pub storage: Arc<ConfigStorage>,
+    pub periodic_cache: Arc<tokio::sync::RwLock<Vec<CollectionStrategyRow>>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,6 +91,7 @@ struct StrategyCommand {
     scan_end_time: Option<String>,
     table_names: Vec<String>,
     force_agent_id: Option<String>,
+    force_group_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -123,7 +127,7 @@ fn compute_task_group_id(
         scan_end_time.unwrap_or(""),
         sorted_tables.join(",")
     );
-    format!("group_{}", crate::crc64::crc64_ecma(&input))
+    crate::crc64::crc64_ecma(&input).to_string()
 }
 
 pub fn router(state: CoreState) -> Router {
@@ -145,7 +149,6 @@ pub fn router(state: CoreState) -> Router {
         .route("/api/data-collector-units/:id", delete(delete_data_collector_unit_handler))
         .route("/api/data-collector-units/config-names", get(search_config_names))
         .route("/api/data-collector-units/tables", get(tables_for_config_handler))
-        .route("/api/strategies/next-id", post(next_strategy_id))
         .route("/api/strategies", post(create_strategies))
         .route("/api/strategies", get(list_strategies))
         .route("/api/strategies/batch-suspend", post(batch_suspend))
@@ -294,7 +297,7 @@ async fn upload_config_snapshot(
         tracing::warn!("[core] upload request body is empty");
         return err_response(StatusCode::BAD_REQUEST, "请求体为空").into_response();
     }
-    let snapshot_id = format!("v_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+    let snapshot_id = format!("v_{}", crate::timeutil::now().format("%Y%m%d_%H%M%S"));
     let name = params
         .get("name")
         .map(|s| s.as_str())
@@ -482,8 +485,7 @@ async fn result_grid(
     );
 
     let interval_from_query = query.interval_minutes.unwrap_or(15);
-    let strategy_id: i64 = query.strategy_id.parse().unwrap_or(0);
-    let interval = match state.db.get_strategy(strategy_id).await {
+    let interval = match state.db.get_strategy(&query.strategy_id).await {
         Ok(Some(s)) => {
             let mins = (s.collect_interval.max(60) as u32) / 60;
             info!("[core] result_grid using strategy collect_interval={}s ({}min)", s.collect_interval, mins);
@@ -508,9 +510,9 @@ async fn result_grid(
                 &rows,
             );
 
-            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let today = crate::timeutil::now().format("%Y-%m-%d").to_string();
             if query.day == today {
-                let now = chrono::Local::now();
+                let now = crate::timeutil::now();
                 let total_minutes = now.hour() as u32 * 60 + now.minute() as u32;
                 let cutoff = total_minutes.saturating_sub(interval as u32);
                 let cutoff_str = format!("{:02}:{:02}:00", cutoff / 60, cutoff % 60);
@@ -560,9 +562,10 @@ async fn dispatch_task(
             &request.strategy_id,
             &request.config_snapshot_id,
             &request.scan_start_time,
-            &request.collect_id,
+            &request.collector_name,
             &agent_id,
             &request.task_id,
+            "",
         )
         .await
     {
@@ -594,7 +597,7 @@ async fn next_unit_id(
     axum::extract::State(state): axum::extract::State<CoreState>,
 ) -> Response {
     match state.db.next_unit_id().await {
-        Ok(id) => ok_response(NextIdResponse { id }, "获取 ID 成功").into_response(),
+        Ok(id) => ok_response(serde_json::json!({ "id": id }), "获取 ID 成功").into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
     }
 }
@@ -613,6 +616,11 @@ async fn upsert_data_collector_unit(
     Json(data): Json<DataCollectorUnitSaveRequest>,
 ) -> Response {
     let id = crate::crc64::crc64_ecma(&data.unit_name);
+    if data.original_id.is_none() {
+        if let Ok(Some(_)) = state.db.get_unit_by_id(id).await {
+            return err_response(StatusCode::CONFLICT, format!("采集单元名称 '{}' 已存在", data.unit_name)).into_response();
+        }
+    }
     match state.db.upsert_data_collector_unit(id, &data).await {
         Ok(_) => ok_response(serde_json::json!({"id": id}), "保存成功").into_response(),
         Err(e) => {
@@ -667,15 +675,6 @@ async fn tables_for_config_handler(
     }
 }
 
-async fn next_strategy_id(
-    State(state): State<CoreState>,
-) -> Response {
-    match state.db.next_strategy_id().await {
-        Ok(id) => ok_response(serde_json::json!({ "id": id }), "OK").into_response(),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
-    }
-}
-
 async fn create_strategies(
     State(state): State<CoreState>,
     Json(req): Json<CollectionStrategyCreateRequest>,
@@ -716,25 +715,35 @@ async fn create_strategies(
             }
         };
 
+        let table_names_joined = req.table_names.join(",");
+        let batch_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let batch_raw = format!("{}_{}_{}", unit.unit_name, table_names_joined, batch_now);
+        let batch_group_id = crate::crc64::crc64_ecma(&batch_raw).to_string();
+
         for row in &rows {
             let command = StrategyCommand {
                 source: StrategyCommandSource::Immediate,
                 strategy: row.clone(),
                 unit: unit.clone(),
                 config_snapshot_id: config_snapshot_id.clone(),
-                scan_start_time: row.data_start_time.clone().unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+                scan_start_time: row.data_start_time.clone().unwrap_or_else(|| crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string()),
                 scan_end_time: row.data_end_time.clone(),
                 table_names: vec![row.table_name.clone()],
                 force_agent_id: None,
+                force_group_id: Some(batch_group_id.clone()),
             };
             match dispatch_strategy_command(&state, command).await {
-                Ok(true) => tracing::info!("[create_strategies] dispatched strategy_id={}", row.id),
-                Ok(false) => tracing::warn!("[create_strategies] queued retry for strategy_id={}", row.id),
-                Err(e) => tracing::error!("[create_strategies] dispatch failed for strategy_id={}: {e}", row.id),
+                Ok(true) => tracing::info!("[create_strategies] dispatched strategy_id={}", row.strategy_id),
+                Ok(false) => tracing::warn!("[create_strategies] queued retry for strategy_id={}", row.strategy_id),
+                Err(e) => tracing::error!("[create_strategies] dispatch failed for strategy_id={}: {e}", row.strategy_id),
             }
         }
     }
 
+    refresh_periodic_cache(&state).await;
     ok_response(rows, "创建成功").into_response()
 }
 
@@ -753,9 +762,9 @@ async fn list_strategies(
 
 async fn get_strategy(
     State(state): State<CoreState>,
-    Path(id): Path<i64>,
+    Path(id): Path<String>,
 ) -> Response {
-    match state.db.get_strategy(id).await {
+    match state.db.get_strategy(&id).await {
         Ok(Some(row)) => ok_response(row, "OK").into_response(),
         Ok(None) => err_response(StatusCode::NOT_FOUND, "策略不存在").into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
@@ -764,16 +773,19 @@ async fn get_strategy(
 
 async fn update_strategy(
     State(state): State<CoreState>,
-    Path(id): Path<i64>,
+    Path(id): Path<String>,
     Json(req): Json<CollectionStrategyUpdateRequest>,
 ) -> Response {
-    if let Ok(Some(s)) = state.db.get_strategy(id).await {
+    if let Ok(Some(s)) = state.db.get_strategy(&id).await {
         if s.strategy_type == "immediate" {
             return err_response(StatusCode::BAD_REQUEST, "一次性任务不可编辑").into_response();
         }
     }
-    match state.db.update_strategy(id, &req).await {
-        Ok(true) => ok_response(serde_json::json!({}), "更新成功").into_response(),
+    match state.db.update_strategy(&id, &req).await {
+        Ok(true) => {
+            refresh_periodic_cache(&state).await;
+            ok_response(serde_json::json!({}), "更新成功").into_response()
+        }
         Ok(false) => err_response(StatusCode::NOT_FOUND, "策略不存在").into_response(),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
     }
@@ -786,7 +798,7 @@ async fn batch_suspend(
     if req.ids.is_empty() {
         return err_response(StatusCode::BAD_REQUEST, "ids 不能为空").into_response();
     }
-    for &id in &req.ids {
+    for id in &req.ids {
         if let Ok(Some(s)) = state.db.get_strategy(id).await {
             if s.strategy_type == "immediate" {
                 return err_response(StatusCode::BAD_REQUEST, format!("一次性任务不可挂起 (ID: {})", id)).into_response();
@@ -794,7 +806,10 @@ async fn batch_suspend(
         }
     }
     match state.db.batch_suspend(&req.ids).await {
-        Ok(count) => ok_response(serde_json::json!({ "affected": count }), &format!("已挂起 {count} 条")).into_response(),
+        Ok(count) => {
+            refresh_periodic_cache(&state).await;
+            ok_response(serde_json::json!({ "affected": count }), &format!("已挂起 {count} 条")).into_response()
+        }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
     }
 }
@@ -806,7 +821,7 @@ async fn batch_activate(
     if req.ids.is_empty() {
         return err_response(StatusCode::BAD_REQUEST, "ids 不能为空").into_response();
     }
-    for &id in &req.ids {
+    for id in &req.ids {
         if let Ok(Some(s)) = state.db.get_strategy(id).await {
             if s.strategy_type == "immediate" {
                 return err_response(StatusCode::BAD_REQUEST, format!("一次性任务不可激活 (ID: {})", id)).into_response();
@@ -814,7 +829,10 @@ async fn batch_activate(
         }
     }
     match state.db.batch_activate(&req.ids).await {
-        Ok(count) => ok_response(serde_json::json!({ "affected": count }), &format!("已激活 {count} 条")).into_response(),
+        Ok(count) => {
+            refresh_periodic_cache(&state).await;
+            ok_response(serde_json::json!({ "affected": count }), &format!("已激活 {count} 条")).into_response()
+        }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
     }
 }
@@ -840,18 +858,19 @@ fn build_task_dispatch_request(
     config_snapshot_id: &str,
     group_id: &str,
     task_id: String,
-    collect_id: String,
     logical_task_key: String,
     scan_start_time: String,
+    scan_end_time: Option<String>,
 ) -> TaskDispatchRequest {
     TaskDispatchRequest {
         task_id,
         logical_task_key,
-        strategy_id: strategy.id.to_string(),
+        strategy_id: strategy.strategy_id.clone(),
         group_id: Some(group_id.to_string()),
         config_snapshot_id: config_snapshot_id.to_string(),
         scan_start_time,
-        collect_id,
+        scan_end_time,
+        collector_name: unit.unit_name.clone(),
         load_type: unit.load_type.clone(),
         encoding: unit.file_encoding.clone(),
         output_delimiter: unit.output_delimiter.clone(),
@@ -891,14 +910,18 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
         anyhow::bail!("strategy command has no candidate agents");
     }
 
-    let strategy_id = command.strategy.id.to_string();
-    let group_id = compute_task_group_id(
-        &strategy_id,
-        command.unit.id,
-        &command.scan_start_time,
-        command.scan_end_time.as_deref(),
-        &command.table_names,
-    );
+    let strategy_id = command.strategy.strategy_id.clone();
+    let group_id = if let Some(ref gid) = command.force_group_id {
+        gid.clone()
+    } else {
+        compute_task_group_id(
+            &strategy_id,
+            command.unit.id,
+            &command.scan_start_time,
+            command.scan_end_time.as_deref(),
+            &command.table_names,
+        )
+    };
     let group = TaskGroup {
         group_id: group_id.clone(),
         source: command.source.clone(),
@@ -925,17 +948,16 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
             tracing::warn!(group_id = %group.group_id, retry_count = current_retry_count, "group exceeded max retries, marked FAILED");
             return Ok(false);
         }
-        state.db.increment_group_retry(&group.group_id, &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), "no available agent").await?;
+        state.db.increment_group_retry(&group.group_id, &crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string(), "no available agent").await?;
         return Ok(false);
     };
 
-    let now = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+    let now = crate::timeutil::now().format("%Y%m%d%H%M%S").to_string();
     let mut requests = Vec::new();
     for table_name in &group.table_names {
         let mut strategy = command.strategy.clone();
         strategy.table_name = table_name.clone();
         let task_id = format!("task_{}_{}_{}", strategy_id, table_name, now);
-        let collect_id = format!("collect_{}_{}_{}", strategy_id, table_name, now);
         let logical_task_key = format!("strategy_{}:{}:{}", strategy_id, group.scan_start_time, table_name);
         let request = build_task_dispatch_request(
             &strategy,
@@ -943,9 +965,9 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
             &group.config_snapshot_id,
             &group.group_id,
             task_id.clone(),
-            collect_id.clone(),
             logical_task_key.clone(),
             group.scan_start_time.clone(),
+            group.scan_end_time.clone(),
         );
         state.db.create_task(
             &task_id,
@@ -953,9 +975,10 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
             &strategy_id,
             &group.config_snapshot_id,
             &group.scan_start_time,
-            &collect_id,
+            &command.unit.unit_name,
             "",
             &group.group_id,
+            table_name,
         ).await?;
         requests.push(request);
     }
@@ -974,8 +997,7 @@ async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i6
         anyhow::bail!("no tasks found for group {}", group_id);
     }
 
-    let strategy_id_str = &tasks[0].2;
-    let strategy_id: i64 = strategy_id_str.parse()?;
+    let strategy_id = &tasks[0].2;
     let strategy = state.db.get_strategy(strategy_id).await?.ok_or_else(|| anyhow::anyhow!("strategy not found"))?;
     let unit = state.db.get_unit_by_id(strategy.collector_id).await?.ok_or_else(|| anyhow::anyhow!("unit not found"))?;
 
@@ -992,8 +1014,7 @@ async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i6
 
     let mut table_names = Vec::new();
     for task in &tasks {
-        let sid: i64 = task.2.parse()?;
-        if let Some(s) = state.db.get_strategy(sid).await? {
+        if let Some(s) = state.db.get_strategy(&task.2).await? {
             if !table_names.contains(&s.table_name) {
                 table_names.push(s.table_name.clone());
             }
@@ -1021,7 +1042,7 @@ async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i6
             tracing::warn!(group_id = %group_id, retry_count, "retry group exceeded max retries, marked FAILED");
             return Ok(());
         }
-        let next_retry = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let next_retry = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         state.db.increment_group_retry(group_id, &next_retry, "no available agent").await?;
         return Ok(());
     };
@@ -1030,17 +1051,16 @@ async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i6
     state.db.update_group_status(group_id, "DISPATCHING", None).await?;
 
     for task in &tasks {
-        let sid: i64 = task.2.parse()?;
-        let task_strategy = state.db.get_strategy(sid).await?.ok_or_else(|| anyhow::anyhow!("strategy not found"))?;
+        let task_strategy = state.db.get_strategy(&task.2).await?.ok_or_else(|| anyhow::anyhow!("strategy not found"))?;
         let request = build_task_dispatch_request(
             &task_strategy,
             &unit,
             &task.3,
             group_id,
             task.0.clone(),
-            task.5.clone(),
             task.1.clone(),
             task.4.clone(),
+            group.scan_end_time.clone(),
         );
         state.to_tcp.send((agent_id.clone(), InternalMessage::DispatchTask(request))).await?;
     }
@@ -1092,6 +1112,7 @@ pub async fn run_core_server(
         to_tcp: to_tcp_tx,
         http: reqwest::Client::new(),
         storage: Arc::new(storage),
+        periodic_cache: Arc::new(tokio::sync::RwLock::new(Vec::new())),
     };
 
     // TCP listener — accepts agent connections
@@ -1250,47 +1271,79 @@ async fn tcp_cleanup_loop(registry: ConnectionRegistry, db: CoreDb, cleanup_inte
     }
 }
 
+fn cron_matches(cron: &str, now: &chrono::DateTime<chrono::FixedOffset>) -> bool {
+    let expr = cron.trim();
+    if expr.is_empty() {
+        return true;
+    }
+    match Schedule::from_str(expr) {
+        Ok(schedule) => schedule.includes(*now),
+        Err(e) => {
+            tracing::warn!(cron = %cron, error = %e, "invalid cron expression");
+            false
+        }
+    }
+}
+
+async fn refresh_periodic_cache(state: &CoreState) {
+    match state.db.list_active_periodic_strategies().await {
+        Ok(rows) => {
+            let mut cache = state.periodic_cache.write().await;
+            *cache = rows;
+        }
+        Err(e) => tracing::warn!(error = %e, "refresh periodic cache failed"),
+    }
+}
+
 async fn periodic_strategy_scan_loop(state: CoreState) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    refresh_periodic_cache(&state).await;
+    let mut cron_tick = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
-        interval.tick().await;
-        let strategies = match state.db.list_active_periodic_strategies().await {
-            Ok(rows) => rows,
-            Err(e) => {
-                tracing::warn!(error = %e, "periodic strategy scan failed");
+        cron_tick.tick().await;
+        let strategies = state.periodic_cache.read().await;
+        if strategies.is_empty() {
+            continue;
+        }
+        let now = crate::timeutil::now();
+        for strategy in strategies.iter() {
+            if !cron_matches(&strategy.cron_expression, &now) {
                 continue;
             }
-        };
-        for strategy in strategies {
             let unit = match state.db.get_unit_by_id(strategy.collector_id).await {
                 Ok(Some(unit)) => unit,
                 Ok(None) => {
-                    tracing::warn!(strategy_id = %strategy.id, collector_id = %strategy.collector_id, "periodic strategy unit not found");
+                    tracing::warn!(strategy_id = %strategy.strategy_id, collector_id = %strategy.collector_id, "periodic strategy unit not found");
                     continue;
                 }
                 Err(e) => {
-                    tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic strategy unit query failed");
+                    tracing::warn!(strategy_id = %strategy.strategy_id, error = %e, "periodic strategy unit query failed");
                     continue;
                 }
             };
             let config_snapshot_id = match state.db.get_active_snapshot_id_for_config_name(&unit.config_name).await {
                 Ok(Some(id)) => id,
                 Ok(None) => {
-                    tracing::warn!(strategy_id = %strategy.id, config_name = %unit.config_name, "periodic strategy active snapshot not found");
+                    tracing::warn!(strategy_id = %strategy.strategy_id, config_name = %unit.config_name, "periodic strategy active snapshot not found");
                     continue;
                 }
                 Err(e) => {
-                    tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic strategy snapshot query failed");
+                    tracing::warn!(strategy_id = %strategy.strategy_id, error = %e, "periodic strategy snapshot query failed");
                     continue;
                 }
             };
-            let scan_start_time = chrono::Local::now().format("%Y-%m-%d %H:%M:00").to_string();
-            let logical_task_key = format!("strategy_{}:{}:{}", strategy.id, scan_start_time, strategy.table_name);
+            let now = crate::timeutil::now();
+            let interval = strategy.data_interval.max(60);
+            let ts = now.timestamp();
+            let rem = ts % interval;
+            let scan_start_time = chrono::DateTime::from_timestamp(ts - rem - interval, 0)
+                .map(|t| t.naive_utc().format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_else(|| now.format("%Y-%m-%d %H:%M:%S").to_string());
+            let logical_task_key = format!("strategy_{}:{}:{}", strategy.strategy_id, scan_start_time, strategy.table_name);
             match state.db.task_exists_by_logical_key(&logical_task_key).await {
                 Ok(true) => continue,
                 Ok(false) => {}
                 Err(e) => {
-                    tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic duplicate check failed");
+                    tracing::warn!(strategy_id = %strategy.strategy_id, error = %e, "periodic duplicate check failed");
                     continue;
                 }
             }
@@ -1303,9 +1356,10 @@ async fn periodic_strategy_scan_loop(state: CoreState) {
                 scan_end_time: strategy.data_end_time.clone(),
                 table_names: vec![strategy.table_name.clone()],
                 force_agent_id: None,
+                force_group_id: None,
             };
             if let Err(e) = dispatch_strategy_command(&state, command).await {
-                tracing::warn!(strategy_id = %strategy.id, error = %e, "periodic strategy dispatch failed");
+                tracing::warn!(strategy_id = %strategy.strategy_id, error = %e, "periodic strategy dispatch failed");
             }
         }
     }
@@ -1323,23 +1377,25 @@ async fn select_agent_for_group(
     new_task_count: i64,
     heartbeat_timeout_seconds: i64,
 ) -> Result<Option<String>> {
-    let mut candidate_ids = if let Some(force_agent_id) = &group.force_agent_id {
+    let candidate_ids = if let Some(force_agent_id) = &group.force_agent_id {
         vec![force_agent_id.clone()]
     } else {
-        group.candidate_ids.clone()
+        let mut ids = Vec::new();
+        for raw in &group.candidate_ids {
+            if let Ok(gid) = raw.parse::<i64>() {
+                let expanded = db.expand_agent_group(gid).await?;
+                if !expanded.is_empty() {
+                    ids.extend(expanded);
+                    continue;
+                }
+            }
+            ids.push(raw.clone());
+        }
+        ids
     };
 
-    if candidate_ids.len() == 1 {
-        if let Ok(group_id) = candidate_ids[0].parse::<i64>() {
-            let expanded = db.expand_agent_group(group_id).await?;
-            if !expanded.is_empty() {
-                candidate_ids = expanded;
-            }
-        }
-    }
-
     let candidates = db.list_dispatch_candidates(&candidate_ids).await?;
-    let now = chrono::Local::now().naive_local();
+    let now = crate::timeutil::now().naive_local();
     let mut best: Option<(String, f64)> = None;
 
     for candidate in candidates {
@@ -1398,6 +1454,7 @@ mod tests {
             to_tcp: to_tcp_tx,
             http: reqwest::Client::new(),
             storage: Arc::new(storage),
+            periodic_cache: Arc::new(tokio::sync::RwLock::new(Vec::new())),
         };
         let app = router(state);
         let response = app
@@ -1431,7 +1488,7 @@ mod tests {
         );
 
         assert_eq!(a, b);
-        assert!(a.starts_with("group_"));
+        assert!(!a.is_empty());
     }
 
     #[test]
