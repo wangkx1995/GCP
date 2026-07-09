@@ -79,6 +79,7 @@ pub fn load_rule(path: &Path) -> Result<TpdRule> {
 
 pub struct StreamingTpdEngine<'a> {
     aggregators: Vec<StreamingRuleAggregator<'a>>,
+    source_table_counts: HashMap<String, usize>,
 }
 
 pub struct StreamingFinishOptions<'a> {
@@ -93,7 +94,12 @@ impl<'a> StreamingTpdEngine<'a> {
     pub fn new(rules: &'a [TpdRule]) -> Self {
         Self {
             aggregators: build_streaming_aggregators(rules),
+            source_table_counts: HashMap::new(),
         }
+    }
+
+    pub fn source_table_counts(&self) -> &HashMap<String, usize> {
+        &self.source_table_counts
     }
 
     pub fn consumes_table(&self, table: &str) -> bool {
@@ -103,6 +109,7 @@ impl<'a> StreamingTpdEngine<'a> {
     }
 
     pub fn accept_owned(&mut self, table: &str, row: Row) -> Result<()> {
+        *self.source_table_counts.entry(table.to_string()).or_insert(0) += 1;
         let matching: Vec<usize> = self
             .aggregators
             .iter()
@@ -120,6 +127,7 @@ impl<'a> StreamingTpdEngine<'a> {
     }
 
     pub fn accept_values(&mut self, table: &str, values: Vec<String>) -> Result<()> {
+        *self.source_table_counts.entry(table.to_string()).or_insert(0) += 1;
         let matching: Vec<usize> = self
             .aggregators
             .iter()
