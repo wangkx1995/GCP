@@ -179,6 +179,9 @@ pub struct AgentStatusRow {
     pub heartbeat_time: String,
     pub thread_num: Option<i32>,
     pub agent_alias: Option<String>,
+    pub agent_power: Option<f64>,
+    pub new_task_count: i64,
+    pub active_task_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

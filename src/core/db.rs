@@ -1567,10 +1567,14 @@ impl CoreDb {
     }
 
     pub async fn list_agent_status(&self) -> Result<Vec<AgentStatusRow>> {
-        trace_sql!("SELECT ast.*, ai.agent_name, ai.agent_alias FROM agent_status ast JOIN agent_info ai ON ai.agent_id = ast.agent_id WHERE ai.agent_isuse_flag = 1 ORDER BY ast.heartbeat_time DESC");
+        trace_sql!("SELECT ast.*, ai.agent_name, ai.agent_alias, ai.agent_power, COALESCE((SELECT COUNT(*) FROM collect_tasks WHERE assigned_agent_id = ast.agent_id AND status IN ('CREATED', 'DISPATCHING')), 0) AS new_task_count, COALESCE((SELECT COUNT(*) FROM collect_tasks WHERE assigned_agent_id = ast.agent_id AND status IN ('ACCEPTED', 'RUNNING')), 0) AS active_task_count FROM agent_status ast JOIN agent_info ai ON ai.agent_id = ast.agent_id WHERE ai.agent_isuse_flag = 1 ORDER BY ast.heartbeat_time DESC");
         sqlx::query_as::<_, AgentStatusRow>(
             r#"
-            SELECT ast.*, ai.agent_name, ai.agent_alias
+            SELECT ast.*, ai.agent_name, ai.agent_alias, ai.agent_power,
+              COALESCE((SELECT COUNT(*) FROM collect_tasks
+                WHERE assigned_agent_id = ast.agent_id AND status IN ('CREATED', 'DISPATCHING')), 0) AS new_task_count,
+              COALESCE((SELECT COUNT(*) FROM collect_tasks
+                WHERE assigned_agent_id = ast.agent_id AND status IN ('ACCEPTED', 'RUNNING')), 0) AS active_task_count
             FROM agent_status ast
             JOIN agent_info ai ON ai.agent_id = ast.agent_id
             WHERE ai.agent_isuse_flag = 1

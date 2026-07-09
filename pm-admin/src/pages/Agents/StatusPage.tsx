@@ -39,6 +39,25 @@ const columns = [
     },
   },
   {
+    title: '采集能力',
+    dataIndex: 'agent_power',
+    key: 'agent_power',
+    render: (v?: number) =>
+      v != null ? <span className="mono">{v.toFixed(1)}</span> : <Text type="secondary">—</Text>,
+  },
+  {
+    title: '总新任务数',
+    dataIndex: 'new_task_count',
+    key: 'new_task_count',
+    render: (v: number) => <span className="mono">{v}</span>,
+  },
+  {
+    title: '采集机任务数',
+    dataIndex: 'active_task_count',
+    key: 'active_task_count',
+    render: (v: number) => <span className="mono">{v}</span>,
+  },
+  {
     title: 'CPU 负载',
     dataIndex: 'cpu_load',
     key: 'cpu_load',

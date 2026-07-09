@@ -308,6 +308,9 @@ export interface AgentStatusRow {
   heartbeat_time: string;
   thread_num?: number;
   agent_alias?: string;
+  agent_power?: number;
+  new_task_count: number;
+  active_task_count: number;
 }
 
 export interface AgentStatusHisRow {
