@@ -678,7 +678,7 @@ impl CoreDb {
         .fetch_optional(&self.pool)
         .await?;
 
-        let (strategy_id, _config_snapshot_id, scan_start_time) = match task_row {
+        let (strategy_id, config_snapshot_id, scan_start_time) = match task_row {
             Some(row) => {
                 let sid: String = row.get(0);
                 let cid: String = row.get(1);
@@ -742,47 +742,60 @@ impl CoreDb {
             strategy_id
         );
 
-        let (table_name, data_time, row_count, success, collect_time) = if let Some(result) = report.result_rows.first() {
-            tracing::info!(
-                "[core-db]   result: table={} data_time={} rows={} success={}",
-                result.table_name, result.data_time, result.row_count, result.success
-            );
-            if report.result_rows.len() > 1 {
-                tracing::warn!("[core-db] task {} has {} result rows, using first only", report.task_id, report.result_rows.len());
+        for row in &report.result_rows {
+            if row.task_id == report.task_id {
+                tracing::info!(
+                    "[core-db]   TPD row: table={} data_time={} rows={} success={}",
+                    row.table_name, row.data_time, row.row_count, row.success
+                );
+                trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ?, table_name = COALESCE(?, table_name), data_time = COALESCE(?, data_time), row_count = ?, success = ?, collect_time = ? WHERE task_id = ?", task_id = report.task_id);
+                sqlx::query(
+                    "UPDATE collect_tasks SET status = ?, finished_at = ?, table_name = COALESCE(?, table_name), data_time = COALESCE(?, data_time), row_count = ?, success = ?, collect_time = ? WHERE task_id = ?",
+                )
+                .bind(terminal_status)
+                .bind(&now)
+                .bind(&row.table_name)
+                .bind(&row.data_time)
+                .bind(row.row_count as i64)
+                .bind(row.success)
+                .bind(&row.collect_time)
+                .bind(&row.task_id)
+                .execute(&self.pool)
+                .await?;
+            } else {
+                let logical_task_key = format!("strategy_{}:{}:{}", strategy_id, row.data_time, row.table_name);
+                tracing::info!(
+                    "[core-db]   OP row: table={} data_time={} rows={} success={} -> INSERT key={}",
+                    row.table_name, row.data_time, row.row_count, row.success, logical_task_key
+                );
+                sqlx::query(
+                    "INSERT OR IGNORE INTO collect_tasks(\
+                     task_id, logical_task_key, strategy_id, config_snapshot_id, \
+                     scan_start_time, collector_name, assigned_agent_id, status, \
+                     created_at, finished_at, table_name, data_time, row_count, \
+                     success, collect_time, group_id) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                )
+                .bind(&row.task_id)
+                .bind(&logical_task_key)
+                .bind(&strategy_id)
+                .bind(&config_snapshot_id)
+                .bind(scan_start_time.as_deref().unwrap_or(""))
+                .bind("")
+                .bind(&report.agent_id)
+                .bind(terminal_status)
+                .bind(&now)
+                .bind(&now)
+                .bind(&row.table_name)
+                .bind(&row.data_time)
+                .bind(row.row_count as i64)
+                .bind(row.success)
+                .bind(&row.collect_time)
+                .bind(&row.group_id)
+                .execute(&self.pool)
+                .await?;
             }
-            (
-                Some(result.table_name.clone()),
-                Some(result.data_time.clone()),
-                result.row_count as i64,
-                result.success,
-                Some(result.collect_time.clone()),
-            )
-        } else if let Some(sst) = scan_start_time {
-            // 合成失败记录
-            let is_failure = terminal_status == "FAILED" || terminal_status == "TIMEOUT" || terminal_status == "CANCELLED";
-            tracing::info!(
-                "[core-db] synthetic failure for task {} strategy={}",
-                report.task_id, strategy_id
-            );
-            (None, Some(sst), 0i64, if is_failure { 0 } else { 1 }, None)
-        } else {
-            (None, None, 0i64, 0, None)
-        };
-
-        trace_sql!("UPDATE collect_tasks SET status = ?, finished_at = ?, table_name = COALESCE(?, table_name), data_time = COALESCE(?, data_time), row_count = ?, success = ?, collect_time = ? WHERE task_id = ?", task_id = report.task_id);
-        sqlx::query(
-            "UPDATE collect_tasks SET status = ?, finished_at = ?, table_name = COALESCE(?, table_name), data_time = COALESCE(?, data_time), row_count = ?, success = ?, collect_time = ? WHERE task_id = ?",
-        )
-        .bind(terminal_status)
-        .bind(&now)
-        .bind(&table_name)
-        .bind(&data_time)
-        .bind(row_count)
-        .bind(success)
-        .bind(&collect_time)
-        .bind(&report.task_id)
-        .execute(&self.pool)
-        .await?;
+        }
         tracing::info!("[core-db] accept_task_result done: status={terminal_status}");
         Ok(())
     }
@@ -1786,6 +1799,84 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stored_status.0, "SUCCEEDED");
+    }
+
+    #[tokio::test]
+    async fn stores_multi_row_task_result() {
+        let db = db().await;
+        let agent_id_i64 = compute_agent_id("127.0.0.1", "/test");
+        db.upsert_agent_info(agent_id_i64, "agent-1", "127.0.0.1", 18081, "1.0.0", None, None, None, None, None, None, false, None, "/test").await.unwrap();
+        db.upsert_agent_status(agent_id_i64, "ONLINE").await.unwrap();
+        let agent_id = agent_id_i64.to_string();
+        db.insert_config_snapshot(&ConfigSnapshotResponse {
+            config_snapshot_id: "cfg_1".to_string(),
+            content_hash: "sha256:test".to_string(),
+            source_toml: "[source]".to_string(),
+            mapping_dx_ini: "[m]".to_string(),
+            load_toml: "[load]".to_string(),
+            col_name_cut_config_ini: None,
+            rules: vec![RuleFile {
+                relative_path: "rules/a.json".to_string(),
+                content: "{\"table_name\":\"TPD_A\"}".to_string(),
+            }],
+        })
+        .await
+        .unwrap();
+        db.create_task(
+            "task_1",
+            "strategy_1:2026-06-17 15:15:00:cfg_1",
+            "strategy_1",
+            "cfg_1",
+            "2026-06-17 15:15:00",
+            "test-unit",
+            &agent_id,
+            "group_test",
+            "TPD_A",
+        )
+        .await
+        .unwrap();
+        db.accept_task_result(&TaskResultReport {
+            task_id: "task_1".to_string(),
+            agent_id,
+            status: TaskStatus::Succeeded,
+            result_rows: vec![
+                CsvResultRow {
+                    table_name: "TPD_A".to_string(),
+                    data_time: "2026-06-17 15:15:00".to_string(),
+                    row_count: 123,
+                    success: 1,
+                    collect_time: "2026-07-02 15:35:00".to_string(),
+                    task_id: "task_1".to_string(),
+                    strategy_id: "strategy_1".to_string(),
+                    group_id: "group_test".to_string(),
+                },
+                CsvResultRow {
+                    table_name: "OP_B".to_string(),
+                    data_time: "2026-06-17 16:00:00".to_string(),
+                    row_count: 456,
+                    success: 1,
+                    collect_time: "2026-07-02 15:35:00".to_string(),
+                    task_id: "task_1_OP_B".to_string(),
+                    strategy_id: "strategy_1".to_string(),
+                    group_id: "group_test".to_string(),
+                },
+            ],
+        })
+        .await
+        .unwrap();
+        let rows = db.result_rows_for_day("strategy_1", "2026-06-17").await.unwrap();
+        assert_eq!(rows.len(), 2);
+        let tpd = rows.iter().find(|r| r.table_name == "TPD_A").unwrap();
+        assert_eq!(tpd.row_count, 123);
+        let op = rows.iter().find(|r| r.table_name == "OP_B").unwrap();
+        assert_eq!(op.row_count, 456);
+        // Verify OP row has group_id stored
+        let op_group: (String,) = sqlx::query_as("SELECT group_id FROM collect_tasks WHERE task_id = ?")
+            .bind("task_1_OP_B")
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+        assert_eq!(op_group.0, "group_test");
     }
 
     #[tokio::test]
