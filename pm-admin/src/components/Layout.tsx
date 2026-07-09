@@ -3,7 +3,6 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   FileZipOutlined,
   DesktopOutlined,
-  AppstoreOutlined,
   BarChartOutlined,
   SendOutlined,
   SettingOutlined,
@@ -34,7 +33,6 @@ const menuItems = [
       { key: '/strategy-dispatch/periodic', icon: <SyncOutlined />, label: '周期性采集策略' },
     ],
   },
-  { key: '/tasks', icon: <AppstoreOutlined />, label: '任务列表' },
   { key: '/results/grid', icon: <BarChartOutlined />, label: '结果网格' },
 ];
 

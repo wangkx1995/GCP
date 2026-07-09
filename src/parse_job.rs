@@ -80,6 +80,7 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
     let dest_tables_by_source = dest_tables_by_source_table(&rules);
 
     let source_config = options.source_config;
+    let data_time = options.scan_start_time.clone();
     let routed_inputs = remote_file_source::resolve_routed_files_with_router(
         remote_file_source::ResolveOptions {
             local_input: options.input,
@@ -99,6 +100,7 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
         task_id,
         strategy_id,
         group_id,
+        data_time.as_deref().unwrap_or(""),
     )?;
     let task_count = tasks.len();
     run_streaming_table_tasks(
@@ -139,6 +141,7 @@ struct StreamingTableTask {
     task_id: String,
     strategy_id: String,
     group_id: String,
+    data_time: String,
 }
 
 fn run_streaming_table_task(
@@ -192,7 +195,7 @@ fn run_streaming_table_task(
         Vec::new()
     } else {
         let now = crate::timeutil::now();
-        let op_phase_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+        let op_collect_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
         let engine = streaming_engine.borrow();
         let counts = engine.source_table_counts();
         let mut op_tables: Vec<&String> = counts.keys().collect();
@@ -200,10 +203,10 @@ fn run_streaming_table_task(
         op_tables.iter().enumerate().map(|(idx, name)| {
             CsvResultRow {
                 table_name: (*name).clone(),
-                data_time: op_phase_time.clone(),
+                data_time: task.data_time.clone(),
                 row_count: *counts.get(*name).unwrap_or(&0) as u64,
                 success: 1,
-                collect_time: op_phase_time.clone(),
+                collect_time: op_collect_time.clone(),
                 task_id: format!("{}_{}", task.task_id, idx),
                 strategy_id: task.strategy_id.clone(),
                 group_id: task.group_id.clone(),
@@ -366,6 +369,7 @@ fn build_streaming_table_tasks(
     task_id: &str,
     strategy_id: &str,
     group_id: &str,
+    data_time: &str,
 ) -> Result<Vec<StreamingTableTask>> {
     let mut dest_order = Vec::new();
     let mut rules_by_dest: HashMap<String, Vec<tpd::TpdRule>> = HashMap::new();
@@ -413,6 +417,7 @@ fn build_streaming_table_tasks(
             task_id: task_id.to_string(),
             strategy_id: strategy_id.to_string(),
             group_id: group_id.to_string(),
+            data_time: data_time.to_string(),
         });
     }
     Ok(tasks)
@@ -461,7 +466,7 @@ mod tests {
             },
         ];
 
-        let tasks = build_streaming_table_tasks(&rules, &groups, &[], "t1", "s1", "g1").unwrap();
+        let tasks = build_streaming_table_tasks(&rules, &groups, &[], "t1", "s1", "g1", "2026-06-15 13:45:00").unwrap();
 
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].dest_table, "TPD_A");
@@ -489,7 +494,7 @@ mod tests {
             files: vec![PathBuf::from("downloads/tpd_a/a.csv.gz")],
         }];
 
-        let tasks = build_streaming_table_tasks(&rules, &groups, &[], "t1", "s1", "g1").unwrap();
+        let tasks = build_streaming_table_tasks(&rules, &groups, &[], "t1", "s1", "g1", "2026-06-15 13:45:00").unwrap();
 
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].dest_table, "TPD_A");
@@ -501,7 +506,7 @@ mod tests {
         let rules = vec![test_rule("TPD_A", "OP_A"), test_rule("TPD_B", "OP_B")];
         let fallback_inputs = vec![PathBuf::from("local/a.csv.gz")];
 
-        let tasks = build_streaming_table_tasks(&rules, &[], &fallback_inputs, "t1", "s1", "g1").unwrap();
+        let tasks = build_streaming_table_tasks(&rules, &[], &fallback_inputs, "t1", "s1", "g1", "2026-06-15 13:45:00").unwrap();
 
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0].inputs, fallback_inputs);

@@ -240,7 +240,6 @@ fn write_load_ctl(
 }
 
 fn write_result_csv(path: &Path, rows: &[CsvResultRow], create: bool) -> Result<()> {
-    let should_write_header = create || !path.exists();
     let file = std::fs::OpenOptions::new()
         .create(true)
         .write(create)
@@ -248,8 +247,20 @@ fn write_result_csv(path: &Path, rows: &[CsvResultRow], create: bool) -> Result<
         .truncate(create)
         .open(path)?;
     let mut writer = csv::WriterBuilder::new()
-        .has_headers(should_write_header)
+        .has_headers(false)
         .from_writer(file);
+    if create {
+        writer.write_record([
+            "table_name",
+            "data_time",
+            "row_count",
+            "success",
+            "collect_time",
+            "task_id",
+            "strategy_id",
+            "group_id",
+        ])?;
+    }
     for row in rows {
         writer.write_record([
             &row.table_name,

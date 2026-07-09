@@ -22,14 +22,14 @@ export const theme: ThemeConfig = {
   },
   components: {
     Menu: {
-      colorItemBg: 'transparent',
-      colorItemBgHover: '#F1F5F9',
-      colorItemBgSelected: '#F0FDF4',
-      colorItemText: '#64748B',
-      colorItemTextHover: '#0F172A',
-      colorItemTextSelected: '#16A34A',
-      colorActiveBarWidth: 3,
-      colorActiveBarHeight: 20,
+      itemBg: 'transparent',
+      itemHoverBg: '#F1F5F9',
+      itemSelectedBg: '#F0FDF4',
+      itemColor: '#64748B',
+      itemHoverColor: '#0F172A',
+      itemSelectedColor: '#16A34A',
+      activeBarWidth: 3,
+      activeBarHeight: 20,
       colorActiveBarBorderSize: 0,
     },
     Table: {
