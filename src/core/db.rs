@@ -854,12 +854,14 @@ impl CoreDb {
         // 循环中的具体上报行会覆盖实际值
         if !task_group_id.is_empty() {
             let op_prefix = format!("{}_%", report.task_id);
-            tracing::info!("[core-db] clean up un-reported OP tasks: group={} prefix={}", task_group_id, op_prefix);
+            let op_success: i32 = if terminal_status == "SUCCEEDED" { 1 } else { 0 };
+            tracing::info!("[core-db] clean up un-reported OP tasks: group={} prefix={} success={}", task_group_id, op_prefix, op_success);
             let affected = sqlx::query(
-                "UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = 1 WHERE group_id = ? AND task_id LIKE ? AND task_id != ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
+                "UPDATE collect_tasks SET status = ?, finished_at = ?, row_count = 0, success = ? WHERE group_id = ? AND task_id LIKE ? AND task_id != ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'TIMEOUT', 'CANCELLED')",
             )
             .bind(terminal_status)
             .bind(&now)
+            .bind(op_success)
             .bind(&task_group_id)
             .bind(&op_prefix)
             .bind(&report.task_id)
