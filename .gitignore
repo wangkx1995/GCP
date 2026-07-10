@@ -15,5 +15,5 @@ pm-admin/node_modules/
 pm-admin/dist/
 core.db
 .superpowers/
+.worktrees/
 test/
-
