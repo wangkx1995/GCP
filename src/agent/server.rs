@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use crate::agent::runner::AgentRunner;
 use crate::agent::store::AgentStore;
 use crate::agent::tcp::AgentTcpClient;
+use crate::agent::transfer::{config::TransferConfig, OutputTransfer};
 use crate::message::InternalMessage;
 
 #[allow(clippy::too_many_arguments)]
@@ -19,6 +20,7 @@ pub async fn run_agent_server(
     reconnect_interval_ms: u64,
     reconnect_max_delay_ms: u64,
     heartbeat_interval_seconds: u64,
+    transfer_config: TransferConfig,
 ) -> Result<()> {
     let store = AgentStore::new(data_dir.clone(), config_dir, core_api_base.clone())?;
 
@@ -41,9 +43,11 @@ pub async fn run_agent_server(
         }
     });
 
+    let output_transfer = OutputTransfer::new(transfer_config);
     let runner = AgentRunner {
         agent_id: agent_id.clone(),
         tcp_tx: send_to_tcp_tx.clone(),
+        output_transfer,
     };
     let http = reqwest::Client::new();
 
@@ -57,7 +61,10 @@ pub async fn run_agent_server(
                     agent_task_state: crate::core_agent_api::TaskStatus::Accepted,
                     reason: None,
                 };
-                if let Err(e) = send_to_tcp_tx.send(InternalMessage::DispatchTaskAck(ack)).await {
+                if let Err(e) = send_to_tcp_tx
+                    .send(InternalMessage::DispatchTaskAck(ack))
+                    .await
+                {
                     tracing::warn!(task_id = %request.task_id, error = %e, "failed to send dispatch ack");
                 }
                 let task_dir = data_dir.join("tasks").join(&request.task_id);
@@ -65,7 +72,11 @@ pub async fn run_agent_server(
                 let store = store.clone();
                 let http = http.clone();
                 tokio::spawn(async move {
-                    if store.ensure_config_async(&request.config_snapshot_id, &http).await.is_ok() {
+                    if store
+                        .ensure_config_async(&request.config_snapshot_id, &http)
+                        .await
+                        .is_ok()
+                    {
                         if let Err(e) = store.persist_task(&request) {
                             tracing::warn!("Task persist failed: {e:#}");
                         } else if let Err(e) = runner.run_task(&store, request, task_dir).await {
@@ -89,7 +100,9 @@ pub async fn run_agent_server(
                 let http = http.clone();
                 tokio::spawn(async move {
                     match store.ensure_config_async(&snapshot_id, &http).await {
-                        Ok(path) => tracing::info!(%snapshot_id, path=%path.display(), "config cached"),
+                        Ok(path) => {
+                            tracing::info!(%snapshot_id, path=%path.display(), "config cached")
+                        }
                         Err(e) => tracing::warn!(%snapshot_id, error=%e, "config download failed"),
                     }
                 });

@@ -4,6 +4,8 @@ use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
 
+use wy_gnb_pm_parser::agent::transfer::config::TransferConfig;
+
 #[derive(Parser)]
 struct Cli {
     #[arg(short, long, default_value = "agent.toml")]
@@ -14,6 +16,8 @@ struct Cli {
 struct AgentConfig {
     core: CoreConfig,
     agent: AgentSettings,
+    #[serde(default)]
+    transfer: TransferConfig,
 }
 
 #[derive(Deserialize)]
@@ -35,7 +39,9 @@ struct AgentSettings {
     heartbeat_interval_seconds: u64,
 }
 
-fn default_heartbeat_interval() -> u64 { 10 }
+fn default_heartbeat_interval() -> u64 {
+    10
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -69,6 +75,7 @@ async fn main() -> Result<()> {
         config.core.reconnect_interval_ms,
         config.core.reconnect_max_delay_ms,
         config.agent.heartbeat_interval_seconds,
+        config.transfer,
     )
     .await
 }

@@ -3,10 +3,29 @@ pub mod config;
 pub(crate) mod ftp;
 pub(crate) mod sftp;
 
-use anyhow::{bail, Result};
+use std::sync::Arc;
+
+use anyhow::{bail, Context, Result};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
+
+use crate::agent::transfer::backend::TransferBackend;
+use crate::agent::transfer::config::TransferConfig;
+
+type BackendFactory = Arc<dyn Fn() -> Result<Box<dyn TransferBackend + Send>> + Send + Sync>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransferSummary {
+    pub package_count: usize,
+    pub file_count: usize,
+}
+
+#[derive(Clone)]
+pub struct OutputTransfer {
+    config: TransferConfig,
+    backend_factory: BackendFactory,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputFile {
@@ -146,6 +165,72 @@ pub fn discover_output_packages(
 
     packages.sort_by(|left, right| left.remote_dir.cmp(&right.remote_dir));
     Ok(packages)
+}
+
+impl OutputTransfer {
+    pub fn new(config: TransferConfig) -> Self {
+        let factory_config = config.clone();
+        Self {
+            config,
+            backend_factory: Arc::new(move || backend::connect_backend(&factory_config)),
+        }
+    }
+
+    pub fn upload_output(&self, output_dir: &Path) -> Result<TransferSummary> {
+        if !self.config.enabled {
+            return Ok(TransferSummary {
+                package_count: 0,
+                file_count: 0,
+            });
+        }
+        let packages = discover_output_packages(output_dir, &self.config.remote_prefix)?;
+        if packages.is_empty() {
+            return Ok(TransferSummary {
+                package_count: 0,
+                file_count: 0,
+            });
+        }
+        let file_count = packages.iter().map(|package| package.files.len()).sum();
+        for package in &packages {
+            self.upload_package_with_retry(package)?;
+        }
+        Ok(TransferSummary {
+            package_count: packages.len(),
+            file_count,
+        })
+    }
+
+    fn upload_package_with_retry(&self, package: &OutputPackage) -> Result<()> {
+        let max_attempts = self.config.retry_count.max(1);
+        let mut last_error = None;
+        for attempt in 1..=max_attempts {
+            let mut backend = (self.backend_factory)()?;
+            match upload_package_with_backend(&mut *backend, package) {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    tracing::warn!(
+                        "[agent] upload attempt {attempt}/{max_attempts} failed for {}: {error:#}",
+                        package.remote_dir,
+                    );
+                    last_error = Some(error);
+                    if attempt < max_attempts {
+                        std::thread::sleep(std::time::Duration::from_secs(
+                            self.config.retry_interval_seconds,
+                        ));
+                    }
+                }
+            }
+        }
+        Err(last_error.unwrap()).context(format!("upload failed for {}", package.remote_dir))
+    }
+
+    #[cfg(test)]
+    fn new_for_test(config: TransferConfig, backend_factory: BackendFactory) -> Self {
+        Self {
+            config,
+            backend_factory,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -483,5 +568,129 @@ mod tests {
                 PathBuf::from("z.txt")
             ]
         );
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct FailingUploadBackend {
+        attempts: Arc<AtomicUsize>,
+        failures_before_success: usize,
+    }
+
+    impl backend::TransferBackend for FailingUploadBackend {
+        fn ensure_dir(&mut self, _path: &str) -> Result<()> {
+            Ok(())
+        }
+        fn remove_file_if_exists(&mut self, _path: &str) -> Result<()> {
+            Ok(())
+        }
+        fn upload_file(&mut self, _local: &Path, _remote: &str) -> Result<()> {
+            let attempt = self.attempts.fetch_add(1, Ordering::SeqCst) + 1;
+            if attempt <= self.failures_before_success {
+                anyhow::bail!("injected upload failure {attempt}");
+            }
+            Ok(())
+        }
+        fn rename_replace(&mut self, _from: &str, _to: &str) -> Result<()> {
+            Ok(())
+        }
+        fn create_empty_file(&mut self, _path: &str) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn retry_test_output() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempdir().unwrap();
+        let output = dir.path().join("output");
+        let package = output.join("level1/unique-package");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(package.join("data.csv"), b"data").unwrap();
+        (dir, output)
+    }
+
+    #[test]
+    fn retries_failed_package_upload_up_to_configured_attempts() {
+        let (_dir, output) = retry_test_output();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let factory_attempts = Arc::clone(&attempts);
+        let transfer = OutputTransfer::new_for_test(
+            TransferConfig {
+                enabled: true,
+                remote_prefix: "/core/uploads".to_string(),
+                retry_count: 3,
+                retry_interval_seconds: 0,
+                ..TransferConfig::default()
+            },
+            Arc::new(move || {
+                Ok(Box::new(FailingUploadBackend {
+                    attempts: Arc::clone(&factory_attempts),
+                    failures_before_success: 2,
+                }))
+            }),
+        );
+
+        let summary = transfer.upload_output(&output).unwrap();
+
+        assert_eq!(summary.package_count, 1);
+        assert_eq!(summary.file_count, 1);
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn returns_error_after_retry_count_is_exhausted() {
+        let (_dir, output) = retry_test_output();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let factory_attempts = Arc::clone(&attempts);
+        let transfer = OutputTransfer::new_for_test(
+            TransferConfig {
+                enabled: true,
+                remote_prefix: "/core/uploads".to_string(),
+                retry_count: 3,
+                retry_interval_seconds: 0,
+                ..TransferConfig::default()
+            },
+            Arc::new(move || {
+                Ok(Box::new(FailingUploadBackend {
+                    attempts: Arc::clone(&factory_attempts),
+                    failures_before_success: usize::MAX,
+                }))
+            }),
+        );
+
+        let error = transfer.upload_output(&output).unwrap_err();
+
+        assert!(error.to_string().contains("unique-package"));
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn empty_output_returns_success_without_creating_backend() {
+        let dir = tempdir().unwrap();
+        let output = dir.path().join("output");
+        std::fs::create_dir_all(&output).unwrap();
+        let factory_calls = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::clone(&factory_calls);
+        let transfer = OutputTransfer::new_for_test(
+            TransferConfig {
+                enabled: true,
+                remote_prefix: "/core/uploads".to_string(),
+                ..TransferConfig::default()
+            },
+            Arc::new(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                anyhow::bail!("backend must not be created for empty output")
+            }),
+        );
+
+        let summary = transfer.upload_output(&output).unwrap();
+
+        assert_eq!(
+            summary,
+            TransferSummary {
+                package_count: 0,
+                file_count: 0
+            }
+        );
+        assert_eq!(factory_calls.load(Ordering::SeqCst), 0);
     }
 }

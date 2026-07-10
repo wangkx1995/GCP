@@ -1,11 +1,12 @@
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use remote_file_source::config::{ConnectionConfig, SourceConfig, SourceKind, SourceSection};
 
 use crate::agent::result_csv::read_result_rows;
 use crate::agent::store::AgentStore;
+use crate::agent::transfer::{OutputTransfer, TransferSummary};
 use crate::core_agent_api::{CsvResultRow, TaskDispatchRequest, TaskResultReport, TaskStatus};
 use crate::load_config::LoadConfig;
 use crate::message::InternalMessage;
@@ -17,21 +18,25 @@ use tokio::sync::mpsc;
 pub struct AgentRunner {
     pub agent_id: String,
     pub tcp_tx: mpsc::Sender<InternalMessage>,
+    pub output_transfer: OutputTransfer,
 }
 
 impl AgentRunner {
-    pub fn new(agent_id: String, tcp_tx: mpsc::Sender<InternalMessage>) -> Self {
-        Self { agent_id, tcp_tx }
-    }
-
-    pub async fn run_task(&self, store: &AgentStore, task: TaskDispatchRequest, task_dir: PathBuf) -> Result<()> {
+    pub async fn run_task(
+        &self,
+        store: &AgentStore,
+        task: TaskDispatchRequest,
+        task_dir: PathBuf,
+    ) -> Result<()> {
         tracing::info!("[agent] run_task {} start", task.task_id);
         store.update_task_state(&task.task_id, TaskStatus::Running)?;
         tracing::info!("[agent] state -> RUNNING");
 
         let config_dir = task_dir.join("config");
         let output_dir = task_dir.join("output");
-        let result = self.run_parse_and_report(store, task, task_dir, config_dir, output_dir).await;
+        let result = self
+            .run_parse_and_report(store, task, task_dir, config_dir, output_dir)
+            .await;
 
         if let Err(e) = &result {
             tracing::error!("[agent] run_task failed: {e:#}");
@@ -40,7 +45,14 @@ impl AgentRunner {
         result
     }
 
-    async fn run_parse_and_report(&self, store: &AgentStore, task: TaskDispatchRequest, task_dir: PathBuf, config_dir: PathBuf, output_dir: PathBuf) -> Result<()> {
+    async fn run_parse_and_report(
+        &self,
+        store: &AgentStore,
+        task: TaskDispatchRequest,
+        task_dir: PathBuf,
+        config_dir: PathBuf,
+        output_dir: PathBuf,
+    ) -> Result<()> {
         fs::create_dir_all(task_dir.join("logs"))?;
         let log_path = task_dir.join("logs").join("agent.log");
 
@@ -50,7 +62,14 @@ impl AgentRunner {
             other => {
                 tracing::error!("[agent] unsupported load_type {other}");
                 store.update_task_state(&task.task_id, TaskStatus::Failed)?;
-                report_to_core(&self.tcp_tx, &task.task_id, &self.agent_id, TaskStatus::Failed, Vec::new()).await;
+                report_to_core(
+                    &self.tcp_tx,
+                    &task.task_id,
+                    &self.agent_id,
+                    TaskStatus::Failed,
+                    Vec::new(),
+                )
+                .await;
                 bail!("unsupported load_type {other}")
             }
         };
@@ -113,21 +132,38 @@ impl AgentRunner {
             strategy_id: Some(task.strategy_id.clone()),
             group_id: task.group_id.clone(),
         };
-        tracing::info!("[agent] run_parse_job input={:?} config={:?} output={:?}", opts.input, opts.config_dir, opts.output_dir);
+        tracing::info!(
+            "[agent] run_parse_job input={:?} config={:?} output={:?}",
+            opts.input,
+            opts.config_dir,
+            opts.output_dir
+        );
 
         let (report_status, result_rows) = match run_parse_job(opts) {
             Ok(_summary) => {
                 tracing::info!("[agent] parse_job completed OK");
-                store.update_task_state(&task.task_id, TaskStatus::Succeeded)?;
-                tracing::info!("[agent] state -> SUCCEEDED");
-
-                let csv_rows = read_result_rows(&output_dir).unwrap_or_else(|e| {
-                    tracing::error!("[agent] read result.csv failed: {e:#}");
-                    Vec::new()
-                });
-                tracing::info!("[agent] result.csv rows: {}", csv_rows.len());
-
-                (TaskStatus::Succeeded, csv_rows)
+                match self.output_transfer.upload_output(&output_dir) {
+                    Ok(summary) => {
+                        tracing::info!(
+                            "[agent] output transfer completed: packages={} files={}",
+                            summary.package_count,
+                            summary.file_count
+                        );
+                        let csv_rows = read_result_rows(&output_dir).unwrap_or_else(|error| {
+                            tracing::error!("[agent] read result.csv failed: {error:#}");
+                            Vec::new()
+                        });
+                        store.mark_task_succeeded(&task.task_id)?;
+                        tracing::info!("[agent] state -> SUCCEEDED");
+                        (TaskStatus::Succeeded, csv_rows)
+                    }
+                    Err(error) => {
+                        tracing::error!("[agent] output transfer failed: {error:#}");
+                        store.update_task_state(&task.task_id, TaskStatus::Failed)?;
+                        tracing::info!("[agent] state -> FAILED");
+                        (TaskStatus::Failed, Vec::new())
+                    }
+                }
             }
             Err(e) => {
                 tracing::error!("[agent] parse_job failed: {e:#}");
@@ -137,13 +173,26 @@ impl AgentRunner {
             }
         };
 
-        report_to_core(&self.tcp_tx, &task.task_id, &self.agent_id, report_status, result_rows).await;
+        report_to_core(
+            &self.tcp_tx,
+            &task.task_id,
+            &self.agent_id,
+            report_status,
+            result_rows,
+        )
+        .await;
 
         Ok(())
     }
 }
 
-async fn report_to_core(tcp_tx: &mpsc::Sender<InternalMessage>, task_id: &str, agent_id: &str, status: TaskStatus, result_rows: Vec<CsvResultRow>) {
+async fn report_to_core(
+    tcp_tx: &mpsc::Sender<InternalMessage>,
+    task_id: &str,
+    agent_id: &str,
+    status: TaskStatus,
+    result_rows: Vec<CsvResultRow>,
+) {
     let report = TaskResultReport {
         task_id: task_id.to_string(),
         agent_id: agent_id.to_string(),
@@ -153,6 +202,44 @@ async fn report_to_core(tcp_tx: &mpsc::Sender<InternalMessage>, task_id: &str, a
     let msg = InternalMessage::TaskResult(report);
     if let Err(e) = tcp_tx.send(msg).await {
         tracing::error!("[agent] TCP send result to Core failed: {e}");
+    }
+}
+
+#[allow(dead_code)]
+fn terminal_status(parse_succeeded: bool, transfer_result: &Result<TransferSummary>) -> TaskStatus {
+    if parse_succeeded && transfer_result.is_ok() {
+        TaskStatus::Succeeded
+    } else {
+        TaskStatus::Failed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_and_upload_success_produce_succeeded_status() {
+        let transfer = Ok(TransferSummary {
+            package_count: 1,
+            file_count: 4,
+        });
+        assert_eq!(terminal_status(true, &transfer), TaskStatus::Succeeded);
+    }
+
+    #[test]
+    fn upload_failure_changes_parse_success_to_failed_status() {
+        let transfer = Err(anyhow::anyhow!("upload failed"));
+        assert_eq!(terminal_status(true, &transfer), TaskStatus::Failed);
+    }
+
+    #[test]
+    fn parse_failure_remains_failed_without_upload() {
+        let transfer = Ok(TransferSummary {
+            package_count: 0,
+            file_count: 0,
+        });
+        assert_eq!(terminal_status(false, &transfer), TaskStatus::Failed);
     }
 }
 
@@ -170,8 +257,18 @@ fn rule_files_for_table(config_dir: &Path, table_name: &str) -> Vec<PathBuf> {
     let matches: Vec<PathBuf> = match fs::read_dir(&rules_dir) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
-            .filter(|e| e.path().file_stem().map(|s| s == table_name).unwrap_or(false))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "json")
+                    .unwrap_or(false)
+            })
+            .filter(|e| {
+                e.path()
+                    .file_stem()
+                    .map(|s| s == table_name)
+                    .unwrap_or(false)
+            })
             .map(|e| e.path())
             .collect(),
         Err(e) => {
@@ -182,7 +279,10 @@ fn rule_files_for_table(config_dir: &Path, table_name: &str) -> Vec<PathBuf> {
     if matches.is_empty() {
         tracing::warn!("[agent] no rule file found for table {table_name}, no rules will be used");
     } else {
-        tracing::info!("[agent] found {} rule file(s) for table {table_name}", matches.len());
+        tracing::info!(
+            "[agent] found {} rule file(s) for table {table_name}",
+            matches.len()
+        );
     }
     matches
 }
