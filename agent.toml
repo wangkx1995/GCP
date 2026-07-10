@@ -9,3 +9,19 @@ reconnect_max_delay_ms = 60000
 [agent]
 data_dir = "agent_data"
 max_concurrent_tasks = 4
+
+[transfer]
+enabled = false
+protocol = "sftp"
+host = "127.0.0.1"
+port = 22
+username = "agent"
+password = "password"
+remote_prefix = "/core/uploads"
+retry_count = 3
+retry_interval_seconds = 5
+connect_timeout_seconds = 10
+operation_timeout_seconds = 60
+success_retention_days = 7
+cleanup_interval_hours = 24
+ftp_passive = true
