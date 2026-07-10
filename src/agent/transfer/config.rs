@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use serde::Deserialize;
+use std::fmt;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -8,7 +9,7 @@ pub enum TransferProtocol {
     Sftp,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct TransferConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -36,6 +37,28 @@ pub struct TransferConfig {
     pub cleanup_interval_hours: u64,
     #[serde(default = "default_ftp_passive")]
     pub ftp_passive: bool,
+}
+
+impl fmt::Debug for TransferConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TransferConfig")
+            .field("enabled", &self.enabled)
+            .field("protocol", &self.protocol)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"******")
+            .field("remote_prefix", &self.remote_prefix)
+            .field("retry_count", &self.retry_count)
+            .field("retry_interval_seconds", &self.retry_interval_seconds)
+            .field("connect_timeout_seconds", &self.connect_timeout_seconds)
+            .field("operation_timeout_seconds", &self.operation_timeout_seconds)
+            .field("success_retention_days", &self.success_retention_days)
+            .field("cleanup_interval_hours", &self.cleanup_interval_hours)
+            .field("ftp_passive", &self.ftp_passive)
+            .finish()
+    }
 }
 
 fn default_retry_count() -> usize {
@@ -143,6 +166,19 @@ impl TransferConfig {
 mod tests {
     use super::*;
 
+    fn valid_enabled_config() -> TransferConfig {
+        TransferConfig {
+            enabled: true,
+            protocol: Some(TransferProtocol::Sftp),
+            host: "127.0.0.1".to_string(),
+            port: Some(22),
+            username: "agent".to_string(),
+            password: "secret".to_string(),
+            remote_prefix: "/core/uploads".to_string(),
+            ..TransferConfig::default()
+        }
+    }
+
     #[test]
     fn transfer_config_is_disabled_with_expected_defaults_when_section_is_absent() {
         #[derive(Deserialize)]
@@ -164,45 +200,42 @@ mod tests {
     }
 
     #[test]
-    fn enabled_transfer_requires_connection_and_remote_prefix() {
-        let config: TransferConfig = toml::from_str(
-            r#"
-            enabled = true
-            protocol = "sftp"
-            host = ""
-            port = 22
-            username = "agent"
-            password = "secret"
-            remote_prefix = "/core/uploads"
-            "#,
-        )
-        .unwrap();
+    fn enabled_transfer_reports_the_invalid_field_name() {
+        let cases: &[(&str, fn(&mut TransferConfig))] = &[
+            ("transfer.protocol", |config| config.protocol = None),
+            ("transfer.host", |config| config.host.clear()),
+            ("transfer.port", |config| config.port = Some(0)),
+            ("transfer.username", |config| config.username.clear()),
+            ("transfer.password", |config| config.password.clear()),
+            ("transfer.remote_prefix", |config| {
+                config.remote_prefix.clear()
+            }),
+            ("transfer.retry_count", |config| config.retry_count = 0),
+            ("transfer.retry_interval_seconds", |config| {
+                config.retry_interval_seconds = 0
+            }),
+            ("transfer.connect_timeout_seconds", |config| {
+                config.connect_timeout_seconds = 0
+            }),
+            ("transfer.operation_timeout_seconds", |config| {
+                config.operation_timeout_seconds = 0
+            }),
+            ("transfer.cleanup_interval_hours", |config| {
+                config.cleanup_interval_hours = 0
+            }),
+            ("transfer.ftp_passive", |config| config.ftp_passive = false),
+        ];
 
-        let error = config.validate().unwrap_err();
-        assert!(error.to_string().contains("transfer.host"));
-    }
+        for (expected_field, invalidate) in cases {
+            let mut config = valid_enabled_config();
+            invalidate(&mut config);
 
-    #[test]
-    fn enabled_transfer_rejects_zero_retry_and_timeout_values() {
-        let mut config: TransferConfig = toml::from_str(
-            r#"
-            enabled = true
-            protocol = "ftp"
-            host = "127.0.0.1"
-            port = 21
-            username = "agent"
-            password = "secret"
-            remote_prefix = "/core/uploads"
-            "#,
-        )
-        .unwrap();
-        config.retry_count = 0;
-
-        assert!(config
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("retry_count"));
+            let error = config.validate().unwrap_err().to_string();
+            assert!(
+                error.contains(expected_field),
+                "expected error to name {expected_field}, got: {error}"
+            );
+        }
     }
 
     #[test]
@@ -211,26 +244,14 @@ mod tests {
     }
 
     #[test]
-    fn enabled_transfer_rejects_active_ftp_mode() {
-        let config: TransferConfig = toml::from_str(
-            r#"
-            enabled = true
-            protocol = "ftp"
-            host = "127.0.0.1"
-            port = 21
-            username = "agent"
-            password = "secret"
-            remote_prefix = "/core/uploads"
-            ftp_passive = false
-            "#,
-        )
-        .unwrap();
+    fn transfer_config_debug_redacts_password() {
+        let mut config = valid_enabled_config();
+        config.password = "real-password-123".to_string();
 
-        assert!(config
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("ftp_passive"));
+        let debug = format!("{config:?}");
+
+        assert!(!debug.contains("real-password-123"));
+        assert!(debug.contains("password: \"******\""));
     }
 
     #[test]
