@@ -346,3 +346,61 @@ sqlite3 core.db "SELECT * FROM collect_result_cells"
 rm -rf agent_data core.db test_data/output
 # 重新开始
 ```
+
+## Output File Transfer
+
+When `[transfer]` is enabled in `agent.toml`, the Agent uploads parsed output files to the Core file server (FTP/SFTP) after each successful parse job.
+
+### Configuration Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable output file upload |
+| `protocol` | string | — | `"ftp"` or `"sftp"` |
+| `host` | string | `""` | File server hostname |
+| `port` | u16 | `21` (FTP) / `22` (SFTP) | File server port |
+| `username` | string | `""` | Login username |
+| `password` | string | `""` | Login password (never logged) |
+| `remote_prefix` | string | `""` | Remote root path, e.g. `/core/uploads` |
+| `retry_count` | usize | `3` | Total upload attempts per package (including first) |
+| `retry_interval_seconds` | u64 | `5` | Seconds between retries |
+| `connect_timeout_seconds` | u64 | `10` | TCP connection timeout |
+| `operation_timeout_seconds` | u64 | `60` | Read/write timeout per operation |
+| `success_retention_days` | u64 | `7` | Days to retain successful output locally |
+| `cleanup_interval_hours` | u64 | `24` | Hours between automatic cleanup cycles |
+| `ftp_passive` | bool | `true` | Must be `true` (passive mode only) |
+
+### Remote Path Mapping
+
+Local output layout under `agent_data/tasks/<task_id>/output/`:
+
+```
+output/
+└── tpd_eutr_prb_q_2026061714/              ← first-level directory (may repeat)
+    └── LTE_PM_1604007_202606171445/         ← second-level directory (unique)
+        ├── tpd_eutr_prb_q.csv
+        ├── tpd_eutr_prb_q.ini
+        ├── load.ctl
+        └── result.csv
+```
+
+Maps to remote path:
+
+```
+<remote_prefix>/                            ← /core/uploads/
+└── tpd_eutr_prb_q_2026061714/
+    └── LTE_PM_1604007_202606171445/
+        ├── tpd_eutr_prb_q.csv
+        ├── tpd_eutr_prb_q.ini
+        ├── load.ctl
+        ├── result.csv
+        └── _SUCCESS                          ← created last, signals completion
+```
+
+**Important:**
+- First-level directories may repeat with different content. Each second-level directory becomes an independent package.
+- `_SUCCESS` is created only inside each second-level directory. It is never placed at the first level.
+- Nested files below the second level retain their relative paths.
+- Files directly under `output/` or under a first-level directory are ignored.
+- Each file is uploaded as `.part`, then atomically renamed to the final name.
+- Old `_SUCCESS` is removed only from the exact second-level package being replaced.
