@@ -1,3 +1,4 @@
+pub mod backend;
 pub mod config;
 
 use anyhow::{bail, Result};
@@ -29,6 +30,48 @@ fn safe_remote_component(value: &str) -> Result<&str> {
         bail!("unsafe output directory name: {value:?}");
     }
     Ok(value)
+}
+
+fn join_remote(base: &str, relative: &Path) -> Result<String> {
+    let mut remote = base.trim_end_matches('/').to_string();
+    for component in relative.components() {
+        let std::path::Component::Normal(value) = component else {
+            bail!("unsafe relative output path: {}", relative.display());
+        };
+        let value = value
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("relative output path is not valid UTF-8"))?;
+        safe_remote_component(value)?;
+        remote.push('/');
+        remote.push_str(value);
+    }
+    Ok(remote)
+}
+
+pub fn upload_package_with_backend(
+    backend: &mut dyn backend::TransferBackend,
+    package: &OutputPackage,
+) -> Result<()> {
+    let remote_dir = package.remote_dir.trim_end_matches('/');
+    let marker = format!("{remote_dir}/_SUCCESS");
+    backend.remove_file_if_exists(&marker)?;
+    backend.ensure_dir(remote_dir)?;
+
+    for file in &package.files {
+        let final_path = join_remote(remote_dir, &file.relative_path)?;
+        let parent = final_path
+            .rsplit_once('/')
+            .map(|(parent, _)| parent)
+            .unwrap_or(remote_dir);
+        backend.ensure_dir(parent)?;
+        let part_path = format!("{final_path}.part");
+        backend.remove_file_if_exists(&part_path)?;
+        backend.upload_file(&file.local_path, &part_path)?;
+        backend.rename_replace(&part_path, &final_path)?;
+    }
+
+    backend.create_empty_file(&marker)?;
+    Ok(())
 }
 
 fn output_directory_name<'a>(value: &'a OsStr, level: &str) -> Result<&'a str> {
@@ -106,6 +149,7 @@ pub fn discover_output_packages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -114,6 +158,154 @@ mod tests {
 
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        operations: Vec<String>,
+        fail_at: Option<usize>,
+        created_markers: Vec<String>,
+    }
+
+    impl RecordingBackend {
+        fn record(&mut self, operation: String) -> Result<()> {
+            let operation_index = self.operations.len();
+            self.operations.push(operation);
+            if self.fail_at == Some(operation_index) {
+                return Err(anyhow!("backend operation {operation_index} failed"));
+            }
+            Ok(())
+        }
+    }
+
+    impl backend::TransferBackend for RecordingBackend {
+        fn ensure_dir(&mut self, path: &str) -> Result<()> {
+            self.record(format!("mkdir:{path}"))
+        }
+
+        fn remove_file_if_exists(&mut self, path: &str) -> Result<()> {
+            self.record(format!("remove:{path}"))
+        }
+
+        fn upload_file(&mut self, local: &Path, remote: &str) -> Result<()> {
+            self.record(format!("upload:{}:{remote}", local.display()))
+        }
+
+        fn rename_replace(&mut self, from: &str, to: &str) -> Result<()> {
+            self.record(format!("rename:{from}:{to}"))
+        }
+
+        fn create_empty_file(&mut self, path: &str) -> Result<()> {
+            self.record(format!("touch:{path}"))?;
+            self.created_markers.push(path.to_string());
+            Ok(())
+        }
+    }
+
+    fn upload_test_package(package_dir: &Path) -> OutputPackage {
+        OutputPackage {
+            local_dir: package_dir.to_path_buf(),
+            remote_dir: "/core/uploads/level1/package".to_string(),
+            files: vec![
+                OutputFile {
+                    local_path: package_dir.join("a.csv"),
+                    relative_path: PathBuf::from("a.csv"),
+                },
+                OutputFile {
+                    local_path: package_dir.join("nested/a.ini"),
+                    relative_path: PathBuf::from("nested/a.ini"),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn uploads_package_atomically_and_creates_success_marker_last() {
+        let dir = tempdir().unwrap();
+        let package_dir = dir.path().join("package");
+        std::fs::create_dir_all(package_dir.join("nested")).unwrap();
+        std::fs::write(package_dir.join("a.csv"), b"a").unwrap();
+        std::fs::write(package_dir.join("nested/a.ini"), b"i").unwrap();
+        let package = upload_test_package(&package_dir);
+        let mut backend = RecordingBackend::default();
+
+        upload_package_with_backend(&mut backend, &package).unwrap();
+
+        assert_eq!(
+            backend.operations,
+            vec![
+                "remove:/core/uploads/level1/package/_SUCCESS",
+                "mkdir:/core/uploads/level1/package",
+                "mkdir:/core/uploads/level1/package",
+                "remove:/core/uploads/level1/package/a.csv.part",
+                &format!(
+                    "upload:{}:/core/uploads/level1/package/a.csv.part",
+                    package_dir.join("a.csv").display()
+                ),
+                "rename:/core/uploads/level1/package/a.csv.part:/core/uploads/level1/package/a.csv",
+                "mkdir:/core/uploads/level1/package/nested",
+                "remove:/core/uploads/level1/package/nested/a.ini.part",
+                &format!(
+                    "upload:{}:/core/uploads/level1/package/nested/a.ini.part",
+                    package_dir.join("nested/a.ini").display()
+                ),
+                "rename:/core/uploads/level1/package/nested/a.ini.part:/core/uploads/level1/package/nested/a.ini",
+                "touch:/core/uploads/level1/package/_SUCCESS",
+            ]
+        );
+        assert_eq!(
+            backend.created_markers,
+            vec!["/core/uploads/level1/package/_SUCCESS"]
+        );
+    }
+
+    #[test]
+    fn every_backend_failure_aborts_without_creating_success_marker() {
+        let dir = tempdir().unwrap();
+        let package_dir = dir.path().join("package");
+        let package = upload_test_package(&package_dir);
+
+        for fail_at in 0..11 {
+            let mut backend = RecordingBackend {
+                fail_at: Some(fail_at),
+                ..RecordingBackend::default()
+            };
+
+            let error = upload_package_with_backend(&mut backend, &package).unwrap_err();
+
+            assert_eq!(
+                error.to_string(),
+                format!("backend operation {fail_at} failed")
+            );
+            assert!(backend.created_markers.is_empty(), "failure at {fail_at}");
+            assert_eq!(backend.operations.len(), fail_at + 1);
+        }
+    }
+
+    #[test]
+    fn rejects_unsafe_relative_file_paths_before_uploading_them() {
+        let dir = tempdir().unwrap();
+        let package = OutputPackage {
+            local_dir: dir.path().to_path_buf(),
+            remote_dir: "/core/uploads/level1/package".to_string(),
+            files: vec![OutputFile {
+                local_path: dir.path().join("escape.csv"),
+                relative_path: PathBuf::from("../escape.csv"),
+            }],
+        };
+        let mut backend = RecordingBackend::default();
+
+        let error = upload_package_with_backend(&mut backend, &package).unwrap_err();
+
+        assert!(error.to_string().contains("unsafe relative output path"));
+        assert_eq!(
+            backend.operations,
+            vec![
+                "remove:/core/uploads/level1/package/_SUCCESS",
+                "mkdir:/core/uploads/level1/package",
+            ]
+        );
+        assert!(backend.created_markers.is_empty());
+    }
 
     #[test]
     fn discovers_each_second_level_directory_as_independent_package() {
