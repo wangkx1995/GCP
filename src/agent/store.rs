@@ -22,7 +22,11 @@ impl AgentStore {
                 anyhow::bail!("config-dir {} does not exist", cfg.display());
             }
         }
-        Ok(Self { root, config_dir, core_api_base })
+        Ok(Self {
+            root,
+            config_dir,
+            core_api_base,
+        })
     }
 
     pub fn has_config_dir(&self) -> bool {
@@ -33,7 +37,11 @@ impl AgentStore {
         let config_root = self.root.join("config_snapshots").join(snapshot_id);
         let marker = config_root.join("source.toml");
         if marker.exists() {
-            tracing::info!("[agent-store] config {} already cached at {}", snapshot_id, config_root.display());
+            tracing::info!(
+                "[agent-store] config {} already cached at {}",
+                snapshot_id,
+                config_root.display()
+            );
             return Ok(config_root);
         }
         anyhow::bail!("config {} not cached and async download not available in sync path; call ensure_config_async from async context", snapshot_id)
@@ -41,8 +49,8 @@ impl AgentStore {
 
     pub fn unpack_zip(&self, zip_data: Vec<u8>, dest: &Path) -> Result<()> {
         let reader = std::io::Cursor::new(&zip_data);
-        let mut archive = zip::ZipArchive::new(reader)
-            .map_err(|e| anyhow::anyhow!("invalid zip: {e}"))?;
+        let mut archive =
+            zip::ZipArchive::new(reader).map_err(|e| anyhow::anyhow!("invalid zip: {e}"))?;
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let raw_name = file.name().trim_end_matches('/').to_string();
@@ -73,7 +81,10 @@ impl AgentStore {
             match tokio::time::timeout(Duration::from_secs(30), http.get(url).send()).await {
                 Ok(Ok(resp)) => {
                     if resp.status().is_success() {
-                        let body = resp.bytes().await.map_err(|e| anyhow::anyhow!("read body: {e}"))?;
+                        let body = resp
+                            .bytes()
+                            .await
+                            .map_err(|e| anyhow::anyhow!("read body: {e}"))?;
                         return Ok(body.to_vec());
                     }
                     last_err = Some(anyhow::anyhow!("HTTP {}", resp.status()));
@@ -85,10 +96,17 @@ impl AgentStore {
                 tracing::warn!("[agent-store] download attempt {attempt} failed, retrying...");
             }
         }
-        Err(anyhow::anyhow!("download failed after {max_attempts} attempts: {}", last_err.unwrap()))
+        Err(anyhow::anyhow!(
+            "download failed after {max_attempts} attempts: {}",
+            last_err.unwrap()
+        ))
     }
 
-    pub async fn ensure_config_async(&self, snapshot_id: &str, http: &reqwest::Client) -> Result<PathBuf> {
+    pub async fn ensure_config_async(
+        &self,
+        snapshot_id: &str,
+        http: &reqwest::Client,
+    ) -> Result<PathBuf> {
         let config_root = self.root.join("config_snapshots").join(snapshot_id);
         let marker = config_root.join("source.toml");
         if marker.exists() {
@@ -97,8 +115,13 @@ impl AgentStore {
         }
 
         // Download zip from Core
-        let url = format!("{}/config-snapshots/{}/download", self.core_api_base, snapshot_id);
-        let zip_data = self.download_with_retry(&url, http).await
+        let url = format!(
+            "{}/config-snapshots/{}/download",
+            self.core_api_base, snapshot_id
+        );
+        let zip_data = self
+            .download_with_retry(&url, http)
+            .await
             .with_context(|| format!("download config {snapshot_id}"))?;
 
         // Unpack to config_root
@@ -106,7 +129,11 @@ impl AgentStore {
         self.unpack_zip(zip_data, &config_root)
             .with_context(|| format!("unpack config {snapshot_id}"))?;
 
-        tracing::info!("[agent-store] unpacked config {} to {}", snapshot_id, config_root.display());
+        tracing::info!(
+            "[agent-store] unpacked config {} to {}",
+            snapshot_id,
+            config_root.display()
+        );
         Ok(config_root)
     }
 
@@ -121,7 +148,10 @@ impl AgentStore {
         std::fs::create_dir_all(task_dir.join("logs"))?;
         std::fs::create_dir_all(task_dir.join("config"))?;
         std::fs::create_dir_all(task_dir.join("config").join("rules"))?;
-        std::fs::write(task_dir.join("task.json"), serde_json::to_vec_pretty(request)?)?;
+        std::fs::write(
+            task_dir.join("task.json"),
+            serde_json::to_vec_pretty(request)?,
+        )?;
         self.write_state(&task_dir, TaskStatus::Accepted)?;
         self.populate_config(&task_dir, &request.config_snapshot_id)?;
         Ok(task_dir)
@@ -163,8 +193,98 @@ impl AgentStore {
     }
 
     fn write_state(&self, task_dir: &Path, status: TaskStatus) -> Result<()> {
-        std::fs::write(task_dir.join("state.json"), serde_json::json!({"status": status}).to_string())?;
+        std::fs::write(
+            task_dir.join("state.json"),
+            serde_json::json!({"status": status}).to_string(),
+        )?;
         Ok(())
+    }
+
+    pub fn mark_task_succeeded(&self, task_id: &str) -> Result<()> {
+        let finished_at = crate::timeutil::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        self.mark_task_succeeded_at(task_id, &finished_at)
+    }
+
+    fn mark_task_succeeded_at(&self, task_id: &str, finished_at: &str) -> Result<()> {
+        let task_dir = self.task_dir(task_id);
+        std::fs::write(
+            task_dir.join("state.json"),
+            serde_json::json!({
+                "status": TaskStatus::Succeeded,
+                "finished_at": finished_at,
+            })
+            .to_string(),
+        )?;
+        Ok(())
+    }
+
+    pub fn cleanup_succeeded_tasks(&self, retention_days: u64) -> Result<usize> {
+        self.cleanup_succeeded_tasks_at(retention_days, crate::timeutil::now().naive_local())
+    }
+
+    fn cleanup_succeeded_tasks_at(
+        &self,
+        retention_days: u64,
+        now: chrono::NaiveDateTime,
+    ) -> Result<usize> {
+        let tasks_dir = self.root.join("tasks");
+        let mut deleted = 0usize;
+        if !tasks_dir.exists() {
+            return Ok(deleted);
+        }
+        for entry in std::fs::read_dir(&tasks_dir)? {
+            let entry = entry?;
+            let state_path = entry.path().join("state.json");
+            if !state_path.exists() {
+                continue;
+            }
+            let content = match std::fs::read_to_string(&state_path) {
+                Ok(c) => c,
+                Err(_) => {
+                    tracing::warn!(
+                        "[agent-store] skipping unreadable state: {}",
+                        state_path.display()
+                    );
+                    continue;
+                }
+            };
+            let state: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => {
+                    tracing::warn!(
+                        "[agent-store] skipping malformed state: {}",
+                        state_path.display()
+                    );
+                    continue;
+                }
+            };
+            if state["status"] != serde_json::json!("SUCCEEDED") {
+                continue;
+            }
+            let finished_at = match state["finished_at"].as_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            let finished =
+                match chrono::NaiveDateTime::parse_from_str(finished_at, "%Y-%m-%d %H:%M:%S") {
+                    Ok(t) => t,
+                    Err(_) => {
+                        tracing::warn!(
+                            "[agent-store] skipping unparseable finished_at: {finished_at}"
+                        );
+                        continue;
+                    }
+                };
+            let age = (now - finished).num_days();
+            if age < retention_days as i64 {
+                continue;
+            }
+            std::fs::remove_dir_all(entry.path())?;
+            deleted += 1;
+        }
+        Ok(deleted)
     }
 }
 
@@ -176,7 +296,12 @@ mod tests {
     #[test]
     fn uses_local_cache_if_present() {
         let dir = tempdir().unwrap();
-        let store = AgentStore::new(dir.path().join("agent_data"), None, "http://core/api".to_string()).unwrap();
+        let store = AgentStore::new(
+            dir.path().join("agent_data"),
+            None,
+            "http://core/api".to_string(),
+        )
+        .unwrap();
 
         // Pre-populate cache
         let cache_dir = dir.path().join("agent_data/config_snapshots/cfg_v1");
@@ -197,7 +322,12 @@ mod tests {
     fn rejects_path_traversal_in_zip() {
         use std::io::Write;
         let dir = tempdir().unwrap();
-        let store = AgentStore::new(dir.path().join("agent_data"), None, "http://core/api".to_string()).unwrap();
+        let store = AgentStore::new(
+            dir.path().join("agent_data"),
+            None,
+            "http://core/api".to_string(),
+        )
+        .unwrap();
 
         let mut buf = std::io::Cursor::new(Vec::new());
         let mut zip = zip::ZipWriter::new(&mut buf);
@@ -214,9 +344,76 @@ mod tests {
     }
 
     #[test]
+    fn mark_task_succeeded_records_finished_at() {
+        let dir = tempdir().unwrap();
+        let store = AgentStore::new(
+            dir.path().join("agent_data"),
+            None,
+            "http://core/api".to_string(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(store.task_dir("task-1")).unwrap();
+
+        store
+            .mark_task_succeeded_at("task-1", "2026-07-01 00:00:00")
+            .unwrap();
+
+        let state: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(store.task_dir("task-1").join("state.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(state["status"], "SUCCEEDED");
+        assert_eq!(state["finished_at"], "2026-07-01 00:00:00");
+    }
+
+    #[test]
+    fn cleanup_removes_only_expired_succeeded_tasks() {
+        let dir = tempdir().unwrap();
+        let store = AgentStore::new(
+            dir.path().join("agent_data"),
+            None,
+            "http://core/api".to_string(),
+        )
+        .unwrap();
+        for task_id in ["old-success", "recent-success", "old-failed"] {
+            std::fs::create_dir_all(store.task_dir(task_id).join("output")).unwrap();
+            std::fs::write(store.task_dir(task_id).join("output/data.csv"), b"data").unwrap();
+        }
+        store
+            .mark_task_succeeded_at("old-success", "2026-07-01 00:00:00")
+            .unwrap();
+        store
+            .mark_task_succeeded_at("recent-success", "2026-07-09 00:00:00")
+            .unwrap();
+        std::fs::write(
+            store.task_dir("old-failed").join("state.json"),
+            serde_json::json!({
+                "status": TaskStatus::Failed,
+                "finished_at": "2026-07-01 00:00:00",
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let now = chrono::NaiveDateTime::parse_from_str("2026-07-10 00:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap();
+        let deleted = store.cleanup_succeeded_tasks_at(7, now).unwrap();
+
+        assert_eq!(deleted, 1);
+        assert!(!store.task_dir("old-success").exists());
+        assert!(store.task_dir("recent-success").exists());
+        assert!(store.task_dir("old-failed").exists());
+    }
+
+    #[test]
     fn persists_task_before_execution() {
         let dir = tempdir().unwrap();
-        let store = AgentStore::new(dir.path().join("agent_data"), None, "http://core/api".to_string()).unwrap();
+        let store = AgentStore::new(
+            dir.path().join("agent_data"),
+            None,
+            "http://core/api".to_string(),
+        )
+        .unwrap();
         let request = TaskDispatchRequest {
             task_id: "task_1".to_string(),
             logical_task_key: "strategy:time:cfg".to_string(),
