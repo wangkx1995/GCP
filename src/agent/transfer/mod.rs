@@ -720,4 +720,92 @@ mod tests {
         );
         assert_eq!(factory_calls.load(Ordering::SeqCst), 0);
     }
+
+    #[test]
+    fn repeated_first_level_directory_keeps_second_level_packages_isolated() {
+        let dir = tempdir().unwrap();
+        let output = dir.path().join("output");
+        for package_name in ["LTE_PM_1604007_202606171445", "LTE_PM_1604008_202606171445"] {
+            let package = output.join("tpd_eutr_prb_q_2026061714").join(package_name);
+            std::fs::create_dir_all(&package).unwrap();
+            std::fs::write(package.join("data.csv"), package_name).unwrap();
+        }
+
+        let packages = discover_output_packages(&output, "/core/uploads").unwrap();
+
+        assert_eq!(packages.len(), 2);
+        assert_ne!(packages[0].remote_dir, packages[1].remote_dir);
+        assert!(packages.iter().all(|package| {
+            package
+                .remote_dir
+                .starts_with("/core/uploads/tpd_eutr_prb_q_2026061714/")
+        }));
+    }
+
+    #[test]
+    fn marker_isolation_across_packages_in_same_first_level_directory() {
+        let dir = tempdir().unwrap();
+        let first_level = "tpd_eutr_prb_q_2026061714";
+        let package_a_name = "LTE_PM_1604007_202606171445";
+        let package_b_name = "LTE_PM_1604008_202606171445";
+
+        for name in [package_a_name, package_b_name] {
+            let pkg_dir = dir.path().join(first_level).join(name);
+            std::fs::create_dir_all(&pkg_dir).unwrap();
+            std::fs::write(pkg_dir.join("data.csv"), name).unwrap();
+        }
+
+        let remote_prefix = "/core/uploads";
+        let package_a = OutputPackage {
+            local_dir: dir.path().join(first_level).join(package_a_name),
+            remote_dir: format!("{remote_prefix}/{first_level}/{package_a_name}"),
+            files: vec![OutputFile {
+                local_path: dir
+                    .path()
+                    .join(first_level)
+                    .join(package_a_name)
+                    .join("data.csv"),
+                relative_path: PathBuf::from("data.csv"),
+            }],
+        };
+        let package_b = OutputPackage {
+            local_dir: dir.path().join(first_level).join(package_b_name),
+            remote_dir: format!("{remote_prefix}/{first_level}/{package_b_name}"),
+            files: vec![OutputFile {
+                local_path: dir
+                    .path()
+                    .join(first_level)
+                    .join(package_b_name)
+                    .join("data.csv"),
+                relative_path: PathBuf::from("data.csv"),
+            }],
+        };
+
+        let mut backend = RecordingBackend::default();
+        upload_package_with_backend(&mut backend, &package_a).unwrap();
+        upload_package_with_backend(&mut backend, &package_b).unwrap();
+
+        let marker_a = format!("{remote_prefix}/{first_level}/{package_a_name}/_SUCCESS");
+        let marker_b = format!("{remote_prefix}/{first_level}/{package_b_name}/_SUCCESS");
+        let marker_wrong = format!("{remote_prefix}/{first_level}/_SUCCESS");
+
+        assert_eq!(backend.created_markers.len(), 2);
+        assert!(backend.created_markers.contains(&marker_a));
+        assert!(backend.created_markers.contains(&marker_b));
+        assert!(!backend.created_markers.contains(&marker_wrong));
+
+        let remove_ops: Vec<&String> = backend
+            .operations
+            .iter()
+            .filter(|op| op.starts_with("remove:"))
+            .collect();
+        assert!(remove_ops
+            .iter()
+            .any(|op| op.as_str() == format!("remove:{marker_a}")));
+        assert!(remove_ops
+            .iter()
+            .any(|op| op.as_str() == format!("remove:{marker_b}")));
+        let remove_wrong = format!("remove:{marker_wrong}");
+        assert!(!remove_ops.iter().any(|op| op.as_str() == remove_wrong));
+    }
 }
