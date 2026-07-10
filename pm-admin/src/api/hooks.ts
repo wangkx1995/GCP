@@ -45,7 +45,7 @@ export function useGrid(query: GridQuery) {
   return useQuery({
     queryKey: ['grid', query],
     queryFn: () => fetchGrid(query),
-    enabled: !!query.strategy_id && !!query.day,
+    enabled: !!query.collector_name && !!query.day,
     refetchInterval: 60_000,
   });
 }
@@ -74,7 +74,6 @@ export function useAgentList() {
 
 import {
   listDataCollectorUnits,
-  nextUnitId,
   saveDataCollectorUnit,
   deleteDataCollectorUnit,
   searchConfigNames,
@@ -87,12 +86,6 @@ export function useDataCollectorUnits() {
     queryKey: ['data-collector-units'],
     queryFn: listDataCollectorUnits,
     refetchInterval: 30_000,
-  });
-}
-
-export function useNextUnitId() {
-  return useMutation({
-    mutationFn: nextUnitId,
   });
 }
 
@@ -275,5 +268,4 @@ export function useDeleteAgentGroup() {
     },
   });
 }
-
 

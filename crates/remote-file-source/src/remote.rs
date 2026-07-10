@@ -317,7 +317,7 @@ fn cleanup_download_dir(config: &SourceConfig) -> Result<()> {
         if age < retention {
             continue;
         }
-        match fs::remove_file(&path) {
+        match fs::remove_file(path) {
             Ok(()) => info!("[source] cache cleanup deleted: {}", path.display()),
             Err(err) => warn!(
                 "[source] cache cleanup failed to delete {}: {err:#}",

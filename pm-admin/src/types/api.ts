@@ -104,14 +104,16 @@ export interface TableGridRow {
 export interface GridCell {
   data_time: string;
   value: number | null;
-  color: 'green' | 'yellow' | 'red' | 'gray' | 'none';
-  status: 'ok' | 'empty' | 'failed' | 'missing' | 'future';
+  color: 'green' | 'yellow' | 'red' | 'gray' | 'blue' | 'none';
+  status: 'ok' | 'empty' | 'failed' | 'missing' | 'waiting' | 'future' | 'unknown';
+  scan_end_time: string;
+  expected_rows_num: number | null;
+  completion_rate: number | null;
 }
 
 export interface GridQuery {
-  strategy_id: string;
+  collector_name: string;
   day: string;
-  interval_minutes?: number;
 }
 
 export type AgentStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
@@ -201,10 +203,6 @@ export interface DataCollectorUnitSaveRequest {
   db_password?: string;
   db_database?: string;
   db_table_name_case?: string;
-}
-
-export interface NextIdResponse {
-  id: number;
 }
 
 export interface ConfigNameItem {

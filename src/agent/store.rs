@@ -162,7 +162,7 @@ impl AgentStore {
         self.write_state(&task_dir, status)
     }
 
-    fn write_state(&self, task_dir: &PathBuf, status: TaskStatus) -> Result<()> {
+    fn write_state(&self, task_dir: &Path, status: TaskStatus) -> Result<()> {
         std::fs::write(task_dir.join("state.json"), serde_json::json!({"status": status}).to_string())?;
         Ok(())
     }

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 
 use anyhow::{bail, Result};
@@ -156,7 +156,7 @@ async fn report_to_core(tcp_tx: &mpsc::Sender<InternalMessage>, task_id: &str, a
     }
 }
 
-fn rule_files_for_table(config_dir: &PathBuf, table_name: &str) -> Vec<PathBuf> {
+fn rule_files_for_table(config_dir: &Path, table_name: &str) -> Vec<PathBuf> {
     let rules_dir = config_dir.join("rules");
     if !rules_dir.exists() {
         tracing::warn!("[agent] rules dir not found: {:?}", rules_dir);

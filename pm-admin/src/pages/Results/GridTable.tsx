@@ -38,8 +38,10 @@ export default function GridTable({ grid, loading }: Props) {
           <Tooltip
             title={
               <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                <div>{cell.data_time}</div>
+                <div>采集时间: {cell.data_time} ~ {cell.scan_end_time}</div>
                 <div>行数: {cell.value?.toLocaleString() ?? '-'}</div>
+                <div>预期行数: {cell.expected_rows_num?.toLocaleString() ?? '-'}</div>
+                <div>完整率: {cell.completion_rate != null ? (cell.completion_rate * 100).toFixed(1) + '%' : '-'}</div>
                 <div>状态: {info.label}</div>
               </div>
             }

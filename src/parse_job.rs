@@ -110,7 +110,7 @@ pub fn run_parse_job(options: ParseJobOptions) -> Result<ParseJobSummary> {
         output_delimiter,
         &options.collector_name,
         options.load_type,
-        &load_config,
+        load_config,
         &options.log_file,
     )?;
 
@@ -231,6 +231,7 @@ fn run_streaming_table_task(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_streaming_table_tasks(
     tasks: Vec<StreamingTableTask>,
     ctx: &ContextData,

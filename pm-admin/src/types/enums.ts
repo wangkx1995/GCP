@@ -16,6 +16,7 @@ export const GRID_COLORS: Record<string, { color: string; label: string }> = {
   green: { color: '#52c41a', label: '正常' },
   yellow: { color: '#faad14', label: '空数据' },
   red: { color: '#ff4d4f', label: '失败' },
+  blue: { color: '#1677ff', label: '等待' },
   gray: { color: '#d9d9d9', label: '缺失' },
   none: { color: 'transparent', label: '未采集' },
 };

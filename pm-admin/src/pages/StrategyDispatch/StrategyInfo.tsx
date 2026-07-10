@@ -1,17 +1,36 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Card, Button, message, Popconfirm, Tag, Space, Empty, Tooltip } from 'antd';
 import { EditOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
-import { useStrategies, useBatchSuspend, useBatchActivate } from '../../api/hooks';
+import {
+  useStrategies,
+  useBatchSuspend,
+  useBatchActivate,
+  useAgents,
+  useAgentGroupList,
+} from '../../api/hooks';
 import type { CollectionStrategy } from '../../types/api';
 import type { ColumnsType } from 'antd/es/table';
 
 export default function StrategyInfoPage() {
   const navigate = useNavigate();
   const { data: strategies, isLoading, refetch } = useStrategies();
+  const { data: agents, isLoading: agentsLoading } = useAgents();
+  const { data: groups, isLoading: groupsLoading } = useAgentGroupList();
   const suspendMutation = useBatchSuspend();
   const activateMutation = useBatchActivate();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const agentGroupMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (agents ?? []).forEach(agent => {
+      map.set(String(agent.agent_id), agent.agent_alias || agent.agent_name);
+    });
+    (groups ?? []).forEach(group => {
+      map.set(String(group.group_id), `${group.group_name} [机组]`);
+    });
+    return map;
+  }, [agents, groups]);
 
   const handleBatchSuspend = useCallback(async () => {
     if (selectedIds.length === 0) return;
@@ -71,7 +90,10 @@ export default function StrategyInfoPage() {
     },
     {
       title: '采集机', key: 'agents', width: 160,
-      render: (_: unknown, r: CollectionStrategy) => r.agent_ids.join(', '),
+      render: (_: unknown, r: CollectionStrategy) => {
+        if (agentsLoading || groupsLoading) return '—';
+        return r.agent_ids.map(id => agentGroupMap.get(String(id)) ?? '未知').join(', ') || '—';
+      },
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
@@ -152,7 +174,7 @@ export default function StrategyInfoPage() {
             rowKey="id"
             dataSource={strategies}
             columns={columns}
-            loading={isLoading}
+            loading={isLoading || agentsLoading || groupsLoading}
             pagination={false}
             size="small"
             scroll={{ x: 'max-content', y: 'var(--table-scroll-y)' }}

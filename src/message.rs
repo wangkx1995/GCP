@@ -2,6 +2,7 @@ use crate::core_agent_api::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum InternalMessage {
     AgentRegister(AgentRegisterRequest),
     AgentRegisterAck(AgentRegisterResponse),

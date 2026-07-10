@@ -88,3 +88,17 @@ All DB methods in `src/core/db.rs` must log SQL + parameters. Use the `trace_sql
 Gitignored: `/target/`, `/output/`, `/valid/`, `/downloads/`, `/rules/`, `fixtures/*.gz`, `fixtures/*.zip`.
 
 `valid1/` is tracked (checked baseline). Do not overwrite. Keep secret-bearing config out of commits.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as local markdown files under `.scratch/<feature>/`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the canonical labels `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context layout. See `docs/agents/domain.md`.

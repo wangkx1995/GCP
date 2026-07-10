@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use anyhow::Result;
-use chrono::{NaiveDateTime, Timelike};
+use chrono::NaiveDateTime;
 use cron::Schedule;
 use std::str::FromStr;
 use axum::{
@@ -10,7 +10,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -75,16 +75,8 @@ pub struct CoreState {
     pub periodic_cache: Arc<tokio::sync::RwLock<Vec<CollectionStrategyRow>>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum StrategyCommandSource {
-    Immediate,
-    Periodic,
-    Backfill,
-}
-
 #[derive(Clone, Debug)]
 struct StrategyCommand {
-    source: StrategyCommandSource,
     strategy: CollectionStrategyRow,
     unit: DataCollectorUnitRow,
     config_snapshot_id: String,
@@ -98,17 +90,12 @@ struct StrategyCommand {
 #[derive(Clone, Debug)]
 struct TaskGroup {
     group_id: String,
-    source: StrategyCommandSource,
-    strategy_ids: Vec<String>,
-    collector_id: i64,
-    collector_name: String,
     candidate_ids: Vec<String>,
     scan_start_time: String,
     scan_end_time: Option<String>,
     table_names: Vec<String>,
     config_snapshot_id: String,
     force_agent_id: Option<String>,
-    retry_count: u32,
 }
 
 fn compute_task_group_id(
@@ -471,9 +458,8 @@ async fn download_config_snapshot(
 
 #[derive(serde::Deserialize)]
 struct GridQuery {
-    strategy_id: String,
+    collector_name: String,
     day: String,
-    interval_minutes: Option<u32>,
 }
 
 async fn result_grid(
@@ -481,52 +467,49 @@ async fn result_grid(
     axum::extract::Query(query): axum::extract::Query<GridQuery>,
 ) -> Response {
     info!(
-        "[core] result_grid strategy_id={} day={} interval={:?}",
-        query.strategy_id, query.day, query.interval_minutes
+        "[core] result_grid collector_name={} day={}",
+        query.collector_name, query.day
     );
 
-    let interval_from_query = query.interval_minutes.unwrap_or(15);
-    let interval = match state.db.get_strategy(&query.strategy_id).await {
-        Ok(Some(s)) => {
-            let mins = (s.collect_interval.max(60) as u32) / 60;
-            info!("[core] result_grid using strategy collect_interval={}s ({}min)", s.collect_interval, mins);
-            mins
-        }
-        _ => interval_from_query,
+    let unit = match state.db.get_unit_by_name(&query.collector_name).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("采集单元 {} 不存在", query.collector_name)).into_response(),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
     };
 
-    match state.db.result_rows_for_day(&query.strategy_id, &query.day).await {
+    let period_seconds = match grid_period_seconds(unit.collector_interval) {
+        Ok(period) => period,
+        Err(e) => return err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+    let tpd_tables = match parse_grid_table_names(&unit.table_names) {
+        Ok(tables) => tables,
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let mut expected_tables: Vec<String> = Vec::new();
+    for tpd in &tpd_tables {
+        expected_tables.push(tpd.clone());
+        match load_op_tables_from_rule(&state.storage, &unit.config_version, tpd) {
+            Ok(Some(op_tables)) => expected_tables.extend(op_tables),
+            Ok(None) => {}
+            Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    }
+
+    match state.db.integrity_rows_for_day(&query.collector_name, &query.day, period_seconds as i64).await {
         Ok(rows) => {
-            info!("[core] result_grid found {} rows", rows.len());
-            let expected_tables = rows
-                .iter()
-                .map(|row| row.table_name.clone())
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            let mut grid = crate::core::grid::build_daily_grid(
+            info!("[core] result_grid found {} integrity rows for {}/{}", rows.len(), query.collector_name, query.day);
+            let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            let grid = match crate::core::grid::build_integrity_grid(
                 &query.day,
-                interval,
+                period_seconds,
                 &expected_tables,
                 &rows,
-            );
-
-            let today = crate::timeutil::now().format("%Y-%m-%d").to_string();
-            if query.day == today {
-                let now = crate::timeutil::now();
-                let total_minutes = now.hour() as u32 * 60 + now.minute() as u32;
-                let cutoff = total_minutes.saturating_sub(interval as u32);
-                let cutoff_str = format!("{:02}:{:02}:00", cutoff / 60, cutoff % 60);
-                for row in &mut grid.rows {
-                    for cell in &mut row.cells {
-                        if cell.color == "gray" && &cell.data_time[11..] > cutoff_str.as_str() {
-                            cell.color = "none".to_string();
-                            cell.status = "future".to_string();
-                        }
-                    }
-                }
-            }
-
+                &now,
+            ) {
+                Ok(grid) => grid,
+                Err(e) => return err_response(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+            };
             ok_response(grid, "获取结果成功").into_response()
         }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
@@ -567,7 +550,7 @@ async fn dispatch_task(
             &agent_id,
             &request.task_id,
             "",
-            &request.scan_end_time.as_deref().unwrap_or(""),
+            request.scan_end_time.as_deref().unwrap_or(""),
             0i64,
         )
         .await
@@ -577,12 +560,12 @@ async fn dispatch_task(
     }
 
     if !state.registry.is_connected(&agent_id).await {
-        return err_response(StatusCode::SERVICE_UNAVAILABLE, &format!("Agent {agent_id} TCP 未连接")).into_response();
+        return err_response(StatusCode::SERVICE_UNAVAILABLE, format!("Agent {agent_id} TCP 未连接")).into_response();
     }
 
     let msg = InternalMessage::DispatchTask(request.clone());
     if let Err(e) = state.registry.send(&agent_id, &msg).await {
-        return err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("TCP 发送失败: {e}")).into_response();
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("TCP 发送失败: {e}")).into_response();
     }
 
     ok_response(
@@ -594,15 +577,6 @@ async fn dispatch_task(
         "任务已分发",
     )
     .into_response()
-}
-
-async fn next_unit_id(
-    axum::extract::State(state): axum::extract::State<CoreState>,
-) -> Response {
-    match state.db.next_unit_id().await {
-        Ok(id) => ok_response(serde_json::json!({ "id": id }), "获取 ID 成功").into_response(),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB 错误: {e}")).into_response(),
-    }
 }
 
 async fn list_data_collector_units(
@@ -703,7 +677,7 @@ async fn create_strategies(
             }
             Err(e) => {
                 tracing::warn!("[create_strategies] failed to get unit: {e}");
-                return ok_response(rows, &format!("策略已创建，但查询采集单元失败: {e}")).into_response();
+                return ok_response(rows, format!("策略已创建，但查询采集单元失败: {e}")).into_response();
             }
         };
         let config_snapshot_id = match state.db.get_active_snapshot_id_for_config_name(&unit.config_name).await {
@@ -714,7 +688,7 @@ async fn create_strategies(
             }
             Err(e) => {
                 tracing::warn!("[create_strategies] failed to get snapshot: {e}");
-                return ok_response(rows, &format!("策略已创建，但查询快照失败: {e}")).into_response();
+                return ok_response(rows, format!("策略已创建，但查询快照失败: {e}")).into_response();
             }
         };
 
@@ -728,7 +702,6 @@ async fn create_strategies(
 
         for row in &rows {
             let command = StrategyCommand {
-                source: StrategyCommandSource::Immediate,
                 strategy: row.clone(),
                 unit: unit.clone(),
                 config_snapshot_id: config_snapshot_id.clone(),
@@ -811,7 +784,7 @@ async fn batch_suspend(
     match state.db.batch_suspend(&req.ids).await {
         Ok(count) => {
             refresh_periodic_cache(&state).await;
-            ok_response(serde_json::json!({ "affected": count }), &format!("已挂起 {count} 条")).into_response()
+            ok_response(serde_json::json!({ "affected": count }), format!("已挂起 {count} 条")).into_response()
         }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
     }
@@ -834,7 +807,7 @@ async fn batch_activate(
     match state.db.batch_activate(&req.ids).await {
         Ok(count) => {
             refresh_periodic_cache(&state).await;
-            ok_response(serde_json::json!({ "affected": count }), &format!("已激活 {count} 条")).into_response()
+            ok_response(serde_json::json!({ "affected": count }), format!("已激活 {count} 条")).into_response()
         }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("DB错误: {e}")).into_response(),
     }
@@ -855,6 +828,7 @@ fn parse_candidate_ids(raw: &str) -> Result<Vec<String>> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_task_dispatch_request(
     strategy: &CollectionStrategyRow,
     unit: &DataCollectorUnitRow,
@@ -927,17 +901,12 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
     };
     let group = TaskGroup {
         group_id: group_id.clone(),
-        source: command.source.clone(),
-        strategy_ids: vec![strategy_id.clone()],
-        collector_id: command.unit.id,
-        collector_name: command.unit.unit_name.clone(),
         candidate_ids,
         scan_start_time: command.scan_start_time.clone(),
         scan_end_time: command.scan_end_time.clone(),
         table_names: command.table_names.clone(),
         config_snapshot_id: command.config_snapshot_id.clone(),
         force_agent_id: command.force_agent_id.clone(),
-        retry_count: 0,
     };
 
     let Some(agent_id) = select_agent_for_group(&state.db, &state.registry, &group, group.table_names.len() as i64, 150).await? else {
@@ -998,7 +967,7 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
             previous_rows,
         ).await.ok();
         // 加载 TPD rule 解析 OP 表，为每个 OP 表建壳 + 预建 collect_tasks 行
-        if let Some(op_tables) = load_op_tables_from_rule(&state.storage, &group.config_snapshot_id, table_name) {
+        if let Some(op_tables) = load_op_tables_from_rule(&state.storage, &group.config_snapshot_id, table_name)? {
             for (idx, op_table) in op_tables.iter().enumerate() {
                 let op_previous = state.db.get_previous_rows_num(collector_name, op_table, &group.scan_start_time).await.unwrap_or(0);
                 state.db.insert_integrity_shell(
@@ -1037,13 +1006,29 @@ async fn dispatch_strategy_command(state: &CoreState, command: StrategyCommand) 
     Ok(true)
 }
 
-fn load_op_tables_from_rule(storage: &ConfigStorage, snapshot_id: &str, table_name: &str) -> Option<Vec<String>> {
+fn grid_period_seconds(interval: i64) -> Result<u32> {
+    if interval <= 0 {
+        anyhow::bail!("采集单元 collector_interval 必须大于 0 秒");
+    }
+    u32::try_from(interval).map_err(|_| anyhow::anyhow!("采集单元 collector_interval 超出有效范围"))
+}
+
+fn parse_grid_table_names(raw: &str) -> Result<Vec<String>> {
+    serde_json::from_str(raw).map_err(|e| anyhow::anyhow!("采集单元 table_names 配置无效: {e}"))
+}
+
+fn load_op_tables_from_rule(storage: &ConfigStorage, snapshot_id: &str, table_name: &str) -> Result<Option<Vec<String>>> {
     let rule_path = storage.version_dir(snapshot_id).join("rules").join(format!("{table_name}.json"));
-    let content = std::fs::read_to_string(&rule_path).ok()?;
-    let value: Value = serde_json::from_str(&content).ok()?;
+    let content = match std::fs::read_to_string(&rule_path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(anyhow::anyhow!("读取规则文件 {} 失败: {e}", rule_path.display())),
+    };
+    let value: Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("解析规则文件 {} 失败: {e}", rule_path.display()))?;
     let groups = match value.get("groups").and_then(|g| g.as_array()) {
         Some(g) => g,
-        None => return None,
+        None => return Err(anyhow::anyhow!("规则文件 {} 缺少 groups 数组", rule_path.display())),
     };
     let mut op_tables: Vec<String> = Vec::new();
     for group in groups {
@@ -1068,7 +1053,7 @@ fn load_op_tables_from_rule(storage: &ConfigStorage, snapshot_id: &str, table_na
             _ => {}
         }
     }
-    if op_tables.is_empty() { None } else { Some(op_tables) }
+    Ok(if op_tables.is_empty() { None } else { Some(op_tables) })
 }
 
 async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i64) -> Result<()> {
@@ -1103,17 +1088,12 @@ async fn retry_group_dispatch(state: &CoreState, group_id: &str, retry_count: i6
 
     let group = TaskGroup {
         group_id: group_id.to_string(),
-        source: StrategyCommandSource::Immediate,
-        strategy_ids: tasks.iter().map(|t| t.2.clone()).collect(),
-        collector_id: unit.id,
-        collector_name: unit.unit_name.clone(),
         candidate_ids,
         scan_start_time,
         scan_end_time: None,
         table_names,
         config_snapshot_id: config_snapshot_id.clone(),
         force_agent_id: None,
-        retry_count: retry_count as u32,
     };
 
     let Some(agent_id) = select_agent_for_group(&state.db, &state.registry, &group, tasks.len() as i64, 150).await? else {
@@ -1441,7 +1421,6 @@ async fn periodic_strategy_scan_loop(state: CoreState) {
                 }
             }
             let command = StrategyCommand {
-                source: StrategyCommandSource::Periodic,
                 strategy: strategy.clone(),
                 unit,
                 config_snapshot_id,
@@ -1602,5 +1581,31 @@ mod tests {
     fn parse_candidate_ids_accepts_json_array() {
         let ids = parse_candidate_ids("[\"100\",\"200\"]").unwrap();
         assert_eq!(ids, vec!["100".to_string(), "200".to_string()]);
+    }
+
+    #[test]
+    fn grid_period_rejects_non_positive_interval() {
+        assert!(grid_period_seconds(0).is_err());
+        assert!(grid_period_seconds(-900).is_err());
+        assert_eq!(grid_period_seconds(900).unwrap(), 900);
+    }
+
+    #[test]
+    fn grid_table_names_rejects_invalid_json() {
+        let error = parse_grid_table_names("not-json").unwrap_err();
+        assert!(error.to_string().contains("table_names"));
+    }
+
+    #[test]
+    fn op_rule_reports_invalid_json() {
+        let dir = tempdir().unwrap();
+        let storage = ConfigStorage::new(dir.path().join("config_storage")).unwrap();
+        let rule_dir = storage.version_dir("v1").join("rules");
+        std::fs::create_dir_all(&rule_dir).unwrap();
+        std::fs::write(rule_dir.join("TPD_A.json"), "not-json").unwrap();
+
+        let error = load_op_tables_from_rule(&storage, "v1", "TPD_A").unwrap_err();
+
+        assert!(error.to_string().contains("TPD_A.json"));
     }
 }

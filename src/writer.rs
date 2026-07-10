@@ -39,6 +39,7 @@ struct StreamingPackage {
 }
 
 impl<'a> StreamingTableWriter<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_headers(
         headers: Vec<String>,
         table: &str,

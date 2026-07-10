@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use chrono::{Duration, NaiveDate};
 use sqlx::Row;
 use sqlx::SqlitePool;
 
@@ -8,7 +9,7 @@ use crate::core_agent_api::{
     AgentDispatchCandidate, AgentGroupRow, AgentInfoRow,
     AgentStatusHisRow, AgentStatusRow, CollectionStrategyCreateRequest, CollectionStrategyRow,
     CollectionStrategyUpdateRequest, ConfigNameItem, ConfigSnapshotMeta, ConfigSnapshotResponse,
-    DataCollectorUnitRow, DataCollectorUnitSaveRequest, ResultRow, TaskResultReport,
+    DataCollectorUnitRow, DataCollectorUnitSaveRequest, IntegrityRow, ResultRow, TaskResultReport,
     TaskStatus,
 };
 
@@ -351,6 +352,7 @@ impl CoreDb {
         ).fetch_one(&self.pool).await.unwrap_or(false);
         if has_id_col {
             tracing::info!("[db] migrating collection_strategy: replacing id PK with strategy_id PK");
+            #[allow(clippy::type_complexity)]
             let rows: Vec<(String, String, i64, String, String, String, i64, i64, Option<String>, Option<String>, Option<String>, String, String, String, String)> = sqlx::query_as(
                 "SELECT strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, data_start_time, data_end_time, execute_time, agent_ids, strategy_type, created_at, updated_at FROM collection_strategy"
             ).fetch_all(&self.pool).await.unwrap_or_default();
@@ -561,6 +563,7 @@ impl CoreDb {
         Ok(meta)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_task(
         &self,
         task_id: &str,
@@ -715,7 +718,7 @@ impl CoreDb {
         .fetch_optional(&self.pool)
         .await?;
 
-        let (strategy_id, config_snapshot_id, scan_start_time, task_collector_name, task_scan_end_time, task_collect_interval, task_agent_id, task_group_id) = match task_row {
+        let (strategy_id, _config_snapshot_id, scan_start_time, task_collector_name, task_scan_end_time, task_collect_interval, _task_agent_id, task_group_id) = match task_row {
             Some(row) => {
                 let sid: String = row.get(0);
                 let cid: String = row.get(1);
@@ -912,6 +915,7 @@ impl CoreDb {
         Ok(row.unwrap_or(0))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_integrity_backfill(
         &self,
         scan_start_time: &str,
@@ -968,8 +972,41 @@ impl CoreDb {
         Ok(results)
     }
 
-    pub async fn next_unit_id(&self) -> Result<i64> {
-        Ok(1)
+    pub async fn integrity_rows_for_day(
+        &self,
+        collector_name: &str,
+        day: &str,
+        period: i64,
+    ) -> Result<Vec<IntegrityRow>> {
+        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .map_err(|_| anyhow::anyhow!("日期格式无效，应为 YYYY-MM-DD: {day}"))?;
+        let start = date.format("%Y-%m-%d 00:00:00").to_string();
+        let end = (date + Duration::days(1))
+            .format("%Y-%m-%d 00:00:00")
+            .to_string();
+        trace_sql!("SELECT table_name, scan_start_time, scan_end_time, rows_num, expected_rows_num, completion_rate, task_status FROM dal_data_integrity WHERE collector_name = ? AND scan_start_time >= ? AND scan_start_time < ? AND period = ? ORDER BY scan_start_time, table_name", collector_name = collector_name, start = start, end = end, period = period);
+        let rows = sqlx::query(
+            "SELECT table_name, scan_start_time, scan_end_time, rows_num, expected_rows_num, completion_rate, task_status FROM dal_data_integrity WHERE collector_name = ? AND scan_start_time >= ? AND scan_start_time < ? AND period = ? ORDER BY scan_start_time, table_name",
+        )
+        .bind(collector_name)
+        .bind(start)
+        .bind(end)
+        .bind(period)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| IntegrityRow {
+                table_name: row.get(0),
+                scan_start_time: row.get(1),
+                scan_end_time: row.get(2),
+                rows_num: row.get::<i64, _>(3) as u64,
+                expected_rows_num: row.get::<i64, _>(4) as u64,
+                completion_rate: row.get(5),
+                task_status: row.get(6),
+            })
+            .collect())
     }
 
     pub async fn create_strategies(
@@ -1066,7 +1103,9 @@ impl CoreDb {
         if status.is_some() {
             sql.push_str(" AND status = ?");
         }
-        sql.push_str(" ORDER BY rowid DESC");
+        sql.push_str(
+            " ORDER BY CASE WHEN strategy_type = 'periodic' THEN 0 ELSE 1 END, created_at DESC, rowid DESC",
+        );
 
         let mut query = sqlx::query_as::<_, CollectionStrategyRow>(&sql);
         if let Some(ref v) = collector_name {
@@ -1226,6 +1265,17 @@ impl CoreDb {
             "SELECT id, unit_name, config_name, config_version, table_names, agent_ids, data_interval_seconds, collector_interval, task_timeout_seconds, source_type, file_encoding, remote_pattern, host, port, username, password, connect_retry, download_retry, download_parallel, retry_interval_secs, connect_timeout_secs, read_timeout_secs, cache_retention_days, load_type, output_delimiter, db_host, db_port, db_user, db_password, db_database, db_table_name_case, created_at, updated_at FROM data_collector_unit WHERE id = ?"
         )
         .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    pub async fn get_unit_by_name(&self, unit_name: &str) -> Result<Option<DataCollectorUnitRow>> {
+        trace_sql!("SELECT * FROM data_collector_unit WHERE unit_name = ? LIMIT 1", unit_name = unit_name);
+        let row = sqlx::query_as::<_, DataCollectorUnitRow>(
+            "SELECT id, unit_name, config_name, config_version, table_names, agent_ids, data_interval_seconds, collector_interval, task_timeout_seconds, source_type, file_encoding, remote_pattern, host, port, username, password, connect_retry, download_retry, download_parallel, retry_interval_secs, connect_timeout_secs, read_timeout_secs, cache_retention_days, load_type, output_delimiter, db_host, db_port, db_user, db_password, db_database, db_table_name_case, created_at, updated_at FROM data_collector_unit WHERE unit_name = ? LIMIT 1"
+        )
+        .bind(unit_name)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row)
@@ -1432,6 +1482,7 @@ impl CoreDb {
         .map_err(Into::into)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert_agent_info(
         &self,
         agent_id: i64,
@@ -1447,7 +1498,7 @@ impl CoreDb {
         heartbeat_interval: Option<i32>,
         is_core: bool,
         agent_alias: Option<&str>,
-        deploy_dir: &str,
+        _deploy_dir: &str,
     ) -> Result<()> {
         let now = crate::timeutil::now().format("%Y-%m-%d %H:%M:%S").to_string();
         trace_sql!("INSERT INTO agent_info(agent_id, agent_name, agent_ip, port, version, agent_alias, ...) ON CONFLICT(agent_id) DO UPDATE ...", agent_id = agent_id, agent_name = agent_name, agent_ip = agent_ip, port = port, version = version, agent_alias = agent_alias);
@@ -1804,7 +1855,7 @@ impl CoreDb {
         if agent_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let placeholders = std::iter::repeat("?").take(agent_ids.len()).collect::<Vec<_>>().join(",");
+        let placeholders = std::iter::repeat_n("?", agent_ids.len()).collect::<Vec<_>>().join(",");
         let sql = format!(
             "SELECT ai.agent_id, ai.agent_name, ai.agent_alias, ai.agent_isuse_flag, ai.agent_power, ai.host_load_limit, ast.status as current_status, ast.cpu_load, ast.memory_load, ast.thread_num as current_thread_num, ast.heartbeat_time as last_heartbeat_time FROM agent_info ai LEFT JOIN agent_status ast ON ast.agent_id = ai.agent_id WHERE ai.agent_id IN ({})",
             placeholders
@@ -2122,9 +2173,6 @@ mod tests {
         let db = db().await;
         let expected_id = crate::crc64::crc64_ecma("test-unit");
 
-        let id = db.next_unit_id().await.unwrap();
-        assert_eq!(id, 1);
-
         let save = DataCollectorUnitSaveRequest {
             original_id: None,
             unit_name: "test-unit".to_string(),
@@ -2213,6 +2261,59 @@ mod tests {
         assert_eq!(tables, vec!["t1".to_string(), "t2".to_string()]);
         let tables = db.tables_for_config("cfg-b").await.unwrap();
         assert!(tables.is_empty());
+    }
+
+    #[tokio::test]
+    async fn integrity_rows_for_day_filters_by_collector_date_and_period() {
+        let db = db().await;
+        for (start, collector, period, table, rows, expected, rate, status) in [
+            ("2026-07-09 17:00:00", "unit-a", 900, "TPD_A", 12, 10, 1.2, 3),
+            ("2026-07-09 17:15:00", "unit-a", 900, "OP_A", 0, 12, 0.0, 2),
+            ("2026-07-09 17:00:00", "unit-b", 900, "TPD_A", 99, 99, 1.0, 3),
+            ("2026-07-10 00:00:00", "unit-a", 900, "TPD_A", 88, 88, 1.0, 3),
+            ("2026-07-09 17:00:00", "unit-a", 1800, "TPD_A", 77, 77, 1.0, 3),
+        ] {
+            sqlx::query(
+                "INSERT INTO dal_data_integrity(scan_start_time, scan_end_time, period, collector_name, table_name, rows_num, expected_rows_num, completion_rate, task_status) VALUES (?, datetime(?, '+' || ? || ' seconds'), ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(start)
+            .bind(start)
+            .bind(period)
+            .bind(period)
+            .bind(collector)
+            .bind(table)
+            .bind(rows)
+            .bind(expected)
+            .bind(rate)
+            .bind(status)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        }
+
+        let rows = db.integrity_rows_for_day("unit-a", "2026-07-09", 900).await.unwrap();
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].table_name, "TPD_A");
+        assert_eq!(rows[0].scan_start_time, "2026-07-09 17:00:00");
+        assert_eq!(rows[0].scan_end_time, "2026-07-09 17:15:00");
+        assert_eq!(rows[0].rows_num, 12);
+        assert_eq!(rows[0].expected_rows_num, 10);
+        assert!((rows[0].completion_rate - 1.2).abs() < f64::EPSILON);
+        assert_eq!(rows[0].task_status, 3);
+        assert_eq!(rows[1].table_name, "OP_A");
+    }
+
+    #[tokio::test]
+    async fn integrity_rows_for_day_rejects_invalid_date() {
+        let db = db().await;
+
+        let error = db
+            .integrity_rows_for_day("unit-a", "2026-07-09%", 900)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("日期格式无效"));
     }
 
     #[tokio::test]
@@ -2371,6 +2472,36 @@ mod tests {
         db.batch_activate(&ids).await.unwrap();
         assert_eq!(db.get_strategy(&rows[0].strategy_id).await.unwrap().unwrap().status, "可用");
         assert_eq!(db.get_strategy(&rows[1].strategy_id).await.unwrap().unwrap().status, "可用");
+    }
+
+    #[tokio::test]
+    async fn list_strategies_puts_periodic_first_and_newest_first_within_type() {
+        let db = db().await;
+        for (id, strategy_type, created_at) in [
+            ("immediate-new", "immediate", "2026-07-10 12:00:00"),
+            ("periodic-old", "periodic", "2026-07-10 10:00:00"),
+            ("periodic-new", "periodic", "2026-07-10 11:00:00"),
+            ("immediate-old", "immediate", "2026-07-10 09:00:00"),
+        ] {
+            sqlx::query(
+                "INSERT INTO collection_strategy(strategy_id, collector_name, collector_id, table_name, status, cron_expression, collect_interval, data_interval, delay_period, agent_ids, strategy_type, created_at, updated_at) VALUES (?, 'unit-a', 1, ?, '可用', '', 900, 900, 0, '[]', ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(id)
+            .bind(strategy_type)
+            .bind(created_at)
+            .bind(created_at)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        }
+
+        let rows = db.list_strategies(None, None, None).await.unwrap();
+
+        assert_eq!(
+            rows.iter().map(|row| row.strategy_id.as_str()).collect::<Vec<_>>(),
+            vec!["periodic-new", "periodic-old", "immediate-new", "immediate-old"]
+        );
     }
 
     #[tokio::test]

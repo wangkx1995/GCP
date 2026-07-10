@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::thread::available_parallelism;
 
 use anyhow::Result;
-use sysinfo::{Disks, System};
+use sysinfo::System;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 
@@ -81,12 +81,12 @@ impl AgentTcpClient {
                     };
                     {
                         let mut tx = framed_tx.lock().await;
-                        send_message(&mut *tx, &InternalMessage::AgentRegister(req)).await?;
+                        send_message(&mut tx, &InternalMessage::AgentRegister(req)).await?;
                     }
 
                     let ack_msg = {
                         let mut rx = framed_rx.lock().await;
-                        recv_message(&mut *rx).await
+                        recv_message(&mut rx).await
                     };
                     match ack_msg {
                         Ok(Some(InternalMessage::AgentRegisterAck(_))) => {
@@ -127,7 +127,7 @@ impl AgentTcpClient {
                                 thread_num: Some(thread_count),
                             };
                             let mut tx = hb_tx.lock().await;
-                            if send_message(&mut *tx, &InternalMessage::Heartbeat(hb)).await.is_err() {
+                            if send_message(&mut tx, &InternalMessage::Heartbeat(hb)).await.is_err() {
                                 break;
                             }
                         }
@@ -139,7 +139,7 @@ impl AgentTcpClient {
                                 match msg {
                                     Some(m) => {
                                         let mut tx = framed_tx.lock().await;
-                                        if send_message(&mut *tx, &m).await.is_err() {
+                                        if send_message(&mut tx, &m).await.is_err() {
                                             break;
                                         }
                                     }
@@ -148,7 +148,7 @@ impl AgentTcpClient {
                             }
                             result = async {
                                 let mut rx = framed_rx.lock().await;
-                                recv_message(&mut *rx).await
+                                recv_message(&mut rx).await
                             } => {
                                 match result {
                                     Ok(Some(msg)) => {

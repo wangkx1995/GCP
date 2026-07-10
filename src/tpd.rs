@@ -660,7 +660,7 @@ impl<'a> StreamingRuleAggregator<'a> {
         let scan_start_time = output
             .get("scan_start_time")
             .context("output row missing scan_start_time")?;
-        let output_values = ordered_output_values(&headers, &output);
+        let output_values = ordered_output_values(headers, &output);
         writer.write_values(scan_start_time, &output_values)?;
         Ok(())
     }

@@ -8,7 +8,6 @@ pub mod serde_i64 {
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
-        use serde::de::Error;
         struct I64Visitor;
         impl<'de> serde::de::Visitor<'de> for I64Visitor {
             type Value = i64;
@@ -455,6 +454,17 @@ pub struct ResultRow {
     pub row_count: u64,
     pub success: i32,
     pub collect_time: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct IntegrityRow {
+    pub table_name: String,
+    pub scan_start_time: String,
+    pub scan_end_time: String,
+    pub rows_num: u64,
+    pub expected_rows_num: u64,
+    pub completion_rate: f64,
+    pub task_status: i32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

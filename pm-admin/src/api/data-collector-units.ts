@@ -2,17 +2,12 @@ import http from './client';
 import type {
   DataCollectorUnit,
   DataCollectorUnitSaveRequest,
-  NextIdResponse,
   ConfigNamesResponse,
   TablesResponse,
 } from '../types/api';
 
 export function listDataCollectorUnits() {
   return http.get<DataCollectorUnit[]>('/data-collector-units').then(r => r.data);
-}
-
-export function nextUnitId() {
-  return http.post<NextIdResponse>('/data-collector-units/next-id').then(r => r.data);
 }
 
 export function saveDataCollectorUnit(data: DataCollectorUnitSaveRequest) {

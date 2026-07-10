@@ -515,6 +515,7 @@ fn looks_like_header_line(
     checked > 0 && matches * 2 >= checked
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_csv_utf8<F>(
     path: &Path,
     delimiter: u8,
@@ -575,6 +576,7 @@ where
     Ok(rows)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_csv_text<F>(
     path: &Path,
     content: &str,

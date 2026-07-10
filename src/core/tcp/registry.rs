@@ -25,6 +25,12 @@ pub struct ConnectionRegistry {
     by_agent: Arc<RwLock<HashMap<AgentId, Connection>>>,
 }
 
+impl Default for ConnectionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectionRegistry {
     pub fn new() -> Self {
         Self {
@@ -53,7 +59,7 @@ impl ConnectionRegistry {
         let map = self.by_agent.read().await;
         let conn = map.get(agent_id).ok_or_else(|| anyhow::anyhow!("agent {agent_id} not connected"))?;
         let mut writer = conn.writer.lock().await;
-        crate::core::tcp::protocol::send_message(&mut *writer, msg).await?;
+        crate::core::tcp::protocol::send_message(&mut writer, msg).await?;
         Ok(())
     }
 
@@ -61,7 +67,7 @@ impl ConnectionRegistry {
         let map = self.by_agent.read().await;
         for (agent_id, conn) in map.iter() {
             let mut writer = conn.writer.lock().await;
-            if let Err(e) = crate::core::tcp::protocol::send_message(&mut *writer, msg).await {
+            if let Err(e) = crate::core::tcp::protocol::send_message(&mut writer, msg).await {
                 tracing::warn!(%agent_id, error = %e, "broadcast send failed");
             }
         }

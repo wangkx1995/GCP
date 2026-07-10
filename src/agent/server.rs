@@ -8,6 +8,7 @@ use crate::agent::store::AgentStore;
 use crate::agent::tcp::AgentTcpClient;
 use crate::message::InternalMessage;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_agent_server(
     agent_id: String,
     core_host: String,
