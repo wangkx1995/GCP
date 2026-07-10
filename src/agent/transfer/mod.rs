@@ -25,6 +25,7 @@ pub struct TransferSummary {
 pub struct OutputTransfer {
     config: TransferConfig,
     backend_factory: BackendFactory,
+    dry_run: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,11 +169,12 @@ pub fn discover_output_packages(
 }
 
 impl OutputTransfer {
-    pub fn new(config: TransferConfig) -> Self {
+    pub fn new(config: TransferConfig, dry_run: bool) -> Self {
         let factory_config = config.clone();
         Self {
             config,
             backend_factory: Arc::new(move || backend::connect_backend(&factory_config)),
+            dry_run,
         }
     }
 
@@ -188,6 +190,20 @@ impl OutputTransfer {
             return Ok(TransferSummary {
                 package_count: 0,
                 file_count: 0,
+            });
+        }
+        if self.dry_run {
+            for package in &packages {
+                tracing::info!(
+                    "[agent] dry-run: would upload package {} with {} file(s)",
+                    package.remote_dir,
+                    package.files.len(),
+                );
+            }
+            let file_count = packages.iter().map(|package| package.files.len()).sum();
+            return Ok(TransferSummary {
+                package_count: packages.len(),
+                file_count,
             });
         }
         let file_count = packages.iter().map(|package| package.files.len()).sum();
@@ -209,8 +225,11 @@ impl OutputTransfer {
                 Ok(()) => return Ok(()),
                 Err(error) => {
                     tracing::warn!(
-                        "[agent] upload attempt {attempt}/{max_attempts} failed for {}: {error:#}",
+                        "[agent] upload attempt {attempt}/{max_attempts} failed for {} (protocol={:?} host={} port={}): {error:#}",
                         package.remote_dir,
+                        self.config.protocol,
+                        self.config.host,
+                        self.config.effective_port(),
                     );
                     last_error = Some(error);
                     if attempt < max_attempts {
@@ -225,10 +244,15 @@ impl OutputTransfer {
     }
 
     #[cfg(test)]
-    fn new_for_test(config: TransferConfig, backend_factory: BackendFactory) -> Self {
+    fn new_for_test(
+        config: TransferConfig,
+        backend_factory: BackendFactory,
+        dry_run: bool,
+    ) -> Self {
         Self {
             config,
             backend_factory,
+            dry_run,
         }
     }
 }
@@ -627,6 +651,7 @@ mod tests {
                     failures_before_success: 2,
                 }))
             }),
+            false,
         );
 
         let summary = transfer.upload_output(&output).unwrap();
@@ -655,6 +680,7 @@ mod tests {
                     failures_before_success: usize::MAX,
                 }))
             }),
+            false,
         );
 
         let error = transfer.upload_output(&output).unwrap_err();
@@ -680,6 +706,7 @@ mod tests {
                 calls.fetch_add(1, Ordering::SeqCst);
                 anyhow::bail!("backend must not be created for empty output")
             }),
+            false,
         );
 
         let summary = transfer.upload_output(&output).unwrap();

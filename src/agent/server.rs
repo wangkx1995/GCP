@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -21,8 +22,32 @@ pub async fn run_agent_server(
     reconnect_max_delay_ms: u64,
     heartbeat_interval_seconds: u64,
     transfer_config: TransferConfig,
+    dry_run: bool,
 ) -> Result<()> {
     let store = AgentStore::new(data_dir.clone(), config_dir, core_api_base.clone())?;
+
+    if transfer_config.enabled {
+        let retention_days = transfer_config.success_retention_days;
+        if let Err(error) = store.cleanup_succeeded_tasks(retention_days) {
+            tracing::warn!("[agent] startup output cleanup failed: {error:#}");
+        }
+        let cleanup_store = store.clone();
+        let cleanup_interval = transfer_config.cleanup_interval_hours;
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(cleanup_interval * 60 * 60));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                match cleanup_store.cleanup_succeeded_tasks(retention_days) {
+                    Ok(deleted) => {
+                        tracing::info!("[agent] output cleanup completed: deleted_tasks={deleted}")
+                    }
+                    Err(error) => tracing::warn!("[agent] output cleanup failed: {error:#}"),
+                }
+            }
+        });
+    }
 
     let (tcp_msg_tx, mut tcp_msg_rx) = mpsc::channel::<InternalMessage>(100);
     let (send_to_tcp_tx, send_to_tcp_rx) = mpsc::channel::<InternalMessage>(100);
@@ -43,7 +68,7 @@ pub async fn run_agent_server(
         }
     });
 
-    let output_transfer = OutputTransfer::new(transfer_config);
+    let output_transfer = OutputTransfer::new(transfer_config, dry_run);
     let runner = AgentRunner {
         agent_id: agent_id.clone(),
         tcp_tx: send_to_tcp_tx.clone(),

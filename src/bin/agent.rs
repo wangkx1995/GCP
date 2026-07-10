@@ -10,6 +10,8 @@ use wy_gnb_pm_parser::agent::transfer::config::TransferConfig;
 struct Cli {
     #[arg(short, long, default_value = "agent.toml")]
     config: PathBuf,
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +78,7 @@ async fn main() -> Result<()> {
         config.core.reconnect_max_delay_ms,
         config.agent.heartbeat_interval_seconds,
         config.transfer,
+        cli.dry_run,
     )
     .await
 }
