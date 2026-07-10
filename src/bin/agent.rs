@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let config_content = std::fs::read_to_string(&cli.config)?;
     let config: AgentConfig = toml::from_str(&config_content)?;
+    config.transfer.validate()?;
 
     tracing_subscriber::fmt()
         .with_env_filter(
