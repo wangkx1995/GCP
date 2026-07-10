@@ -68,16 +68,21 @@ fn remote_parent_dirs(remote_path: &str) -> Vec<String> {
 
 impl TransferBackend for FtpTransferBackend {
     fn ensure_dir(&mut self, remote_dir: &str) -> Result<()> {
-        for dir in remote_parent_dirs(&format!("{}/_", remote_dir.trim_end_matches('/'))) {
-            match self.stream.mkdir(&dir) {
-                Ok(()) => {}
-                Err(error) if is_ftp_unavailable(&error) => {
-                    self.stream.cwd(&dir)?;
+        let original = self.stream.pwd()?;
+        let result = (|| {
+            for dir in remote_parent_dirs(&format!("{}/_", remote_dir.trim_end_matches('/'))) {
+                match self.stream.mkdir(&dir) {
+                    Ok(()) => {}
+                    Err(error) if is_ftp_unavailable(&error) => {
+                        self.stream.cwd(&dir)?;
+                    }
+                    Err(error) => return Err(error.into()),
                 }
-                Err(error) => return Err(error.into()),
             }
-        }
-        Ok(())
+            Ok(())
+        })();
+        self.stream.cwd(&original)?;
+        result
     }
 
     fn remove_file_if_exists(&mut self, remote_path: &str) -> Result<()> {
