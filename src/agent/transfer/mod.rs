@@ -1,5 +1,7 @@
 pub mod backend;
 pub mod config;
+pub(crate) mod ftp;
+pub(crate) mod sftp;
 
 use anyhow::{bail, Result};
 use std::ffi::OsStr;

@@ -3764,6 +3764,8 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "ssh2",
+ "suppaftp",
  "sysinfo",
  "tempfile",
  "tokio",
