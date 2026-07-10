@@ -37,8 +37,7 @@ pub fn connect(config: &TransferConfig) -> Result<SftpTransferBackend> {
 }
 
 fn is_sftp_not_found(error: &ssh2::Error) -> bool {
-    matches!(error.code(), ErrorCode::SFTP(_))
-        && matches!(error.message(), "no such file" | "no such path")
+    matches!(error.code(), ErrorCode::SFTP(_)) && error.message() == "no such file"
 }
 
 fn remote_parent_dirs(remote_path: &str) -> Vec<String> {
@@ -111,6 +110,15 @@ impl TransferBackend for SftpTransferBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sftp_missing_file_check_does_not_ignore_missing_parent_path() {
+        let missing_file = ssh2::Error::new(ErrorCode::SFTP(2), "no such file");
+        let missing_path = ssh2::Error::new(ErrorCode::SFTP(10), "no such path");
+
+        assert!(is_sftp_not_found(&missing_file));
+        assert!(!is_sftp_not_found(&missing_path));
+    }
 
     #[test]
     fn expands_remote_parent_directories_for_sftp_paths() {
