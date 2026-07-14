@@ -32,24 +32,35 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target x86_64-unknown-linux-musl
 
-      - name: Prepare artifact
+      - name: Prepare artifacts
         run: |
           mkdir -p dist
+          # parser CLI
           cp target/x86_64-unknown-linux-musl/release/wy-gnb-pm-parser dist/wy-gnb-pm-parser-linux-x86_64-musl
           chmod +x dist/wy-gnb-pm-parser-linux-x86_64-musl
-          file dist/wy-gnb-pm-parser-linux-x86_64-musl
+          # core server
+          cp target/x86_64-unknown-linux-musl/release/core dist/core-linux-x86_64-musl
+          chmod +x dist/core-linux-x86_64-musl
+          # agent daemon
+          cp target/x86_64-unknown-linux-musl/release/agent dist/agent-linux-x86_64-musl
+          chmod +x dist/agent-linux-x86_64-musl
+          # verify files
+          file dist/*
 
       - name: Verify static Linux compatibility
         run: |
-          ldd dist/wy-gnb-pm-parser-linux-x86_64-musl || true
-          if ldd dist/wy-gnb-pm-parser-linux-x86_64-musl 2>&1 | grep -E 'GLIBC_|libc\.so|libssl|libcrypto'; then
-            echo "Binary must not dynamically depend on glibc or system OpenSSL"
-            exit 1
-          fi
+          for bin in dist/*; do
+            echo "Verifying $bin..."
+            ldd "$bin" || true
+            if ldd "$bin" 2>&1 | grep -E 'GLIBC_|libc\.so|libssl|libcrypto'; then
+              echo "FAIL: $bin must not dynamically depend on glibc or system OpenSSL"
+              exit 1
+            fi
+          done
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wy-gnb-pm-parser-linux-x86_64-musl
-          path: dist/wy-gnb-pm-parser-linux-x86_64-musl
+          name: rnop-linux-x86_64-musl
+          path: dist/
           if-no-files-found: error
