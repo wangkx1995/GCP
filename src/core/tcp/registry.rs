@@ -3,6 +3,7 @@ use tokio_util::codec::LengthDelimitedCodec;
 use tokio_util::codec::FramedWrite;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::{RwLock, Mutex};
+use tokio::task::JoinHandle;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -23,6 +24,7 @@ struct Connection {
 #[derive(Clone)]
 pub struct ConnectionRegistry {
     by_agent: Arc<RwLock<HashMap<AgentId, Connection>>>,
+    handles: Arc<tokio::sync::Mutex<HashMap<AgentId, JoinHandle<()>>>>,
 }
 
 impl Default for ConnectionRegistry {
@@ -35,6 +37,7 @@ impl ConnectionRegistry {
     pub fn new() -> Self {
         Self {
             by_agent: Arc::new(RwLock::new(HashMap::new())),
+            handles: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -74,10 +77,23 @@ impl ConnectionRegistry {
         Ok(())
     }
 
+    pub async fn store_handle(&self, agent_id: &str, handle: JoinHandle<()>) {
+        let mut map = self.handles.lock().await;
+        if let Some(old) = map.remove(agent_id) {
+            old.abort();
+            tracing::info!(%agent_id, "aborted stale connection task");
+        }
+        map.insert(agent_id.to_string(), handle);
+    }
+
     pub async fn unregister(&self, agent_id: &str) {
         let mut map = self.by_agent.write().await;
         if map.remove(agent_id).is_some() {
             tracing::info!(%agent_id, "Agent unregistered");
+        }
+        let mut handle_map = self.handles.lock().await;
+        if let Some(handle) = handle_map.remove(agent_id) {
+            handle.abort();
         }
     }
 

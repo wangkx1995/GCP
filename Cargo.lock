@@ -3758,6 +3758,7 @@ dependencies = [
  "flate2",
  "futures",
  "indexmap",
+ "libc",
  "remote-file-source",
  "reqwest",
  "serde",

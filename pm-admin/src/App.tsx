@@ -1,8 +1,11 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
+import { StyleProvider } from '@ant-design/cssinjs';
 import zhCN from 'antd/locale/zh_CN';
 import { theme } from './styles/theme';
+import { focusVisibleTransformer, flexGapTransformer, applyFlexGapPolyfill } from './styles/chrome81';
 import Layout from './components/Layout';
 import ConfigSnapshotsPage from './pages/ConfigSnapshots';
 import AgentsPage from './pages/Agents';
@@ -17,6 +20,17 @@ import PeriodicStrategyPage from './pages/StrategyDispatch/PeriodicStrategy';
 import DataCollectorUnitsPage from './pages/DataCollectorUnits';
 import DataCollectorUnitFormPage from './pages/DataCollectorUnits/FormPage';
 
+const KNOWN_ROUTES = ['/config-snapshots', '/agents', '/agent-groups',
+  '/data-collector-units', '/tasks', '/strategy-dispatch', '/results'];
+
+function getBasename(): string {
+  for (const route of KNOWN_ROUTES) {
+    const idx = location.pathname.indexOf(route);
+    if (idx >= 0) return location.pathname.slice(0, idx) || '';
+  }
+  return '';
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 2, staleTime: 10_000 },
@@ -24,10 +38,13 @@ const queryClient = new QueryClient({
 });
 
 export default function App() {
+  useEffect(() => applyFlexGapPolyfill(), []);
+
   return (
-    <ConfigProvider locale={zhCN} theme={theme}>
+    <StyleProvider hashPriority="high" transformers={[focusVisibleTransformer, flexGapTransformer]}>
+      <ConfigProvider locale={zhCN} theme={theme}>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <BrowserRouter basename={getBasename()}>
           <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<Navigate to="/config-snapshots" />} />
@@ -52,5 +69,6 @@ export default function App() {
         </BrowserRouter>
       </QueryClientProvider>
     </ConfigProvider>
+    </StyleProvider>
   );
 }

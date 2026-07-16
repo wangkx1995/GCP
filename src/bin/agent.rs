@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::fs::OpenOptions;
 
 use anyhow::Result;
 use clap::Parser;
@@ -45,12 +47,95 @@ fn default_heartbeat_interval() -> u64 {
     10
 }
 
+struct InstanceGuard {
+    lock_path: PathBuf,
+}
+impl Drop for InstanceGuard {
+    fn drop(&mut self) {
+        std::fs::remove_file(&self.lock_path).ok();
+    }
+}
+
+fn pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let ret = unsafe { libc::kill(pid as i32, 0) };
+        if ret != 0 {
+            return false;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(cmdline) = std::fs::read_to_string(format!("/proc/{pid}/cmdline")) {
+            if !cmdline.contains("agent") {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn check_single_instance(data_dir: &Path) -> Result<InstanceGuard> {
+    let lock_path = data_dir.join("agent.lock");
+
+    if let Ok(file) = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+    {
+        write!(&file, "{}", std::process::id())?;
+        file.sync_all()?;
+        return Ok(InstanceGuard { lock_path });
+    }
+
+    let stale = match std::fs::read_to_string(&lock_path) {
+        Ok(content) => match content.trim().parse::<u32>() {
+            Ok(pid) => !pid_alive(pid),
+            Err(_) => true,
+        },
+        Err(_) => true,
+    };
+
+    if stale {
+        std::fs::remove_file(&lock_path).ok();
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "Agent lock conflict in {}. If stale, delete {} manually",
+                    data_dir.display(),
+                    lock_path.display()
+                )
+            })?;
+        write!(&file, "{}", std::process::id())?;
+        file.sync_all()?;
+        return Ok(InstanceGuard { lock_path });
+    }
+
+    if let Ok(content) = std::fs::read_to_string(&lock_path) {
+        let pid_hint = content.trim();
+        if !pid_hint.is_empty() {
+            anyhow::bail!(
+                "Agent already running (pid={pid_hint}) in {}",
+                data_dir.display()
+            );
+        }
+    }
+    anyhow::bail!("Agent already running in {}", data_dir.display())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let config_content = std::fs::read_to_string(&cli.config)?;
     let config: AgentConfig = toml::from_str(&config_content)?;
     config.transfer.validate()?;
+
+    let _guard = check_single_instance(&config.agent.data_dir)?;
 
     tracing_subscriber::fmt()
         .with_env_filter(

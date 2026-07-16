@@ -39,6 +39,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono", "tra
 remote-file-source = { path = "crates/remote-file-source" }
 cron = "0.17.0"
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+libc = "0.2"
 suppaftp = "6.3"
 
 [dev-dependencies]

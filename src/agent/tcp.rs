@@ -5,6 +5,7 @@ use anyhow::Result;
 use sysinfo::System;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 use crate::core::tcp::protocol::{new_framed_read, new_framed_write, recv_message, send_message};
 use crate::core_agent_api::*;
@@ -98,13 +99,18 @@ impl AgentTcpClient {
                         }
                     }
 
+                    let cancel = CancellationToken::new();
+                    let hb_cancel = cancel.clone();
                     let hb_tx = framed_tx.clone();
                     let thread_count = cpu_count;
                     tokio::spawn(async move {
                         let mut hb_sys = System::new();
                         let mut interval = tokio::time::interval(std::time::Duration::from_secs(self.heartbeat_interval_seconds));
                         loop {
-                            interval.tick().await;
+                            tokio::select! {
+                                _ = hb_cancel.cancelled() => break,
+                                _ = interval.tick() => {}
+                            }
                             hb_sys.refresh_cpu_all();
                             hb_sys.refresh_memory();
                             let disks = sysinfo::Disks::new_with_refreshed_list();
@@ -168,6 +174,10 @@ impl AgentTcpClient {
                             }
                         }
                     }
+
+                    cancel.cancel();
+                    tokio::time::sleep(std::time::Duration::from_millis(retry_delay)).await;
+                    retry_delay = (retry_delay * 2).min(self.reconnect_max_delay_ms);
                 }
                 Err(e) => {
                     tracing::error!("Connect failed {addr}: {e}, retry in {}ms", retry_delay);

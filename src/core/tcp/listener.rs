@@ -3,7 +3,7 @@ use crate::core::agent_id::compute_agent_id;
 use crate::core::tcp::protocol::{new_framed_read, new_framed_write, recv_message};
 use crate::core::tcp::registry::{AgentId, ConnectionRegistry};
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use std::net::SocketAddr;
 use anyhow::Result;
 
@@ -17,9 +17,17 @@ pub async fn tcp_listener(
 
     loop {
         let (stream, addr) = listener.accept().await?;
+
         let to_dispatch = to_dispatch.clone();
         let registry = registry.clone();
-        tokio::spawn(handle_connection(addr, stream, to_dispatch, registry));
+        let (agent_id_tx, agent_id_rx) = oneshot::channel();
+        let handle = tokio::spawn(handle_connection(addr, stream, to_dispatch, registry.clone(), agent_id_tx));
+        let reg = registry.clone();
+        tokio::spawn(async move {
+            if let Ok(agent_id) = agent_id_rx.await {
+                reg.store_handle(&agent_id, handle).await;
+            }
+        });
     }
 }
 
@@ -28,6 +36,7 @@ async fn handle_connection(
     stream: tokio::net::TcpStream,
     to_dispatch: mpsc::Sender<(AgentId, InternalMessage)>,
     registry: ConnectionRegistry,
+    agent_id_tx: oneshot::Sender<AgentId>,
 ) {
     let (reader, writer) = stream.into_split();
     let mut framed_rx = new_framed_read(reader);
@@ -53,6 +62,8 @@ async fn handle_connection(
 
             // 通知 dispatch loop 有新 agent 注册
             let _ = to_dispatch.send((agent_id.clone(), InternalMessage::AgentRegister(req))).await;
+
+            let _ = agent_id_tx.send(agent_id.clone());
 
             agent_id
         }
